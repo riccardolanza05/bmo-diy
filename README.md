@@ -11,7 +11,7 @@ Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *A
 | **Piano in vigore** | rev. 5.1 "cloud-first, solo voce" — [`docs/02-piano-attuale.md`](docs/02-piano-attuale.md) |
 | **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A |
 | **Hardware da comprare** | HAT audio, display, camera, microSD, minuteria (~68 €, tutto UE, zero dazi) |
-| **Software** | non iniziato |
+| **Software** | scaffolding di `bmo-core` avviato (adapter hardware) — [`bmo-core/`](bmo-core/) |
 | **Meccanica** | non iniziata (niente ancora stampato) |
 | **Fase corrente della roadmap** | Fase 0 — congelare la configurazione e ordinare (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap)) |
 
@@ -30,6 +30,11 @@ docs/
     ├── rev3-piano-progetto.md        banner in cima a ciascun file)
     ├── rev4-bom-senza-dazi.md
     └── rev3-sintesi-bom.md
+
+bmo-core/                             Logica di dialogo, in sviluppo sul PC (omarchy) prima
+└── src/bmo_core/                     ancora di comprare HAT/display/camera — vedi bmo-core/README.md
+    ├── config.py                      rileva l'ambiente: PC di sviluppo o Raspberry Pi
+    └── adapters/                      confine hardware: stessa logica, implementazione diversa
 ```
 
 ## Per chi vuole ricostruire BMO da zero
