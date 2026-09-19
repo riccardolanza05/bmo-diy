@@ -4,6 +4,11 @@ Qui c'è solo *cosa* il modello può chiedere. L'esecuzione vive in `brain.py`:
 per ora sono veri solo i timer (in memoria); gli altri rispondono
 `non_disponibile` finché non arrivano con l'issue #20. Servono già adesso
 perché la prova delle frasi misura se il modello sceglie lo strumento giusto.
+
+`imposta_espressione` della §2.4 non è uno strumento: l'espressione arriva
+come etichetta all'inizio della risposta ("[felice] ..."), letta da
+`brain.separa_espressione`. Come strumento costava un secondo giro di
+richiesta su quasi ogni turno, solo per ottenere il testo.
 """
 from __future__ import annotations
 
@@ -87,14 +92,6 @@ DICHIARAZIONI = [
         name="regola_volume",
         description="Imposta il volume dell'altoparlante.",
         parameters=_schema({"percentuale": _intero("Volume da 0 a 100.")}, ["percentuale"]),
-    ),
-    types.FunctionDeclaration(
-        name="imposta_espressione",
-        description="Cambia l'espressione della faccia di BMO per accompagnare il tono della risposta.",
-        parameters=_schema(
-            {"stato": _testo("L'espressione.", ["felice", "pensieroso", "sorpreso", "triste", "assonnato"])},
-            ["stato"],
-        ),
     ),
     types.FunctionDeclaration(
         name="metti_in_pausa_l_ascolto",

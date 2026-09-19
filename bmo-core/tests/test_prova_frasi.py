@@ -23,11 +23,14 @@ def test_numeri_esatti_e_testi_contenuti():
     assert not valuta(timer, _risposta())
 
 
-def test_imposta_espressione_non_conta():
-    frase = _f("conversazione", "Ciao", nessuno())
-    assert valuta(frase, _risposta(("imposta_espressione", {"stato": "felice"}), testo="Ciao!"))
-    foto = _f("foto", "Cosa vedi?", usa("scatta_foto"))
-    assert valuta(foto, _risposta(("imposta_espressione", {"stato": "sorpreso"}), ("scatta_foto", {"motivo": "m"})))
+def test_contano_solo_le_chiamate_riuscite():
+    """Caso reale: un parametro inventato, corretto al giro dopo (il tè, prova del 19/9)."""
+    frase = _f("timer", "Timer di tre minuti per il tè", usa("imposta_timer", durata_secondi=180))
+    risposta = Risposta("ok", [
+        ChiamataStrumento("imposta_timer", {"durata_secondi": 180, "durata_sec": 180}, {"errore": "argomento inatteso"}),
+        ChiamataStrumento("imposta_timer", {"durata_secondi": 180, "etichetta": "te"}, {"stato": "ok"}),
+    ])
+    assert valuta(frase, risposta)
 
 
 def test_esiti_alternativi_e_chiamate_in_piu():

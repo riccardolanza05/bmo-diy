@@ -12,6 +12,7 @@ l'issue #20.
 """
 from __future__ import annotations
 
+import re
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -25,9 +26,12 @@ from google.genai import errors, types
 from .adapters import AudioInputAdapter, crea_audio_input
 from .modelli import TENTATIVI_SDK, CascataModelli, GeminiNonDisponibile
 from .strumenti import DICHIARAZIONI
+
 FUSO_ORARIO = ZoneInfo("Europe/Rome")
 DURATA_ASCOLTO_S = 3.0
 MAX_GIRI = 4
+ESPRESSIONI = ("felice", "pensieroso", "sorpreso", "triste", "assonnato")
+_ETICHETTA_INIZIALE = re.compile(r"^\s*\[([^\]\n]{1,30})\]\s*")
 
 PROMPT_FISSO = """\
 Sei BMO, la piccola console vivente di Adventure Time, e vivi in una casa a Milano.
@@ -40,6 +44,11 @@ REGOLE DI FORMA — sono vincolanti, il tuo testo va a un sintetizzatore vocale:
   da leggere lettera per lettera. Scrivi i numeri come si pronunciano.
 - Non descrivere quello che stai facendo ("sto cercando..."): lo dice già la faccia.
 
+LA TUA FACCIA:
+- Inizia ogni risposta con la tua espressione tra parentesi quadre, scelta fra
+  [felice] [pensieroso] [sorpreso] [triste] [assonnato]. Decide la tua faccia e non
+  viene letta ad alta voce: è l'unica eccezione alla regola sulle parentesi.
+
 REGOLE SUGLI STRUMENTI:
 - Usa uno strumento solo se la risposta lo richiede davvero. Una poesia sui dinosauri
   non richiede strumenti.
@@ -47,7 +56,6 @@ REGOLE SUGLI STRUMENTI:
   Non scattare foto per curiosità e mai senza che qualcuno te l'abbia chiesto.
 - cerca_sul_web per fatti che cambiano nel tempo: notizie, prezzi, orari, meteo, risultati.
   Se non sai una cosa, cercala invece di inventarla.
-- Chiama imposta_espressione quando la tua risposta ha un tono preciso.
 - Per imposta_timer converti sempre la durata in secondi e scegli un'etichetta breve
   che descriva a cosa serve il timer.
 """
@@ -77,6 +85,7 @@ class Risposta:
     testo: str
     chiamate: list[ChiamataStrumento] = field(default_factory=list)
     modello: str = ""
+    espressione: str | None = None  # dall'etichetta iniziale, es. "[felice]"
 
 
 def _durata_parlata(secondi: int) -> str:
@@ -144,6 +153,32 @@ def descrivi_errore(errore: Exception) -> str:
 
 
 _NOMI_DICHIARATI = {d.name for d in DICHIARAZIONI}
+
+
+def testo_della_risposta(risposta: Any) -> str:
+    """Il testo della risposta, letto dalle sue parti.
+
+    A differenza di `risposta.text`, non avvisa quando la risposta contiene
+    anche chiamate a strumenti, e salta le parti di ragionamento interno.
+    """
+    if risposta is None or not risposta.candidates:
+        return ""
+    contenuto = risposta.candidates[0].content
+    parti = contenuto.parts if contenuto and contenuto.parts else []
+    return "".join(p.text for p in parti if p.text and not p.thought).strip()
+
+
+def separa_espressione(testo: str) -> tuple[str | None, str]:
+    """Toglie l'etichetta iniziale ("[felice] Ciao!") e la restituisce a parte.
+
+    L'etichetta va sempre tolta, anche se non è fra le ESPRESSIONI previste:
+    il sintetizzatore vocale non deve mai leggere una parentesi quadra.
+    """
+    trovata = _ETICHETTA_INIZIALE.match(testo)
+    if not trovata:
+        return None, testo.strip()
+    etichetta = trovata.group(1).strip().lower()
+    return (etichetta if etichetta in ESPRESSIONI else None), testo[trovata.end():].strip()
 
 
 def prompt_da_file(percorso: Path | None) -> dict[str, str]:
@@ -249,8 +284,8 @@ class Cervello:
                     ],
                 )
             )
-        testo_finale = (risposta.text or "").strip() if risposta is not None else ""
-        return Risposta(testo=testo_finale, chiamate=eseguite, modello=modello)
+        espressione, testo_finale = separa_espressione(testo_della_risposta(risposta))
+        return Risposta(testo=testo_finale, chiamate=eseguite, modello=modello, espressione=espressione)
 
     def strumenti(self, chiamate: list[types.FunctionCall]) -> list[ChiamataStrumento]:
         """Esegue le chiamate richieste dal modello e ne raccoglie i risultati."""
@@ -328,7 +363,8 @@ def main() -> None:
         print(f"→ {chiamata.nome}({chiamata.argomenti}) = {chiamata.risultato}")
     if risposta.modello != cervello.cascata.primario:
         print(f"(risposto da {risposta.modello}, il primario non era disponibile)")
-    print(f"BMO: {risposta.testo}")
+    faccia = f" [faccia: {risposta.espressione}]" if risposta.espressione else ""
+    print(f"BMO{faccia}: {risposta.testo}")
 
 
 if __name__ == "__main__":

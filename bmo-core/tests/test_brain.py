@@ -160,8 +160,7 @@ def test_tutti_gli_strumenti_della_2_4_dichiarati():
     nomi = {d.name for d in client.richieste[0]["config"].tools[0].function_declarations}
     assert nomi == {
         "scatta_foto", "cerca_sul_web", "imposta_timer", "annulla_timer", "elenca_timer",
-        "riproduci_musica", "controllo_riproduzione", "regola_volume", "imposta_espressione",
-        "metti_in_pausa_l_ascolto",
+        "riproduci_musica", "controllo_riproduzione", "regola_volume", "metti_in_pausa_l_ascolto",
     }
 
 
@@ -245,3 +244,36 @@ def test_cervello_ripiega_sul_modello_di_riserva():
     risposta = cervello.rispondi(testo="ciao")
     assert (risposta.testo, risposta.modello) == ("Eccomi!", "riserva")
     assert client.modelli == ["primario", "riserva"]
+
+
+def test_espressione_dall_etichetta_iniziale():
+    cervello, client = _cervello([_risposta_testo("[Felice] Ciao, amico!")])
+    risposta = cervello.rispondi(testo="ciao")
+    assert (risposta.espressione, risposta.testo) == ("felice", "Ciao, amico!")
+    assert len(client.richieste) == 1  # nessun giro in più per la faccia
+
+
+def test_etichetta_sconosciuta_tolta_comunque():
+    assert brain_modulo.separa_espressione("[contentissimo] Evviva!") == (None, "Evviva!")
+    assert brain_modulo.separa_espressione("Nessuna etichetta.") == (None, "Nessuna etichetta.")
+    assert brain_modulo.separa_espressione("Ho visto [una cosa] strana") == (None, "Ho visto [una cosa] strana")
+
+
+def test_testo_letto_dalle_parti_senza_avvisi(recwarn):
+    risposta = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(text="ragionamento", thought=True),
+                        types.Part(function_call=types.FunctionCall(name="elenca_timer", args={})),
+                        types.Part(text="[pensieroso] Vediamo."),
+                    ],
+                )
+            )
+        ]
+    )
+    assert brain_modulo.testo_della_risposta(risposta) == "[pensieroso] Vediamo."
+    assert brain_modulo.testo_della_risposta(types.GenerateContentResponse(candidates=[])) == ""
+    assert not recwarn.list

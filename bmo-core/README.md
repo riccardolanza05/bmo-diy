@@ -76,7 +76,17 @@ python -m bmo_core.prova_frasi --categoria web # solo una categoria
 python -m bmo_core.prova_frasi --prompt nuovo.txt   # prova un prompt fisso diverso
 ```
 
-Criterio di uscita della #19: almeno il 90% di frasi corrette (36 su 40). Le
+Criterio di uscita della #19: almeno il 90% di frasi corrette (36 su 40).
+
+L'espressione della faccia non è uno strumento: BMO la mette all'inizio della
+risposta tra parentesi quadre (`[felice] Fatto!`), il codice la toglie prima
+della sintesi vocale e la tiene in `Risposta.espressione`. Le bozze di prompt
+alternativi stanno in `prompt/` e si confrontano col predefinito così:
+
+```bash
+python -m bmo_core.prova_frasi                           # prompt attuale
+python -m bmo_core.prova_frasi --prompt prompt/bozza-v2.txt
+``` Le
 frasi coprono timer, gestione dei timer, foto, musica e radio, volume, pausa
 dell'ascolto, ricerche sul web (meteo, risultati) e conversazione senza
 strumenti; alla fine il punteggio è diviso per categoria.

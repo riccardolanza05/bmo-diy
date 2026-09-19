@@ -6,8 +6,10 @@ prompt di sistema, non il modello.
 
 Ogni frase dice quali esiti sono accettabili: nessuno strumento, oppure uno
 strumento preciso con alcuni argomenti (numeri uguali, testi contenuti senza
-badare alle maiuscole). `imposta_espressione` non conta mai: il prompt chiede
-di usarla quando la risposta ha un tono, quindi può accompagnare qualsiasi frase.
+badare alle maiuscole). Contano solo le chiamate andate a buon fine: se il
+modello sbaglia un parametro, viene corretto dall'errore e rifà la chiamata
+giusta, l'effetto finale è quello giusto (la chiamata sbagliata resta
+comunque visibile nell'output).
 
     python -m bmo_core.prova_frasi                      # frasi mandate come testo
     python -m bmo_core.prova_frasi --voce               # le leggi tu al microfono
@@ -26,7 +28,6 @@ from .brain import ERRORI_GEMINI, Cervello, Risposta, Timer, descrivi_errore, pr
 from .modelli import GeminiNonDisponibile
 
 SOGLIA = 0.9
-IGNORATI = {"imposta_espressione"}
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,7 @@ def _argomenti_ok(attesi: dict[str, Any], ricevuti: dict[str, Any]) -> bool:
 
 
 def valuta(frase: Frase, risposta: Risposta) -> bool:
-    chiamate = [c for c in risposta.chiamate if c.nome not in IGNORATI]
+    chiamate = [c for c in risposta.chiamate if "errore" not in c.risultato]
     for atteso in frase.attesi:
         if atteso.strumento is None:
             if not chiamate and risposta.testo:
@@ -193,7 +194,8 @@ def main() -> None:
             esiti.setdefault(frase.categoria, []).append(esito)
             modelli[risposta.modello] += 1
             chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"
-            print(f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}\n     {chiamate} · {risposta.testo}")
+            faccia = f"[{risposta.espressione}] " if risposta.espressione else "[senza espressione] "
+            print(f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}\n     {chiamate} · {faccia}{risposta.testo}")
             if not esito:
                 print(f"     atteso: {_descrivi_attesi(frase)}")
         if numero < len(frasi):
