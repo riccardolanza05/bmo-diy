@@ -23,6 +23,7 @@ def test_crea_audio_input_dev_linux_usa_default():
     adapter = crea_audio_input(Ambiente.DEV_LINUX)
     assert isinstance(adapter, ArecordAdapter)
     assert adapter.dispositivo == "default"
+    assert (adapter.frequenza, adapter.canali, adapter.formato) == (16000, 1, "S16_LE")
 
 
 def test_crea_audio_output_identico_su_entrambi():

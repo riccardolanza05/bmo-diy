@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .brain import Cervello, Risposta
+from .brain import ERRORI_GEMINI, Cervello, Risposta, descrivi_errore
 
 
 @dataclass(frozen=True)
@@ -66,11 +66,15 @@ def main() -> None:
     corrette = 0
     for numero, frase in enumerate(FRASI, start=1):
         cervello = Cervello()  # stato pulito a ogni frase
-        if argomenti.voce:
-            input(f"\n[{numero}/20] Premi Invio e di': «{frase.testo}»")
-            risposta = cervello.rispondi(audio_wav=cervello.ascolta(argomenti.durata))
-        else:
-            risposta = cervello.rispondi(testo=frase.testo)
+        try:
+            if argomenti.voce:
+                input(f"\n[{numero}/20] Premi Invio e di': «{frase.testo}»")
+                risposta = cervello.rispondi(audio_wav=cervello.ascolta(argomenti.durata))
+            else:
+                risposta = cervello.rispondi(testo=frase.testo)
+        except ERRORI_GEMINI as errore:
+            print(f"✗ {numero:2}. {frase.testo}\n     ERRORE: {descrivi_errore(errore)}")
+            continue
         esito = valuta(frase, risposta)
         corrette += esito
         chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"

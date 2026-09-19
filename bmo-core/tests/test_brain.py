@@ -164,3 +164,35 @@ def test_valutazione_frasi():
     assert not valuta(Frase("timer", 300), brain_modulo.Risposta("ok", esito_timer))
     assert not valuta(Frase("ciao", None), brain_modulo.Risposta("ok", esito_timer))
     assert valuta(Frase("ciao", None), brain_modulo.Risposta("Ciao!", []))
+
+
+def test_descrivi_errore_senza_traceback():
+    import httpx
+    from google.genai import errors
+
+    from bmo_core.brain import descrivi_errore
+
+    sovraccarico = errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "high demand"}})
+    quota = errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota"}})
+    assert "sovraccarico" in descrivi_errore(sovraccarico)
+    assert "quota" in descrivi_errore(quota)
+    assert "rete" in descrivi_errore(httpx.ConnectError("giù"))
+
+
+def test_main_stampa_messaggio_invece_del_traceback(monkeypatch, capsys):
+    import sys
+
+    import pytest
+    from google.genai import errors
+
+    class ClientSovraccarico:
+        class models:
+            @staticmethod
+            def generate_content(**_):
+                raise errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "x"}})
+
+    monkeypatch.setattr(brain_modulo, "Cervello", lambda **k: Cervello(client=ClientSovraccarico(), microfono=MicrofonoFinto(), **k))
+    monkeypatch.setattr(sys, "argv", ["brain", "--testo", "ciao"])
+    with pytest.raises(SystemExit) as uscita:
+        brain_modulo.main()
+    assert "BMO non ci arriva" in str(uscita.value)

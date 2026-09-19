@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from google.genai import types
+import httpx
+from google.genai import errors, types
 
 from .adapters import AudioInputAdapter, crea_audio_input
 
@@ -127,6 +128,28 @@ def contesto_dinamico(ora: datetime, timer: list[Timer], inietta_ora: bool = Tru
     else:
         righe.append("Timer attivi: nessuno.")
     return "\n".join(righe)
+
+
+ERRORI_GEMINI = (errors.APIError, httpx.HTTPError)
+
+
+def descrivi_errore(errore: Exception) -> str:
+    """Messaggio breve in italiano per un errore della chiamata a Gemini.
+
+    Sul dispositivo vero questi casi diventano lo stato [ERRORE] della §2.1
+    (clip "non ci arrivo" e faccia triste), non un traceback.
+    """
+    if isinstance(errore, errors.APIError):
+        if errore.code == 429:
+            return "quota Gemini esaurita (429): riprova più tardi o cambia modello"
+        if errore.code in (500, 502, 503, 504):
+            return f"Gemini sovraccarico o non disponibile ({errore.code}): riprova fra poco"
+        if errore.code in (401, 403):
+            return f"chiave API rifiutata ({errore.code}): controlla GEMINI_API_KEY"
+        return f"errore di Gemini ({errore.code} {errore.status}): {errore.message}"
+    if isinstance(errore, httpx.HTTPError):
+        return f"rete non raggiungibile: {errore}"
+    return str(errore)
 
 
 class Cervello:
@@ -261,7 +284,10 @@ def main() -> None:
     elif not argomenti.testo:
         print(f"Parla per {argomenti.durata:g} secondi...")
         audio = cervello.ascolta(argomenti.durata)
-    risposta = cervello.rispondi(audio_wav=audio, testo=argomenti.testo)
+    try:
+        risposta = cervello.rispondi(audio_wav=audio, testo=argomenti.testo)
+    except ERRORI_GEMINI as errore:
+        raise SystemExit(f"BMO non ci arriva: {descrivi_errore(errore)}") from None
     for chiamata in risposta.chiamate:
         print(f"→ {chiamata.nome}({chiamata.argomenti}) = {chiamata.risultato}")
     print(f"BMO: {risposta.testo}")
