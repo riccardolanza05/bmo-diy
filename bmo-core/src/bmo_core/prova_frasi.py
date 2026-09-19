@@ -203,7 +203,11 @@ def main() -> None:
             chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"
             faccia = f"[{risposta.espressione}] " if risposta.espressione else "[senza espressione] "
             testo = risposta.testo or f"(risposta vuota: {risposta.motivo_vuota})"
-            print(f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}\n     {chiamate} · {faccia}{testo}")
+            ripetuta = " · risposta con la sola etichetta ripetuta" if risposta.ripetizioni else ""
+            print(
+                f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}  ({risposta.modello}{ripetuta})\n"
+                f"     {chiamate} · {faccia}{testo}"
+            )
             if not esito:
                 print(f"     atteso: {_descrivi_attesi(frase)}")
         if numero < len(frasi):

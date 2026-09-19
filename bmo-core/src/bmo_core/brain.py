@@ -87,16 +87,20 @@ class Risposta:
     modello: str = ""
     espressione: str | None = None  # dall'etichetta iniziale, es. "[felice]"
     motivo_vuota: str | None = None  # perché il testo è vuoto, se lo è
+    ripetizioni: int = 0  # risposte con la sola etichetta, richieste di nuovo
 
 
 def _durata_parlata(secondi: int) -> str:
-    minuti, secondi = divmod(max(secondi, 0), 60)
+    ore, resto = divmod(max(secondi, 0), 3600)
+    minuti, secondi = divmod(resto, 60)
     parti = []
+    if ore:
+        parti.append(f"{ore} or{'a' if ore == 1 else 'e'}")
     if minuti:
         parti.append(f"{minuti} minut{'o' if minuti == 1 else 'i'}")
     if secondi or not parti:
         parti.append(f"{secondi} second{'o' if secondi == 1 else 'i'}")
-    return " e ".join(parti)
+    return ", ".join(parti[:-1]) + " e " + parti[-1] if len(parti) > 1 else parti[0]
 
 
 def contesto_dinamico(ora: datetime, timer: list[Timer], inietta_ora: bool = True) -> str:
@@ -325,6 +329,7 @@ class Cervello:
         eseguite: list[ChiamataStrumento] = []
         risposta = None
         modello = ""
+        ripetizioni = 0
         for giro in range(MAX_GIRI):
             # All'ultimo giro niente strumenti: il turno finisce sempre con del testo.
             ultimo = giro == MAX_GIRI - 1
@@ -335,6 +340,7 @@ class Cervello:
                 # timer della prova del 19/9: si riprova una volta.
                 risposta, modello = self._genera(contenuti, ultimo)
                 chiamate = risposta.function_calls or []
+                ripetizioni += 1
             if not chiamate:
                 break
             contenuti.append(risposta.candidates[0].content)
@@ -356,6 +362,7 @@ class Cervello:
             modello=modello,
             espressione=espressione,
             motivo_vuota=None if testo_finale else motivo_risposta_vuota(risposta),
+            ripetizioni=ripetizioni,
         )
 
     def strumenti(self, chiamate: list[types.FunctionCall]) -> list[ChiamataStrumento]:
@@ -383,12 +390,25 @@ class Cervello:
         return eseguite
 
     def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:
+        # "Un'ora e un quarto" arrivò come ore 1 e minuti 75 (prova del 19/9):
+        # il timer durava due ore e un quarto e BMO confermava l'ora e un quarto.
+        if ore and float(minuti or 0) >= 60:
+            raise ValueError("minuti deve essere fra 0 e 59 quando indichi anche le ore")
+        if (ore or minuti) and float(secondi or 0) >= 60:
+            raise ValueError("secondi deve essere fra 0 e 59 quando indichi anche ore o minuti")
         durata = durata_in_secondi({"ore": ore, "minuti": minuti, "secondi": secondi})
         if durata <= 0:
             raise ValueError("la durata deve essere positiva: indica ore, minuti o secondi")
         scadenza = self.orologio() + timedelta(seconds=durata)
         self.timer.append(Timer(etichetta=etichetta, scadenza=scadenza))
-        return {"stato": "ok", "scadenza": scadenza.strftime("%H:%M:%S")}
+        # La durata impostata davvero, perché il modello confermi quella e non
+        # quella che ha sentito.
+        return {
+            "stato": "ok",
+            "etichetta": etichetta,
+            "durata": _durata_parlata(durata),
+            "scadenza": scadenza.strftime("%H:%M"),
+        }
 
     def _annulla_timer(self, etichetta: str | None = None) -> dict[str, Any]:
         prima = len(self.timer)

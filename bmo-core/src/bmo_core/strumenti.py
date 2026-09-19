@@ -79,8 +79,8 @@ DICHIARAZIONI = [
                     "Short name for the timer in Italian, e.g. 'pasta'. Use 'timer' if no purpose is given."
                 ),
                 "ore": _intero("Hours of the duration (integer)."),
-                "minuti": _intero("Minutes of the duration (integer)."),
-                "secondi": _intero("Seconds of the duration (integer)."),
+                "minuti": _intero("Minutes of the duration (integer, 0 to 59 when ore is given)."),
+                "secondi": _intero("Seconds of the duration (integer, 0 to 59 when ore or minuti is given)."),
             },
             ["etichetta"],
         ),

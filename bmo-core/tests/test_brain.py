@@ -117,6 +117,7 @@ def test_solo_etichetta_senza_chiamata_riprovata_una_volta():
     assert risposta.testo == "Fra quaranta secondi ti avviso."
     assert [c.nome for c in risposta.chiamate] == ["imposta_timer"]
     assert len(client.richieste) == 3
+    assert risposta.ripetizioni == 1
 
 
 def test_strumento_sconosciuto_e_argomenti_errati_non_sollevano():
@@ -320,8 +321,34 @@ def test_durata_del_timer_da_ore_minuti_e_secondi():
     )
     assert esito.risultato["stato"] == "ok"
     assert cervello.timer[0].scadenza == datetime(2026, 9, 8, 23, 29, tzinfo=FUSO_ORARIO)
+    assert esito.risultato["durata"] == "1 ora e 15 minuti"
+    assert esito.risultato["etichetta"] == "arrosto"
     assert brain_modulo.durata_in_secondi({"minuti": 1, "secondi": 30}) == 90
     assert brain_modulo.durata_in_secondi({"minuti": 1.5}) == 90
+
+
+def test_durata_ambigua_rifiutata():
+    """Caso reale del 19/9: «un'ora e un quarto» arrivò come ore 1 e minuti 75."""
+    cervello, _ = _cervello([])
+    esiti = cervello.strumenti(
+        [
+            types.FunctionCall(name="imposta_timer", args={"ore": 1, "minuti": 75, "etichetta": "arrosto"}),
+            types.FunctionCall(name="imposta_timer", args={"minuti": 1, "secondi": 90, "etichetta": "uova"}),
+        ]
+    )
+    assert "fra 0 e 59" in esiti[0].risultato["errore"]
+    assert "fra 0 e 59" in esiti[1].risultato["errore"]
+    assert cervello.timer == []
+    [solo_minuti] = cervello.strumenti(
+        [types.FunctionCall(name="imposta_timer", args={"minuti": 75, "etichetta": "arrosto"})]
+    )
+    assert solo_minuti.risultato["durata"] == "1 ora e 15 minuti"
+
+
+def test_durata_parlata_con_le_ore():
+    assert brain_modulo._durata_parlata(40) == "40 secondi"
+    assert brain_modulo._durata_parlata(3600) == "1 ora"
+    assert brain_modulo._durata_parlata(2 * 3600 + 61) == "2 ore, 1 minuto e 1 secondo"
 
 
 def test_risposta_vuota_ne_dice_il_motivo():
