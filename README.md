@@ -9,11 +9,11 @@ Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *A
 | | |
 |---|---|
 | **Piano in vigore** | rev. 5.1 "cloud-first, solo voce" — [`docs/02-piano-attuale.md`](docs/02-piano-attuale.md) |
-| **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A |
-| **Hardware da comprare** | HAT audio, display, camera, microSD, minuteria (~68 €, tutto UE, zero dazi) |
+| **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A, microSD (bring-up fatto, raggiungibile via SSH) |
+| **Hardware da comprare** | HAT audio, display, camera, minuteria (tutto UE, zero dazi) — **ultima fase** della roadmap |
 | **Software** | scaffolding di `bmo-core` avviato (adapter hardware) — [`bmo-core/`](bmo-core/) |
 | **Meccanica** | non iniziata (niente ancora stampato) |
-| **Fase corrente della roadmap** | Fase 0 — congelare la configurazione e ordinare (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap)) |
+| **Fase corrente della roadmap** | Fase 1 — software su PC con `bmo-core`, usando webcam, microfono e casse del computer (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap), software-first dal 2026-09-19) |
 
 Il progetto è arrivato a questo punto passando per cinque revisioni della distinta base e tre premesse di fondo che ne hanno riscritto l'architettura (niente modelli locali, solo interazione vocale, hardware già in parte comprato). La storia completa, comprese le decisioni scartate e perché, è in [`docs/01-storia-del-progetto.md`](docs/01-storia-del-progetto.md).
 
@@ -41,12 +41,11 @@ bmo-core/                             Logica di dialogo, in sviluppo sul PC (oma
 
 Il piano attuale ([`docs/02-piano-attuale.md`](docs/02-piano-attuale.md)) è il documento tecnico principale ed è pensato per essere seguito in ordine, ma **tre sezioni della rev. 2/3 restano l'unica fonte** e non sono ripetute nel piano attuale — leggerle quando la roadmap ci arriva:
 
-1. **Fase 0 (ordinare)** → BOM in [`02-piano-attuale.md` §1](docs/02-piano-attuale.md#1--hardware-da-comprare).
-2. **Fase 1-2 (bring-up, audio)** → [`02-piano-attuale.md` §1.4](docs/02-piano-attuale.md#14-mappa-dei-pin) per la mappa dei pin.
-3. **Fase 3 (display)** → idem, driver `spidev` e blit su dirty rect spiegati in [`revisioni-precedenti/rev3-hardware-bom.md`](docs/revisioni-precedenti/rev3-hardware-bom.md) (sezione "Correzione della rev. 2").
-4. **Fase 4 (il cervello)** → architettura software completa in [`02-piano-attuale.md` §2](docs/02-piano-attuale.md#2--architettura-software).
-5. **Fase 6 (meccanica)** → **qui la fonte è [`revisioni-precedenti/rev3-piano-progetto.md`](docs/revisioni-precedenti/rev3-piano-progetto.md) §3**: la strategia "tre pezzi, zero CAD", i cinque criteri per validare un modello Printables, i parametri di stampa e l'ordine di montaggio non sono ripetuti altrove.
-6. **Fase 7 (integrazione, burn-in)** → criteri di accettazione in [`02-piano-attuale.md` §3, Fase 7](docs/02-piano-attuale.md#fase-7--integrazione-e-messa-in-esercizio-settimana-4).
+1. **Fase 1 (software su PC)** → architettura software completa in [`02-piano-attuale.md` §2](docs/02-piano-attuale.md#2--architettura-software) e adapter hardware in [`bmo-core/`](bmo-core/).
+2. **Fase 3 (acquisto)** → BOM in [`02-piano-attuale.md` §1](docs/02-piano-attuale.md#1--hardware-da-comprare).
+3. **Fase 4 (audio, display, camera)** → [`02-piano-attuale.md` §1.4](docs/02-piano-attuale.md#14-mappa-dei-pin) per la mappa dei pin; driver `spidev` e blit su dirty rect spiegati in [`revisioni-precedenti/rev3-hardware-bom.md`](docs/revisioni-precedenti/rev3-hardware-bom.md) (sezione "Correzione della rev. 2").
+4. **Fase 5 (meccanica)** → **qui la fonte è [`revisioni-precedenti/rev3-piano-progetto.md`](docs/revisioni-precedenti/rev3-piano-progetto.md) §3**: la strategia "tre pezzi, zero CAD", i cinque criteri per validare un modello Printables, i parametri di stampa e l'ordine di montaggio non sono ripetuti altrove.
+5. **Fase 6 (integrazione, burn-in)** → criteri di accettazione in [`02-piano-attuale.md` §3, Fase 6](docs/02-piano-attuale.md#fase-6--integrazione-e-messa-in-esercizio).
 
 I riferimenti tecnici esterni usati come base per l'architettura sono elencati in [`docs/03-riferimenti-esterni.md`](docs/03-riferimenti-esterni.md).
 
