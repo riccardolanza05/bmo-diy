@@ -245,6 +245,28 @@ def test_main_stampa_messaggio_invece_del_traceback(monkeypatch, capsys):
     assert "BMO non ci arriva" in str(uscita.value)
 
 
+def test_main_dice_sempre_se_ha_chiamato_strumenti(monkeypatch, capsys):
+    import sys
+
+    for risposte, attesa in (
+        ([_risposta_testo("[felice] Ciao!")], "Strumenti chiamati: nessuno"),
+        (
+            [_risposta_chiamata("imposta_timer", minuti=2, etichetta="timer"), _risposta_testo("[felice] Due minuti.")],
+            "Strumenti chiamati: 1\n  → imposta_timer(",
+        ),
+    ):
+        client = ClientFinto(risposte)
+        monkeypatch.setattr(
+            brain_modulo, "Cervello",
+            lambda client=client, **k: Cervello(client=client, microfono=MicrofonoFinto(), modelli=["m"], **k),
+        )
+        monkeypatch.setattr(sys, "argv", ["brain", "--testo", "ciao"])
+        brain_modulo.main()
+        uscita = capsys.readouterr().out
+        assert attesa in uscita
+        assert "Modello: m" in uscita
+
+
 def test_cervello_ripiega_sul_modello_di_riserva():
     from google.genai import errors
 

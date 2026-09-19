@@ -56,7 +56,7 @@ BMO_ENV=pi python -m bmo_core...
 `brain.py` fa un turno di dialogo: `ascolta()` registra dal microfono tramite
 gli adapter, `rispondi()` manda l'audio a Gemini col prompt di sistema a due
 strati (§2.3 del piano) ed esegue il loop agentico, `strumenti()` esegue le
-chiamate del modello. Gli strumenti sono i dieci della §2.4, dichiarati in
+chiamate del modello. Gli strumenti sono i nove della §2.4, dichiarati in
 `strumenti.py`: per ora funzionano davvero solo i timer (in memoria), gli altri
 rispondono `non_disponibile` finché non arrivano con l'issue #20.
 
@@ -80,16 +80,26 @@ Criterio di uscita della #19: almeno il 90% di frasi corrette (36 su 40).
 
 L'espressione della faccia non è uno strumento: BMO la mette all'inizio della
 risposta tra parentesi quadre (`[felice] Fatto!`), il codice la toglie prima
-della sintesi vocale e la tiene in `Risposta.espressione`. Le bozze di prompt
-alternativi stanno in `prompt/` e si confrontano col predefinito così:
+della sintesi vocale e la tiene in `Risposta.espressione`.
+
+`python -m bmo_core.brain` stampa sempre quali strumenti ha chiamato il modello
+(o `Strumenti chiamati: nessuno`), con argomenti e risultato, e quale modello
+ha risposto: nelle prove a voce è il modo di vedere se un timer è stato
+impostato davvero o solo annunciato.
+
+Le frasi di prova coprono timer, gestione dei timer, foto, musica e radio,
+volume, pausa dell'ascolto, ricerche sul web (meteo, risultati) e
+conversazione senza strumenti; alla fine il punteggio è diviso per categoria.
+
+Il prompt predefinito è la bozza v4 (`prompt/bozza-v4.txt`, 40/40 nella prova
+del 19/9). Le bozze in `prompt/` restano come storico: la v2 fece 23/40
+perché il modello annunciava le azioni senza chiamare gli strumenti. Un nuovo
+prompt si confronta col predefinito così:
 
 ```bash
-python -m bmo_core.prova_frasi                           # prompt attuale
-python -m bmo_core.prova_frasi --prompt prompt/bozza-v2.txt
-``` Le
-frasi coprono timer, gestione dei timer, foto, musica e radio, volume, pausa
-dell'ascolto, ricerche sul web (meteo, risultati) e conversazione senza
-strumenti; alla fine il punteggio è diviso per categoria.
+python -m bmo_core.prova_frasi                           # prompt predefinito
+python -m bmo_core.prova_frasi --prompt prompt/nuovo.txt
+```
 
 ## Cascata di modelli (issue #12)
 
