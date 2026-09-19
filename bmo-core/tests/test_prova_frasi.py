@@ -17,18 +17,18 @@ def test_numeri_esatti_e_testi_contenuti():
     assert valuta(frase, _risposta(("riproduci_musica", {"sorgente": "radio", "query": "Radio DEEJAY"})))
     assert not valuta(frase, _risposta(("riproduci_musica", {"sorgente": "libreria", "query": "deejay"})))
 
-    timer = _f("timer", "dieci minuti", usa("imposta_timer", durata_secondi=600))
-    assert valuta(timer, _risposta(("imposta_timer", {"durata_secondi": 600.0, "etichetta": "x"})))
-    assert not valuta(timer, _risposta(("imposta_timer", {"durata_secondi": 60, "etichetta": "x"})))
+    timer = _f("timer", "dieci minuti", usa("imposta_timer", durata=600))
+    assert valuta(timer, _risposta(("imposta_timer", {"minuti": 10.0, "etichetta": "x"})))
+    assert not valuta(timer, _risposta(("imposta_timer", {"minuti": 1, "etichetta": "x"})))
     assert not valuta(timer, _risposta())
 
 
 def test_contano_solo_le_chiamate_riuscite():
     """Caso reale: un parametro inventato, corretto al giro dopo (il tè, prova del 19/9)."""
-    frase = _f("timer", "Timer di tre minuti per il tè", usa("imposta_timer", durata_secondi=180))
+    frase = _f("timer", "Timer di tre minuti per il tè", usa("imposta_timer", durata=180))
     risposta = Risposta("ok", [
-        ChiamataStrumento("imposta_timer", {"durata_secondi": 180, "durata_sec": 180}, {"errore": "argomento inatteso"}),
-        ChiamataStrumento("imposta_timer", {"durata_secondi": 180, "etichetta": "te"}, {"stato": "ok"}),
+        ChiamataStrumento("imposta_timer", {"minuti": 3, "durata_sec": 180}, {"errore": "argomento inatteso"}),
+        ChiamataStrumento("imposta_timer", {"minuti": 3, "etichetta": "te"}, {"stato": "ok"}),
     ])
     assert valuta(frase, risposta)
 
@@ -37,9 +37,16 @@ def test_esiti_alternativi_e_chiamate_in_piu():
     frase = _f("web", "Che ore sono a Tokyo?", nessuno(), usa("cerca_sul_web", query="tokyo"))
     assert valuta(frase, _risposta(testo="Sono le sei del mattino."))
     assert valuta(frase, _risposta(("cerca_sul_web", {"query": "ora attuale Tokyo"})))
-    timer = _f("timer", "dieci minuti", usa("imposta_timer", durata_secondi=600))
-    assert not valuta(timer, _risposta(("imposta_timer", {"durata_secondi": 600}), ("imposta_timer", {"durata_secondi": 600})))
+    timer = _f("timer", "dieci minuti", usa("imposta_timer", durata=600))
+    assert not valuta(timer, _risposta(("imposta_timer", {"minuti": 10}), ("imposta_timer", {"minuti": 10})))
 
 
 def test_nessuno_strumento_richiede_testo():
     assert not valuta(_f("conversazione", "Ciao", nessuno()), _risposta(testo=""))
+
+
+def test_durata_valutata_comunque_sia_divisa():
+    arrosto = _f("timer", "un'ora e un quarto", usa("imposta_timer", durata=4500))
+    assert valuta(arrosto, _risposta(("imposta_timer", {"ore": 1, "minuti": 15, "etichetta": "arrosto"})))
+    assert valuta(arrosto, _risposta(("imposta_timer", {"minuti": 75, "etichetta": "arrosto"})))
+    assert not valuta(arrosto, _risposta(("imposta_timer", {"ore": 1, "etichetta": "arrosto"})))

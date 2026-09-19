@@ -48,13 +48,19 @@ DICHIARAZIONI = [
     ),
     types.FunctionDeclaration(
         name="imposta_timer",
-        description="Avvia un timer che suona allo scadere della durata indicata.",
+        description=(
+            "Avvia un timer che suona allo scadere della durata indicata. La durata si dà in ore, "
+            "minuti e secondi, come la dice chi parla: 'un'ora e un quarto' è ore 1 e minuti 15. "
+            "Serve almeno uno fra ore, minuti e secondi."
+        ),
         parameters=_schema(
             {
-                "durata_secondi": _intero("Durata del timer in secondi, ad esempio 600 per dieci minuti."),
                 "etichetta": _testo("Nome breve del timer, ad esempio 'pasta'."),
+                "ore": _intero("Ore della durata."),
+                "minuti": _intero("Minuti della durata."),
+                "secondi": _intero("Secondi della durata."),
             },
-            ["durata_secondi", "etichetta"],
+            ["etichetta"],
         ),
     ),
     types.FunctionDeclaration(

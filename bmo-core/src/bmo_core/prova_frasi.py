@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from .brain import ERRORI_GEMINI, Cervello, Risposta, Timer, descrivi_errore, prompt_da_file
+from .brain import ERRORI_GEMINI, Cervello, Risposta, Timer, descrivi_errore, durata_in_secondi, prompt_da_file
 from .modelli import GeminiNonDisponibile
 
 SOGLIA = 0.9
@@ -57,17 +57,17 @@ def _f(categoria: str, testo: str, *attesi: Atteso, timer: tuple[tuple[str, int]
 
 
 FRASI = [
-    # Timer: la durata in secondi deve essere esatta.
-    _f("timer", "Metti un timer di dieci minuti", usa("imposta_timer", durata_secondi=600)),
-    _f("timer", "Timer di cinque minuti per la pasta", usa("imposta_timer", durata_secondi=300)),
-    _f("timer", "Avvisami fra mezz'ora", usa("imposta_timer", durata_secondi=1800)),
-    _f("timer", "Mi imposti un timer da un minuto e mezzo per le uova?", usa("imposta_timer", durata_secondi=90)),
-    _f("timer", "Fra quaranta secondi dimmi di girare la frittata", usa("imposta_timer", durata_secondi=40)),
-    _f("timer", "Metti un timer di un'ora e un quarto per l'arrosto", usa("imposta_timer", durata_secondi=4500)),
-    _f("timer", "Timer di tre minuti per il tè", usa("imposta_timer", durata_secondi=180)),
-    _f("timer", "Ricordami tra venti minuti di togliere la lavatrice", usa("imposta_timer", durata_secondi=1200)),
-    _f("timer", "Due minuti di timer, per favore", usa("imposta_timer", durata_secondi=120)),
-    _f("timer", "Fammi partire un conto alla rovescia di quindici minuti", usa("imposta_timer", durata_secondi=900)),
+    # Timer: la durata totale deve essere esatta, comunque sia divisa fra ore, minuti e secondi.
+    _f("timer", "Metti un timer di dieci minuti", usa("imposta_timer", durata=600)),
+    _f("timer", "Timer di cinque minuti per la pasta", usa("imposta_timer", durata=300)),
+    _f("timer", "Avvisami fra mezz'ora", usa("imposta_timer", durata=1800)),
+    _f("timer", "Mi imposti un timer da un minuto e mezzo per le uova?", usa("imposta_timer", durata=90)),
+    _f("timer", "Fra quaranta secondi dimmi di girare la frittata", usa("imposta_timer", durata=40)),
+    _f("timer", "Metti un timer di un'ora e un quarto per l'arrosto", usa("imposta_timer", durata=4500)),
+    _f("timer", "Timer di tre minuti per il tè", usa("imposta_timer", durata=180)),
+    _f("timer", "Ricordami tra venti minuti di togliere la lavatrice", usa("imposta_timer", durata=1200)),
+    _f("timer", "Due minuti di timer, per favore", usa("imposta_timer", durata=120)),
+    _f("timer", "Fammi partire un conto alla rovescia di quindici minuti", usa("imposta_timer", durata=900)),
     _f("gestione_timer", "Annulla il timer della pasta", usa("annulla_timer", etichetta="pasta"),
        timer=(("pasta", 300),)),
     _f("gestione_timer", "Quanti timer ho attivi?", usa("elenca_timer"), nessuno(),
@@ -109,6 +109,13 @@ FRASI = [
 
 def _argomenti_ok(attesi: dict[str, Any], ricevuti: dict[str, Any]) -> bool:
     for nome, valore in attesi.items():
+        if nome == "durata":  # imposta_timer: ore, minuti e secondi sommati
+            try:
+                if durata_in_secondi(ricevuti) != valore:
+                    return False
+            except (TypeError, ValueError):
+                return False
+            continue
         if nome not in ricevuti:
             return False
         if isinstance(valore, int):
@@ -195,7 +202,8 @@ def main() -> None:
             modelli[risposta.modello] += 1
             chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"
             faccia = f"[{risposta.espressione}] " if risposta.espressione else "[senza espressione] "
-            print(f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}\n     {chiamate} · {faccia}{risposta.testo}")
+            testo = risposta.testo or f"(risposta vuota: {risposta.motivo_vuota})"
+            print(f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}\n     {chiamate} · {faccia}{testo}")
             if not esito:
                 print(f"     atteso: {_descrivi_attesi(frase)}")
         if numero < len(frasi):

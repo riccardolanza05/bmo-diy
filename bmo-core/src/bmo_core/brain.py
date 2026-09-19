@@ -56,8 +56,8 @@ REGOLE SUGLI STRUMENTI:
   Non scattare foto per curiosità e mai senza che qualcuno te l'abbia chiesto.
 - cerca_sul_web per fatti che cambiano nel tempo: notizie, prezzi, orari, meteo, risultati.
   Se non sai una cosa, cercala invece di inventarla.
-- Per imposta_timer converti sempre la durata in secondi e scegli un'etichetta breve
-  che descriva a cosa serve il timer.
+- Per imposta_timer dai la durata in ore, minuti e secondi, come l'hai sentita, e scegli
+  un'etichetta breve che descriva a cosa serve il timer.
 """
 
 _GIORNI = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO", "DOMENICA"]
@@ -86,6 +86,7 @@ class Risposta:
     chiamate: list[ChiamataStrumento] = field(default_factory=list)
     modello: str = ""
     espressione: str | None = None  # dall'etichetta iniziale, es. "[felice]"
+    motivo_vuota: str | None = None  # perché il testo è vuoto, se lo è
 
 
 def _durata_parlata(secondi: int) -> str:
@@ -152,7 +153,41 @@ def descrivi_errore(errore: Exception) -> str:
     return str(errore)
 
 
-_NOMI_DICHIARATI = {d.name for d in DICHIARAZIONI}
+_PARAMETRI = {
+    d.name: (
+        list(d.parameters.properties or {}) if d.parameters else [],
+        list(d.parameters.required or []) if d.parameters else [],
+    )
+    for d in DICHIARAZIONI
+}
+
+
+def controlla_argomenti(nome: str, argomenti: dict[str, Any]) -> dict[str, Any] | None:
+    """L'errore da rimandare al modello se gli argomenti non rispettano la dichiarazione.
+
+    Indica sempre i nomi giusti: col solo messaggio di Python il modello si
+    arrendeva invece di rifare la chiamata (durata_sec, prove del 19/9).
+    """
+    validi, obbligatori = _PARAMETRI[nome]
+    sconosciuti = [a for a in argomenti if a not in validi]
+    mancanti = [o for o in obbligatori if o not in argomenti]
+    if not sconosciuti and not mancanti:
+        return None
+    problemi = []
+    if sconosciuti:
+        problemi.append("parametri sconosciuti: " + ", ".join(sconosciuti))
+    if mancanti:
+        problemi.append("parametri obbligatori mancanti: " + ", ".join(mancanti))
+    return {"errore": "; ".join(problemi), "parametri_validi": validi}
+
+
+def durata_in_secondi(argomenti: dict[str, Any]) -> int:
+    """La durata di imposta_timer, da ore, minuti e secondi (tutti facoltativi)."""
+    return round(
+        float(argomenti.get("ore") or 0) * 3600
+        + float(argomenti.get("minuti") or 0) * 60
+        + float(argomenti.get("secondi") or 0)
+    )
 
 
 def testo_della_risposta(risposta: Any) -> str:
@@ -166,6 +201,16 @@ def testo_della_risposta(risposta: Any) -> str:
     contenuto = risposta.candidates[0].content
     parti = contenuto.parts if contenuto and contenuto.parts else []
     return "".join(p.text for p in parti if p.text and not p.thought).strip()
+
+
+def motivo_risposta_vuota(risposta: Any) -> str:
+    """Perché una risposta non ha testo: serve a capire i casi vuoti della prova."""
+    if risposta is None or not risposta.candidates:
+        return "nessun candidato"
+    if risposta.function_calls:
+        return f"tetto di {MAX_GIRI} giri raggiunto con chiamate ancora in sospeso"
+    motivo = risposta.candidates[0].finish_reason
+    return f"finish_reason {getattr(motivo, 'name', motivo)}" if motivo else "nessun testo"
 
 
 def separa_espressione(testo: str) -> tuple[str | None, str]:
@@ -285,7 +330,13 @@ class Cervello:
                 )
             )
         espressione, testo_finale = separa_espressione(testo_della_risposta(risposta))
-        return Risposta(testo=testo_finale, chiamate=eseguite, modello=modello, espressione=espressione)
+        return Risposta(
+            testo=testo_finale,
+            chiamate=eseguite,
+            modello=modello,
+            espressione=espressione,
+            motivo_vuota=None if testo_finale else motivo_risposta_vuota(risposta),
+        )
 
     def strumenti(self, chiamate: list[types.FunctionCall]) -> list[ChiamataStrumento]:
         """Esegue le chiamate richieste dal modello e ne raccoglie i risultati."""
@@ -294,13 +345,15 @@ class Cervello:
             argomenti = dict(chiamata.args or {})
             nome = chiamata.name or ""
             esecutore = self._esecutori.get(nome)
-            if esecutore is None and nome in _NOMI_DICHIARATI:
+            if nome not in _PARAMETRI:
+                risultato = {"errore": f"strumento sconosciuto: {chiamata.name}"}
+            elif sbagliati := controlla_argomenti(nome, argomenti):
+                risultato = sbagliati
+            elif esecutore is None:
                 risultato = {
                     "stato": "non_disponibile",
                     "motivo": "questa funzione di BMO non è ancora pronta",
                 }
-            elif esecutore is None:
-                risultato = {"errore": f"strumento sconosciuto: {chiamata.name}"}
             else:
                 try:
                     risultato = esecutore(**argomenti)
@@ -309,10 +362,10 @@ class Cervello:
             eseguite.append(ChiamataStrumento(chiamata.name or "", argomenti, risultato))
         return eseguite
 
-    def _imposta_timer(self, durata_secondi: int, etichetta: str) -> dict[str, Any]:
-        durata = int(durata_secondi)
+    def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:
+        durata = durata_in_secondi({"ore": ore, "minuti": minuti, "secondi": secondi})
         if durata <= 0:
-            raise ValueError("la durata deve essere positiva")
+            raise ValueError("la durata deve essere positiva: indica ore, minuti o secondi")
         scadenza = self.orologio() + timedelta(seconds=durata)
         self.timer.append(Timer(etichetta=etichetta, scadenza=scadenza))
         return {"stato": "ok", "scadenza": scadenza.strftime("%H:%M:%S")}
@@ -364,7 +417,7 @@ def main() -> None:
     if risposta.modello != cervello.cascata.primario:
         print(f"(risposto da {risposta.modello}, il primario non era disponibile)")
     faccia = f" [faccia: {risposta.espressione}]" if risposta.espressione else ""
-    print(f"BMO{faccia}: {risposta.testo}")
+    print(f"BMO{faccia}: {risposta.testo or f'(risposta vuota: {risposta.motivo_vuota})'}")
 
 
 if __name__ == "__main__":

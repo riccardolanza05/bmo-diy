@@ -62,13 +62,13 @@ def _cervello(risposte, **opzioni):
 
 def test_timer_di_dieci_minuti_produce_imposta_timer():
     cervello, client = _cervello(
-        [_risposta_chiamata("imposta_timer", durata_secondi=600, etichetta="timer"), _risposta_testo("Fatto!")]
+        [_risposta_chiamata("imposta_timer", minuti=10, etichetta="timer"), _risposta_testo("Fatto!")]
     )
     risposta = cervello.rispondi(audio_wav=b"RIFF")
 
     assert risposta.testo == "Fatto!"
     assert [(c.nome, c.argomenti) for c in risposta.chiamate] == [
-        ("imposta_timer", {"durata_secondi": 600, "etichetta": "timer"})
+        ("imposta_timer", {"minuti": 10, "etichetta": "timer"})
     ]
     assert cervello.timer[0].scadenza == datetime(2026, 9, 8, 22, 24, tzinfo=FUSO_ORARIO)
     # Il secondo giro rimanda al modello la functionResponse.
@@ -94,7 +94,7 @@ def test_risposta_senza_strumenti_fa_un_solo_giro():
 
 def test_loop_agentico_limitato_a_quattro_giri():
     cervello, client = _cervello(
-        [_risposta_chiamata("imposta_timer", durata_secondi=60, etichetta=f"t{i}") for i in range(10)]
+        [_risposta_chiamata("imposta_timer", minuti=1, etichetta=f"t{i}") for i in range(10)]
     )
     cervello.rispondi(testo="timer infiniti")
     assert len(client.richieste) == brain_modulo.MAX_GIRI
@@ -105,7 +105,7 @@ def test_strumento_sconosciuto_e_argomenti_errati_non_sollevano():
     esiti = cervello.strumenti(
         [
             types.FunctionCall(name="lancia_razzo", args={}),
-            types.FunctionCall(name="imposta_timer", args={"durata_secondi": 0, "etichetta": "x"}),
+            types.FunctionCall(name="imposta_timer", args={"secondi": 0, "etichetta": "x"}),
             types.FunctionCall(name="imposta_timer", args={"minuti": 5}),
         ]
     )
@@ -124,7 +124,7 @@ def test_prompt_contiene_strato_fisso_e_dinamico():
 
 def test_contesto_dinamico_timer_e_senza_ora():
     cervello, _ = _cervello([])
-    cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"durata_secondi": 252, "etichetta": "pasta"})])
+    cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"minuti": 4, "secondi": 12, "etichetta": "pasta"})])
     testo = contesto_dinamico(ORA, cervello.timer)
     assert '"pasta" scade fra 4 minuti e 12 secondi' in testo
     assert "22:14" not in contesto_dinamico(ORA, [], inietta_ora=False)
@@ -173,7 +173,7 @@ def test_strumenti_non_ancora_pronti_rispondono_non_disponibile():
 def test_annulla_ed_elenca_timer():
     cervello, _ = _cervello([])
     for etichetta, secondi in (("pasta", 300), ("uova", 90)):
-        cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"durata_secondi": secondi, "etichetta": etichetta})])
+        cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"secondi": secondi, "etichetta": etichetta})])
     [elenco] = cervello.strumenti([types.FunctionCall(name="elenca_timer", args={})])
     assert [t["etichetta"] for t in elenco.risultato["timer"]] == ["pasta", "uova"]
     [annullato] = cervello.strumenti([types.FunctionCall(name="annulla_timer", args={"etichetta": "Pasta"})])
@@ -277,3 +277,45 @@ def test_testo_letto_dalle_parti_senza_avvisi(recwarn):
     assert brain_modulo.testo_della_risposta(risposta) == "[pensieroso] Vediamo."
     assert brain_modulo.testo_della_risposta(types.GenerateContentResponse(candidates=[])) == ""
     assert not recwarn.list
+
+
+def test_parametro_sbagliato_indica_i_nomi_validi():
+    """Caso reale delle prove del 19/9: durata_sec invece del parametro giusto."""
+    cervello, _ = _cervello([])
+    [esito] = cervello.strumenti(
+        [types.FunctionCall(name="imposta_timer", args={"durata_sec": 180, "etichetta": "te"})]
+    )
+    assert esito.risultato["errore"] == "parametri sconosciuti: durata_sec"
+    assert esito.risultato["parametri_validi"] == ["etichetta", "ore", "minuti", "secondi"]
+    [senza_etichetta] = cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"minuti": 3})])
+    assert "obbligatori mancanti: etichetta" in senza_etichetta.risultato["errore"]
+    [foto] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"zoom": 2})])
+    assert "errore" in foto.risultato
+    assert cervello.timer == []
+
+
+def test_durata_del_timer_da_ore_minuti_e_secondi():
+    cervello, _ = _cervello([])
+    [esito] = cervello.strumenti(
+        [types.FunctionCall(name="imposta_timer", args={"ore": 1, "minuti": 15, "etichetta": "arrosto"})]
+    )
+    assert esito.risultato["stato"] == "ok"
+    assert cervello.timer[0].scadenza == datetime(2026, 9, 8, 23, 29, tzinfo=FUSO_ORARIO)
+    assert brain_modulo.durata_in_secondi({"minuti": 1, "secondi": 30}) == 90
+    assert brain_modulo.durata_in_secondi({"minuti": 1.5}) == 90
+
+
+def test_risposta_vuota_ne_dice_il_motivo():
+    cervello, _ = _cervello([_risposta_chiamata("cerca_sul_web", query="meteo") for _ in range(4)])
+    risposta = cervello.rispondi(testo="Che tempo fa a Torino?")
+    assert risposta.testo == ""
+    assert "tetto di 4 giri" in risposta.motivo_vuota
+
+    vuota = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[]), finish_reason="STOP")]
+    )
+    cervello, _ = _cervello([vuota])
+    assert cervello.rispondi(testo="ciao").motivo_vuota == "finish_reason STOP"
+
+    cervello, _ = _cervello([_risposta_testo("[felice] Ciao!")])
+    assert cervello.rispondi(testo="ciao").motivo_vuota is None

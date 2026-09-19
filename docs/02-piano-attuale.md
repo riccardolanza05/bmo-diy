@@ -313,7 +313,7 @@ Tre dettagli che sembrano piccoli e non lo sono:
 ```python
 scatta_foto(motivo: str)
 cerca_sul_web(query: str)
-imposta_timer(durata_secondi: int, etichetta: str)
+imposta_timer(etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0)
 annulla_timer(etichetta: str | None)
 elenca_timer()
 riproduci_musica(query: str, sorgente: "chiavetta" | "radio")
