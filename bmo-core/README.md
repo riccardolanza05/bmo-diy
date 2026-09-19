@@ -61,7 +61,8 @@ timer tenuti in memoria (la persistenza arriva con l'issue #20).
 
 La chiave API va nella variabile d'ambiente `GEMINI_API_KEY` (se è impostata
 anche `GOOGLE_API_KEY`, l'SDK usa quella). Il modello predefinito è
-`gemini-3.8-flash`, sovrascrivibile con `BMO_GEMINI_MODEL`.
+`gemini-3.5-flash-lite`, con `gemini-3.1-flash-lite` come riserva (vedi la
+cascata sotto); per usare un solo modello basta `BMO_GEMINI_MODEL`.
 
 ```bash
 export GEMINI_API_KEY=...
@@ -78,13 +79,14 @@ Criterio di uscita della #19: almeno 18 frasi su 20 corrette.
 
 Se il modello primario risponde con quota esaurita (429) o sovraccarico
 (500/502/503/504), `modelli.py` passa subito al modello successivo della
-cascata, configurata in una variabile d'ambiente e non nel codice:
+cascata. Quella predefinita è `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`;
+si cambia con una variabile d'ambiente, senza toccare il codice:
 
 ```bash
 # quali modelli ha a disposizione la tua chiave
 python -c "from google import genai; c = genai.Client(); [print(m.name) for m in c.models.list() if 'flash' in m.name]"
 
-export BMO_GEMINI_MODELLI="gemini-3.8-flash,<modello-di-riserva>"
+export BMO_GEMINI_MODELLI="<primario>,<riserva>,..."
 ```
 
 | Errore | Cosa fa | Per quanto sospende il modello |

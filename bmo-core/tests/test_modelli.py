@@ -50,6 +50,8 @@ def test_cascata_da_ambiente(monkeypatch):
     monkeypatch.delenv("BMO_GEMINI_MODELLI")
     monkeypatch.setenv("BMO_GEMINI_MODEL", "solo")
     assert modelli_da_ambiente() == ["solo"]
+    monkeypatch.delenv("BMO_GEMINI_MODEL")
+    assert modelli_da_ambiente() == ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
 
 def test_503_passa_al_modello_di_riserva():

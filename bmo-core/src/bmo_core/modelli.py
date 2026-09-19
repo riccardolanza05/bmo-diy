@@ -8,9 +8,10 @@ torna a essere provato per primo: nessun reset manuale.
 La cascata sta in configurazione, non nel codice, perché i limiti reali del
 free tier cambiano nel tempo e vanno verificati con la propria chiave:
 
-    BMO_GEMINI_MODELLI="gemini-3.8-flash,<modello-di-riserva>,..."
+    BMO_GEMINI_MODELLI="gemini-3.5-flash-lite,gemini-3.1-flash-lite,..."
 
-Se la variabile non c'è, si usa solo `BMO_GEMINI_MODEL` (o il predefinito).
+Se la variabile non c'è, si usa solo `BMO_GEMINI_MODEL`; se manca anche
+quella, la cascata predefinita qui sotto.
 """
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ from typing import Any, Callable
 import httpx
 from google.genai import errors
 
-MODELLO_PREDEFINITO = "gemini-3.8-flash"
+# Primario e riserva scelti dopo le prime prove reali, quando
+# gemini-3.8-flash rispondeva spesso 503 per sovraccarico.
+MODELLI_PREDEFINITI = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
 
 # Per quanto un modello resta sospeso dopo un errore, in secondi.
 SOSPENSIONE_QUOTA_S = 60.0          # 429 senza retryDelay nella risposta
@@ -52,7 +55,10 @@ class GeminiNonDisponibile(Exception):
 def modelli_da_ambiente() -> list[str]:
     elenco = os.environ.get("BMO_GEMINI_MODELLI", "")
     modelli = [m.strip() for m in elenco.split(",") if m.strip()]
-    return modelli or [os.environ.get("BMO_GEMINI_MODEL", MODELLO_PREDEFINITO)]
+    if modelli:
+        return modelli
+    singolo = os.environ.get("BMO_GEMINI_MODEL", "").strip()
+    return [singolo] if singolo else list(MODELLI_PREDEFINITI)
 
 
 def attesa_suggerita(errore: errors.APIError) -> float | None:
