@@ -1,0 +1,166 @@
+import ast
+from datetime import datetime
+from pathlib import Path
+
+from google.genai import types
+
+import bmo_core.brain as brain_modulo
+from bmo_core.brain import FUSO_ORARIO, Cervello, contesto_dinamico
+from bmo_core.prova_frasi import FRASI, Frase, valuta
+
+ORA = datetime(2026, 9, 8, 22, 14, tzinfo=FUSO_ORARIO)
+
+
+def _risposta_testo(testo):
+    return types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part.from_text(text=testo)]))]
+    )
+
+
+def _risposta_chiamata(nome, **argomenti):
+    return types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(function_call=types.FunctionCall(name=nome, args=argomenti))],
+                )
+            )
+        ]
+    )
+
+
+class ClientFinto:
+    """Sostituto di google.genai.Client: restituisce risposte preparate e registra le richieste."""
+
+    def __init__(self, risposte):
+        self._risposte = list(risposte)
+        self.richieste = []
+        self.models = self
+
+    def generate_content(self, *, model, contents, config):
+        self.richieste.append({"model": model, "contents": list(contents), "config": config})
+        return self._risposte.pop(0)
+
+
+class MicrofonoFinto:
+    def __init__(self):
+        self.durate = []
+
+    def registra(self, destinazione: Path, durata_s: float) -> Path:
+        self.durate.append(durata_s)
+        destinazione.write_bytes(b"RIFF-finto")
+        return destinazione
+
+    def flusso_pcm(self):
+        yield b""
+
+
+def _cervello(risposte, **opzioni):
+    client = ClientFinto(risposte)
+    return Cervello(client=client, microfono=MicrofonoFinto(), orologio=lambda: ORA, **opzioni), client
+
+
+def test_timer_di_dieci_minuti_produce_imposta_timer():
+    cervello, client = _cervello(
+        [_risposta_chiamata("imposta_timer", durata_secondi=600, etichetta="timer"), _risposta_testo("Fatto!")]
+    )
+    risposta = cervello.rispondi(audio_wav=b"RIFF")
+
+    assert risposta.testo == "Fatto!"
+    assert [(c.nome, c.argomenti) for c in risposta.chiamate] == [
+        ("imposta_timer", {"durata_secondi": 600, "etichetta": "timer"})
+    ]
+    assert cervello.timer[0].scadenza == datetime(2026, 9, 8, 22, 24, tzinfo=FUSO_ORARIO)
+    # Il secondo giro rimanda al modello la functionResponse.
+    ultima = client.richieste[1]["contents"][-1]
+    assert ultima.parts[0].function_response.name == "imposta_timer"
+    assert ultima.parts[0].function_response.response["stato"] == "ok"
+
+
+def test_audio_inviato_come_wav():
+    cervello, client = _cervello([_risposta_testo("Ciao!")])
+    cervello.rispondi(audio_wav=b"RIFF")
+    parte = client.richieste[0]["contents"][0].parts[0]
+    assert parte.inline_data.mime_type == "audio/wav"
+    assert parte.inline_data.data == b"RIFF"
+
+
+def test_risposta_senza_strumenti_fa_un_solo_giro():
+    cervello, client = _cervello([_risposta_testo("Una poesia.")])
+    risposta = cervello.rispondi(testo="Scrivi una poesia sui dinosauri")
+    assert risposta.chiamate == []
+    assert len(client.richieste) == 1
+
+
+def test_loop_agentico_limitato_a_quattro_giri():
+    cervello, client = _cervello(
+        [_risposta_chiamata("imposta_timer", durata_secondi=60, etichetta=f"t{i}") for i in range(10)]
+    )
+    cervello.rispondi(testo="timer infiniti")
+    assert len(client.richieste) == brain_modulo.MAX_GIRI
+
+
+def test_strumento_sconosciuto_e_argomenti_errati_non_sollevano():
+    cervello, _ = _cervello([])
+    esiti = cervello.strumenti(
+        [
+            types.FunctionCall(name="lancia_razzo", args={}),
+            types.FunctionCall(name="imposta_timer", args={"durata_secondi": 0, "etichetta": "x"}),
+            types.FunctionCall(name="imposta_timer", args={"minuti": 5}),
+        ]
+    )
+    assert all("errore" in e.risultato for e in esiti)
+    assert cervello.timer == []
+
+
+def test_prompt_contiene_strato_fisso_e_dinamico():
+    cervello, client = _cervello([_risposta_testo("ok")])
+    cervello.rispondi(testo="ciao")
+    config = client.richieste[0]["config"]
+    fisso, dinamico = config.system_instruction
+    assert "Sei BMO" in fisso
+    assert "22:14 DI MARTEDÌ 8 SETTEMBRE 2026" in dinamico
+    assert config.tools[0].function_declarations[0].name == "imposta_timer"
+
+
+def test_contesto_dinamico_timer_e_senza_ora():
+    cervello, _ = _cervello([])
+    cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"durata_secondi": 252, "etichetta": "pasta"})])
+    testo = contesto_dinamico(ORA, cervello.timer)
+    assert '"pasta" scade fra 4 minuti e 12 secondi' in testo
+    assert "22:14" not in contesto_dinamico(ORA, [], inietta_ora=False)
+
+
+def test_ascolta_usa_il_microfono_iniettato():
+    cervello, _ = _cervello([])
+    assert cervello.ascolta(3.0) == b"RIFF-finto"
+    assert cervello.microfono.durate == [3.0]
+
+
+def test_modello_sovrascrivibile_da_ambiente(monkeypatch):
+    monkeypatch.setenv("BMO_GEMINI_MODEL", "modello-di-prova")
+    cervello, client = _cervello([_risposta_testo("ok")])
+    cervello.rispondi(testo="ciao")
+    assert client.richieste[0]["model"] == "modello-di-prova"
+
+
+def test_brain_non_importa_adapter_concreti():
+    """Il cervello deve dipendere solo da base.py e dalla factory (issue #19)."""
+    sorgente = Path(brain_modulo.__file__).read_text()
+    nomi = set()
+    for nodo in ast.walk(ast.parse(sorgente)):
+        if isinstance(nodo, ast.ImportFrom):
+            nomi.update(alias.name for alias in nodo.names)
+            assert not (nodo.module or "").startswith(("adapters.", "bmo_core.adapters."))
+    assert nomi.isdisjoint({"ArecordAdapter", "MpvAdapter", "LibcameraAdapter", "WebcamV4L2Adapter"})
+
+
+def test_valutazione_frasi():
+    assert len(FRASI) == 20
+    cervello, _ = _cervello([])
+    esito_timer = cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"durata_secondi": 600, "etichetta": "x"})])
+    assert valuta(Frase("timer", 600), brain_modulo.Risposta("ok", esito_timer))
+    assert not valuta(Frase("timer", 300), brain_modulo.Risposta("ok", esito_timer))
+    assert not valuta(Frase("ciao", None), brain_modulo.Risposta("ok", esito_timer))
+    assert valuta(Frase("ciao", None), brain_modulo.Risposta("Ciao!", []))
