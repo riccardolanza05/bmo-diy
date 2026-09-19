@@ -4,6 +4,7 @@
 >
 > **Documento di riferimento tecnico esterno**: un progetto con Pi 5 16 GB + Ollama, tutto in locale — vedi [Riferimenti esterni](03-riferimenti-esterni.md).
 > **Restano validi** dai documenti precedenti: la pipeline asset della faccia, il blit su dirty rect, la disciplina "solo overlay in-tree", la termica e le regole di stampa (vedi [rev. 2/3](revisioni-precedenti/rev3-piano-progetto.md) e [rev. 3 BOM](revisioni-precedenti/rev3-hardware-bom.md) per i dettagli completi di queste sezioni).
+> **Aggiornamento 2026-09-19 — roadmap software-first**: prima tutto il software sul PC di sviluppo, l'acquisto dei componenti per ultimo. Vedi [§3](#3--roadmap).
 > **Rev. 5.1**: cinque modifiche al BOM per tagliare i costi. Totale: da ~91 € a **~68 €** (~73 € con lo stereo) — **−23 €**.
 
 Questa revisione parte da tre premesse nuove:
@@ -55,7 +56,7 @@ Qui è l'opposto: **l'architettura del riferimento sopravvive quasi per intero.*
 |---|---|
 | Macchina a stati WARM-UP → IDLE → LISTENING → THINKING → SPEAKING | **Sì**, con WARM-UP che si svuota (§2.1) |
 | Faccia che cambia a **ogni** transizione di stato | **Sì, e diventa più importante**: senza pulsanti e senza LED, la faccia è l'unico canale di conferma |
-| **Clip vocali pre-generate**, scelte a caso, per coprire l'attesa | **Sì — è l'idea migliore del riferimento.** Si pre-generano col TTS di Gemini sul Mac e si spediscono come WAV. Zero motore TTS a bordo, zero RAM, latenza zero |
+| **Clip vocali pre-generate**, scelte a caso, per coprire l'attesa | **Sì — è l'idea migliore del riferimento.** Si pre-generano col TTS di Gemini sul PC di sviluppo e si spediscono come WAV. Zero motore TTS a bordo, zero RAM, latenza zero |
 | Wake word **openWakeWord** custom "Hey BMO" col Colab ufficiale | **Sì.** È l'unica cosa che *deve* restare locale (§2.6) |
 | **Loop agentico**: l'LLM decide se servono tool, emette JSON, l'output rientra nel loop | **Sì, invariato.** Con Gemini è function calling nativo invece che da parsare a mano |
 | Tool **fotocamera** con re-iniezione dell'immagine nel loop | **Sì, e diventa 40× più veloce** (§2.4) |
@@ -80,7 +81,7 @@ Tutto acquistabile in UE, due ordini, consegna 3–5 giorni, **nessun dazio**.
 | 3 | **Display** | **Waveshare 2.4" LCD Module** — ILI9341, **240×320**, **senza touch**, PCB 70,5×43,3 mm (Welectron, cod. 18366) | La faccia di BMO. SPI, pilotato da `spidev` con blit sulle sole regioni cambiate | 12,90 |
 | 4 | **Header stacking 2×20 extra-tall** | passo 2,54 mm, corpo ≥ 11 mm — **in coppia, non in kit assortito** | Fa sporgere i pin **sopra** il HAT audio, così i sette fili del display si innestano lì. Senza questo, HAT e display non coesistono | ~5,00 |
 | 5 | **Fotocamera** | **OV5647 5 MP "a fuoco fisso" regolabile a pinza** + flat CSI 15 pin incluso | Il tool `scatta_foto`. Esce tarata a fuoco infinito, ma la lente si sblocca con una pinzetta: **la stessa taratura una tantum a ~30 cm** della versione "regolabile", a meno della metà del prezzo (§1.1bis) | 5,90 |
-| 6 | **microSD** | **32 GB classe A1 di marca** | Sistema **e libreria musicale sulla stessa scheda** (§1.2bis). **Va comprata subito e separatamente**: è l'unico pezzo che serve per cominciare la fase 1 | ~8,00 |
+| 6 | **microSD** | **32 GB classe A1 di marca** | Sistema **e libreria musicale sulla stessa scheda** (§1.2bis). **Già in uso**: il Pi ci fa il boot dal bring-up | ~8,00 |
 | 7 | **Magneti al neodimio 5×2 mm** | ×20 | Faceplate apribile senza viti a vista | ~6,00 |
 | 8 | **Minuteria essenziale** | viti M2.5×6 autofilettanti (~20 pz) + Dupont F-F 20 cm | Gli unici due elementi senza alternativa (§1.1ter) | ~5,50 |
 | 9 | Spedizioni | Welectron + Amazon.it | | ~6,00 |
@@ -94,7 +95,7 @@ Più ~200 g di filamento **PETG** (~5 €). Il PLA non è una preferenza estetic
 
 **La fotocamera.** Il modulo "a fuoco fisso" da 5,90 € esce tarato all'infinito, non a 30 cm: va comunque calibrato una volta, esattamente come la versione "regolabile" da 12 € — pinzetta, si sblocca la ghiera, si ruota fino a mettere a fuoco un bersaglio a 30 cm, si fissa con una goccia di smalto. La differenza non è il lavoro di taratura (identico) ma il meccanismo motorizzato a vite micrometrica, pensato per chi deve *cambiare* fuoco di frequente. BMO fotografa sempre dallo stesso punto, alla stessa distanza: quel meccanismo è capacità che non si userà mai.
 
-**I dissipatori.** "In casa non si superano i 25-26 °C" è la temperatura dell'*aria della stanza*, non quella *dentro una scatola sigillata da 0,5 L*. Una scatola chiusa scambia calore solo per convezione naturale attraverso pareti e feritoie: resistenza termica tipica 8-15 °C/W, quindi anche a 1,5 W di regime l'aria interna può stare 12-22 °C sopra la stanza — 37-48 °C interni. **Questo però non contraddice la richiesta di risparmiare**: 37-48 °C sono ben sotto la soglia di throttling (80 °C) e sotto la Tg del PETG (~80 °C). "Serve o non serve il dissipatore" ha una risposta misurabile, non stimabile: il burn-in di 72 ore della Fase 7.2 registra la temperatura reale ogni minuto. **Quindi: non si compra ora.** Sotto i 65 °C non serve mai; se ci si avvicina, 4 € e cinque minuti senza riaprire la stampa.
+**I dissipatori.** "In casa non si superano i 25-26 °C" è la temperatura dell'*aria della stanza*, non quella *dentro una scatola sigillata da 0,5 L*. Una scatola chiusa scambia calore solo per convezione naturale attraverso pareti e feritoie: resistenza termica tipica 8-15 °C/W, quindi anche a 1,5 W di regime l'aria interna può stare 12-22 °C sopra la stanza — 37-48 °C interni. **Questo però non contraddice la richiesta di risparmiare**: 37-48 °C sono ben sotto la soglia di throttling (80 °C) e sotto la Tg del PETG (~80 °C). "Serve o non serve il dissipatore" ha una risposta misurabile, non stimabile: il burn-in di 72 ore della Fase 6.2 registra la temperatura reale ogni minuto. **Quindi: non si compra ora.** Sotto i 65 °C non serve mai; se ci si avvicina, 4 € e cinque minuti senza riaprire la stampa.
 
 ### 1.1ter · La minuteria, voce per voce
 
@@ -108,7 +109,7 @@ Dei 12 € originari, ~5,50 € sono l'essenziale.
 
 ### 1.2bis · Perché la musica va sulla microSD e non su una chiavetta USB
 
-Una chiavetta aggiunge un file system rimovibile da montare, un punto in cui una rimozione a caldo può corrompere dati, un componente da procurarsi. La microSD di sistema (32 GB) ospita comodamente la libreria in `/home/bmo/musica/`, popolata via SSH/SCP dal Mac. **Zero costo aggiuntivo, un componente fisico in meno, la porta USB-A resta genuinamente libera** — buona per una chiavetta di diagnostica o per un microfono USB di riserva.
+Una chiavetta aggiunge un file system rimovibile da montare, un punto in cui una rimozione a caldo può corrompere dati, un componente da procurarsi. La microSD di sistema (32 GB) ospita comodamente la libreria in `/home/bmo/musica/`, popolata via SSH/SCP dal PC di sviluppo. **Zero costo aggiuntivo, un componente fisico in meno, la porta USB-A resta genuinamente libera** — buona per una chiavetta di diagnostica o per un microfono USB di riserva.
 
 ### 1.2ter · Lo spegnimento: perché la USB non può sostituire il cavo, e perché non serve nessuno dei due
 
@@ -354,7 +355,7 @@ metti_in_pausa_l_ascolto(minuti: int)
 | **Vision** | **Cloud** | Stesso modello, stessa conversazione: sparisce il model swap da ~1 minuto |
 | **Ricerca web** | **Ibrido** | Funzione locale (DuckDuckGo) + ragionamento in cloud |
 | **TTS** | **Cloud** | Vedi sotto |
-| **Clip di attesa e di errore** | **Locale — ma sono file, non un motore** | Pre-generate col TTS di Gemini sul Mac. Latenza zero, RAM zero |
+| **Clip di attesa e di errore** | **Locale — ma sono file, non un motore** | Pre-generate col TTS di Gemini sul PC di sviluppo. Latenza zero, RAM zero |
 | **Faccia** | Locale | Nessuna latenza di rete è accettabile per un'animazione |
 
 **Sul TTS**: il piano precedente aveva scelto Piper in locale per la sincronizzazione labiale. Quell'argomento **non regge più**: la sincronia gratis viene dal conoscere l'intera forma d'onda prima di riprodurla, e questo vale per **qualsiasi TTS non in streaming**, cloud incluso. L'argomento colpiva la *Live API*, non il cloud in sé.
@@ -447,12 +448,12 @@ pcm.snooped { type dsnoop ipc_key 2048
 
 Il codec gira a 48 kHz; il ricampionamento a 16 kHz è in software e trascurabile. Il `dsnoop` permette a wake word e cattura di leggere lo **stesso** microfono senza litigare. Niente PipeWire in V1.
 
-### 2.11 Pipeline asset della faccia — gira sul Mac
+### 2.11 Pipeline asset della faccia — gira sul PC di sviluppo
 
-Le GIF non si decodificano sul Pi. Si convertono **una volta sul Mac** in un `.bin` di fotogrammi RGB565 grezzi più un manifesto JSON con le regioni; il Pi lo mappa in memoria e fa `write()` sul bus. Decodifica a runtime: zero. Memoria: ~2 MB.
+Le GIF non si decodificano sul Pi. Si convertono **una volta sul PC di sviluppo** (il portatile Linux) in un `.bin` di fotogrammi RGB565 grezzi più un manifesto JSON con le regioni; il Pi lo mappa in memoria e fa `write()` sul bus. Decodifica a runtime: zero. Memoria: ~2 MB.
 
 ```python
-# build_face.py — sul Mac, una volta
+# build_face.py — sul PC di sviluppo, una volta
 from PIL import Image
 def rgb565(im):
     px = im.convert("RGB").tobytes()
@@ -470,93 +471,110 @@ Fra due fotogrammi cambiano ~12.000 pixel su 76.800: da 153,6 kB a **24,7 kB per
 
 ## 3 · Roadmap
 
-**Nulla del lavoro software dipende dall'arrivo dei componenti.** L'attesa è di giorni, non settimane — e il Pi è già in mano.
+> **Aggiornamento 2026-09-19 — roadmap software-first.** Questa sezione sostituisce la roadmap hardware-first della rev. 5.1, che partiva da "decidere il display e ordinare". Adesso **tutto il software si scrive prima**, sul PC di sviluppo (il portatile Linux omarchy), usando webcam, microfono e altoparlanti del computer. **Comprare i componenti elettronici è l'ultima fase.** Le analisi delle sezioni 1 e 2 restano valide: cambia solo l'ordine in cui si fanno le cose.
+
+**Nessun pezzo del software aspetta l'hardware.** `bmo-core` è costruito attorno ad adapter intercambiabili ([`bmo-core/`](../bmo-core/)): webcam V4L2 al posto della camera CSI, microfono e casse del PC al posto del HAT WM8960. Il resto del codice dipende solo dalle interfacce, quindi il passaggio al Pi cambia un solo punto (`BMO_ENV=pi`). Il Pi è già in mano e raggiungibile via SSH: il software ci si sposta appena funziona sul PC. I componenti si comprano per ultimi, quando il software è finito e se ne conoscono i requisiti reali (RAM, leggibilità della faccia, sensibilità del microfono).
 
 ```
-        S0            S1            S2            S3            S4
-ORDINI  [ordine microSD (1 g)]
-        [ordine Welectron + Amazon ──]
-SOFTW.  [F0.3 giro Gemini sul Mac]
-        [F4 cervello completo sul Mac ────────────]
-              [asset faccia · clip attesa · wake word ──────]
-HARDW.  [F1 bring-up]▲       [F2 audio][F3 display][F5 camera]
-              arriva microSD    ▲ arriva l'ordine principale
-MECC.   [F6a provini]                 [F6b telaio e guscio ────]
-INTEGR.                                     [F7 integrazione + burn-in 72 h]
+FASE 1  Software su PC    [giro Gemini][cervello: strumenti, stato, memoria ────────]
+                                 [clip di attesa · wake word · faccia · foto ────]
+FASE 2  Porting sul Pi                        [irrobustimento · deploy · misure RAM]
+FASE 3  Acquisto                                                 [ordine UE]
+FASE 4  Hardware                                                      [audio][display][camera]
+FASE 5  Meccanica         [provini, quando capita]                    [telaio e guscio ──]
+FASE 6  Integrazione                                                               [burn-in 72 h]
+FASE 7  V2                (solo dopo due settimane di BMO in casa)
 ```
 
-### Fase 0 — Decidere e ordinare *(giorno 1, mezza giornata)*
+Le milestone su GitHub seguono questa divisione:
 
-**0.1 · Congelare la configurazione.** La sola domanda aperta: display 2.4" o 3.5" (§1.3). Se non si riesce a decidere, prendere il 2.4". *Criterio di uscita*: nel titolo dell'inserzione devono comparire **ILI9341** *e* **240×320** *e* **senza touch**. È il rischio d'acquisto numero uno: gli ST7789 da 240×240 sono i più venduti.
+| Milestone | Fasi |
+|---|---|
+| **1 · Software su PC (bmo-core)** | Fase 1 |
+| **2 · Porting sul Pi** | Fase 2 |
+| **3 · Acquisto hardware e integrazione** | Fasi 3–6 |
+| **4 · V2** | Fase 7 |
 
-**0.2 · Comprare la microSD subito, separatamente.** Per cominciare la fase 1 il prima possibile. *Verifica*: se il computer usato per il setup non ha lo slot SD, aggiungere un lettore microSD USB-C.
+### Fase 1 — Software su PC *(bmo-core su omarchy)*
 
-**0.3 · Chiave API e primo contatto con Gemini** — *il singolo esperimento che vale di più di tutto il progetto*. Venti righe sul Mac: tre secondi di audio → `gemini-3.8-flash` con una `function_declaration` per `imposta_timer`. *Criterio di uscita*: «Metti un timer di dieci minuti» produce `imposta_timer(durata_secondi=600, etichetta="...")`. Provare anche «che ore sono» **senza** iniettare l'ora: si vedrà il modello inventare, dimostrazione pratica del perché §2.3 esiste.
+Tutto gira con `BMO_ENV=dev-linux`: `WebcamV4L2Adapter` per la foto, `ArecordAdapter` sul microfono del portatile, `MpvAdapter` sulle sue casse. Prima di cominciare, le verifiche del [README di bmo-core](../bmo-core/README.md) (`arecord -l`, `v4l2-ctl --list-devices`, `mpv` e `ffmpeg` installati).
 
-### Fase 1 — Bring-up del Pi *(una sera)*
+**1.1 · Chiave API e primo contatto con Gemini** — *il singolo esperimento che vale di più di tutto il progetto*. Venti righe sul PC di sviluppo: tre secondi di audio dal microfono del portatile → `gemini-3.8-flash` con una `function_declaration` per `imposta_timer`. *Criterio di uscita*: «Metti un timer di dieci minuti» produce `imposta_timer(durata_secondi=600, etichetta="...")`. Provare anche «che ore sono» **senza** iniettare l'ora: si vedrà il modello inventare, dimostrazione pratica del perché §2.3 esiste.
 
-**1.1 · Sistema headless a 64 bit.** Raspberry Pi Imager, **Raspberry Pi OS Lite arm64**, hostname `bmo`, chiave SSH, SSID e password. Mai collegato un monitor.
+**1.2 · Il giro completo.** `brain.py` con `ascolta()`, `rispondi()`, `strumenti()`, collegati agli adapter e mai alle classi concrete. *Uscita*: venti frasi di prova — **sotto 18 su 20 il problema è il prompt di sistema**. Qui entrano il fallback a un modello inferiore quando finisce la quota e il riepilogo forzato quando il loop agentico tocca il tetto di 4 giri/20 s.
 
-**1.2 · Irrobustimento per il 24/7.** `systemctl disable dphys-swapfile`; `apt install zram-tools` con 256 MB in zstd; `Storage=volatile` in `journald.conf`; `dtparam=watchdog=on` + `RuntimeWatchdogSec=15`; `gpu_mem=16`; `dtparam=spi=on`. *Uscita*: `free -m` intorno a 90 MB usati, 0 di swap su disco; `vcgencmd get_throttled` = `0x0`.
+**1.3 · Strumenti e stato.** Le dieci funzioni della §2.4, la macchina a stati della §2.1, la memoria persistente con conferma vocale obbligatoria (stato `CONFIRM`) e l'elenco configurabile delle persone di casa nel prompt di sistema. *Il test brutale che vale più di dieci unit test*: far partire un timer, uccidere il processo, riavviarlo, verificare che suoni all'ora giusta.
 
-### Fase 2 — Audio *(una sera)*
+**1.4 · Le clip di attesa.** Una ventina di clip brevi in italiano generate col TTS di Gemini — attesa («ci penso!», «un attimo…», «vediamo…»), conferma, errore di rete, timer scaduto. Suonano sulle casse del PC tramite `MpvAdapter`. *Uscita*: BMO non resta mai muto per più di 0,3 s.
+
+**1.5 · Wake word sul microfono del PC.** `pip install openwakeword onnxruntime`, modello `hey_jarvis`, collegata alla macchina a stati. La soglia tarata qui è **provvisoria**: il microfono del portatile non è il MEMS del HAT. Serve a scrivere e collaudare tutta la logica (rilevamento → ascolto → risposta → ritorno in attesa); il cancello vero, a 3 metri con la TV accesa, resta alla fase 4.4. *Uscita*: il giro completo parte a voce, senza toccare la tastiera, dal portatile a un metro.
+
+**1.6 · La faccia in una finestra.** La pipeline asset della §2.11 gira sul PC di sviluppo; `bmo-face` disegna in una finestra 320×240 invece che sul bus SPI, con gli stati minimi della §2.11 pilotati da `bmo-core` sullo stesso socket Unix che userà sul Pi. *Uscita, due*: (a) tutti gli stati, battito di palpebre irregolare, bocca pilotata dall'inviluppo RMS; (b) la finestra mostrata **alle dimensioni fisiche del pannello** (48,96 × 36,72 mm per il 2.4") per una prima prova di leggibilità delle tre righe da 20 caratteri a mezzo metro. Il punto (b) dà un dato concreto per la scelta del display (§1.3) prima di comprarlo.
+
+**1.7 · Foto con la webcam.** `scatta_foto` con `WebcamV4L2Adapter`, JPEG a Flash col pattern in due parti della §2.4. *Uscita*: «cosa vedi?» con qualcosa davanti alla webcam → descrizione corretta in meno di 6 s.
+
+### Fase 2 — Porting sul Pi *(il Pi è già in mano)*
+
+Il bring-up è fatto (settembre 2026): Raspberry Pi OS a 64 bit (Debian 13 trixie), SSH a sola chiave pubblica, Wi-Fi configurato. Senza HAT audio né display, il Pi basta già per misurare quello che conta davvero: RAM, stabilità, tempi.
+
+**2.1 · Irrobustimento per il 24/7.** L'immagine installata è quella **con desktop** (`graphical.target`, ~187 MB occupati a riposo su 415 MB visibili): è la prima cosa da togliere. `sudo systemctl set-default multi-user.target` (oppure riflashare la versione Lite), poi `systemctl disable dphys-swapfile`; `apt install zram-tools` con 256 MB in zstd; `Storage=volatile` in `journald.conf`; `dtparam=watchdog=on` + `RuntimeWatchdogSec=15`; `gpu_mem=16`; `dtparam=spi=on`. *Uscita*: `free -m` intorno a 90 MB usati, 0 di swap su disco; `vcgencmd get_throttled` = `0x0`.
+
+**2.2 · Deploy a un comando.** Uno script che dal PC di sviluppo sincronizza `bmo-core` e `bmo-face` sul Pi e riavvia i servizi. Socket Unix, due servizi systemd con `Restart=always` e `MemoryMax=`.
+
+**2.3 · Misure sul Pi senza periferiche.** Il giro completo con l'audio letto da file WAV al posto del microfono e l'uscita sul jack da 3,5 mm (bastano degli auricolari). Qui si misura anche se STT/TTS locali (whisper.cpp tiny + Piper) stanno nei 512 MB, come riserva per quando manca la rete. `systemd-cgtop` per una giornata intera. *Uscita*: **picco RSS totale < 320 MB, zero eventi OOM in 24 h.**
+
+### Fase 3 — Acquisto dei componenti *(l'ultima spesa)*
+
+**3.1 · Congelare la configurazione.** La sola domanda aperta: display 2.4" o 3.5" (§1.3), ora con la prova di leggibilità della fase 1.6 in mano. Se non si riesce a decidere, prendere il 2.4". *Criterio di uscita*: nel titolo dell'inserzione devono comparire **ILI9341** *e* **240×320** *e* **senza touch**. È il rischio d'acquisto numero uno: gli ST7789 da 240×240 sono i più venduti.
+
+**3.2 · Un solo ordine, tutto UE.** La distinta della §1.1. La microSD c'è già: il Pi ci fa il boot dal bring-up. Se le misure della fase 2 o la wake word provvisoria della fase 1.5 hanno cambiato qualcosa (per esempio un microfono USB direzionale come piano B), si corregge la distinta **prima** di ordinare.
+
+### Fase 4 — Hardware: audio, display, fotocamera *(all'arrivo dell'ordine)*
+
+Si passa a `BMO_ENV=pi` con le periferiche vere. Il software è già finito: questa fase valida l'hardware, non scrive codice nuovo.
 
 > L'audio va **prima** del display: è il sottosistema su cui poggia l'intera interazione ora che non ci sono pulsanti.
 
-**2.1 · Il HAT.** Infilare il HAT, aggiungere `dtoverlay=wm8960-soundcard`, riavviare, `aplay -l` e `arecord -l`. Poi `speaker-test -c2 -twav` con `watch -n1 vcgencmd get_throttled`. *Uscita*: rumore rosa all'80% per due minuti con `get_throttled = 0x0`.
+**4.1 · Il HAT.** Infilare il HAT, aggiungere `dtoverlay=wm8960-soundcard`, riavviare, `aplay -l` e `arecord -l`. Poi `speaker-test -c2 -twav` con `watch -n1 vcgencmd get_throttled`. *Uscita*: rumore rosa all'80% per due minuti con `get_throttled = 0x0`.
 
-**2.2 · Pressione sonora — il criterio che questa revisione mette a rischio.** Rumore rosa all'80%, fonometro (basta un'app) a 1 m. **Obiettivo ≥ 78 dB.** Se non basta: secondo altoparlante, poi camera di compressione, poi MAX98357A esterno sul line-out (~8 €). **Misurare prima di chiudere la meccanica.**
+**4.2 · Pressione sonora — il criterio che questa revisione mette a rischio.** Rumore rosa all'80%, fonometro (basta un'app) a 1 m. **Obiettivo ≥ 78 dB.** Se non basta: secondo altoparlante, poi camera di compressione, poi MAX98357A esterno sul line-out (~8 €). **Misurare prima di chiudere la meccanica.**
 
-**2.3 · Ingresso e convivenza dei flussi.** `arecord -D hw:0,0 -f S32_LE -r 48000 -c2 test.wav`; picco a voce normale a **1,5 m** fra −18 e −6 dBFS. Poi il `~/.asoundrc` della §2.10, e la prova vera: `mpv` che suona mentre due `arecord` leggono contemporaneamente. *Uscita*: trascrizione corretta da Gemini **a 3 metri**.
+**4.3 · Ingresso e convivenza dei flussi.** `arecord -D hw:0,0 -f S32_LE -r 48000 -c2 test.wav`; picco a voce normale a **1,5 m** fra −18 e −6 dBFS. Poi il `~/.asoundrc` della §2.10, e la prova vera: `mpv` che suona mentre due `arecord` leggono contemporaneamente. *Uscita*: trascrizione corretta da Gemini **a 3 metri**.
 
-**2.4 · Wake word sul dispositivo vero — il vero cancello della fase.** `pip install openwakeword onnxruntime`, modello `hey_jarvis`, soglia tarata **nella stanza vera, con la TV accesa**. *Uscita*: **≥ 9 rilevamenti su 10 a 3 metri con la TV accesa, e meno di un falso positivo al giorno.**
+**4.4 · Wake word sul dispositivo vero — il vero cancello della fase.** La soglia della fase 1.5 si ritara **nella stanza vera, con la TV accesa**, sul microfono del HAT. *Uscita*: **≥ 9 rilevamenti su 10 a 3 metri con la TV accesa, e meno di un falso positivo al giorno.**
 
-### Fase 3 — Display e faccia *(due sere)*
+**4.5 · Primo pixel.** `luma.lcd` con **`gpio_LIGHT=12`**. Prima di collegare VCC, cercare il regolatore sul modulo. *Uscita*: un rettangolo rosso — valida cablaggio, tensione e init insieme.
 
-**3.1 · Primo pixel.** `luma.lcd` con **`gpio_LIGHT=12`**. Prima di collegare VCC, cercare il regolatore sul modulo. *Uscita*: un rettangolo rosso — valida cablaggio, tensione e init insieme.
+**4.6 · Misurare il bus prima di progettarci sopra.** Cento fotogrammi pieni cronometrati + mille blit di una finestra 120×56. Alzare il clock SPI finché non compaiono artefatti, poi tornare indietro di uno scalino (40–62,5 MHz con cavi corti). *Uscita*: ≥30 fps a schermo pieno e >150 blit/s.
 
-**3.2 · Misurare il bus prima di progettarci sopra.** Cento fotogrammi pieni cronometrati + mille blit di una finestra 120×56. Alzare il clock SPI finché non compaiono artefatti, poi tornare indietro di uno scalino (40–62,5 MHz con cavi corti). *Uscita*: ≥30 fps a schermo pieno e >150 blit/s.
+**4.7 · `bmo-face` sul display vero.** Lo stesso `bmo-face` della fase 1.6, con l'uscita sul bus SPI invece che in una finestra. *Uscita, due*: (a) 25 fps sotto il 10% di un core; (b) **tre righe da 20 caratteri leggibili a mezzo metro**. Il punto (b) decide la dimensione del guscio: verificarlo **prima** di stampare.
 
-**3.3 · `bmo-face` e la prova di leggibilità.** *Uscita, due*: (a) 25 fps sotto il 10% di un core; (b) **tre righe da 20 caratteri leggibili a mezzo metro**. Il punto (b) decide la dimensione del guscio: verificarlo **prima** di stampare.
+**4.8 · Fotocamera.** `libcamera-still` al posto della webcam, stesso pattern della fase 1.7. **Taratura una tantum della lente a ~30 cm** (non 1,5 m) con un giornale: sbloccare la ghiera con una pinzetta, ruotare fino a fuoco netto, fissare con una goccia di smalto. Nessuna finestrella trasparente davanti alla lente. *Uscita*: «cosa vedi?» con qualcosa a ~30 cm → descrizione corretta in meno di 6 s.
 
-### Fase 4 — Il cervello *(settimane 0–2, sul Mac)*
+### Fase 5 — Meccanica *(provini quando capita, telaio e guscio con l'hardware in mano)*
 
-**4.1 · Il giro completo, senza hardware.** `brain.py` con `ascolta()`, `rispondi()`, `strumenti()`. *Uscita*: venti frasi di prova — **sotto 18 su 20 il problema è il prompt di sistema**.
+**5.1 · Provini, prima di tutto.** Non richiedono componenti e si possono fare in qualsiasi momento. I cinque criteri nello slicer (è un guscio o una figura? profondità interna netta ≥ 50 mm? si riapre? faccia piana? meno di 300k triangoli?), poi mascherina e provino della finestra. Dieci minuti ciascuno.
 
-**4.2 · Strumenti e stato.** Le dieci funzioni della §2.4. *Il test brutale che vale più di dieci unit test*: far partire un timer, uccidere il processo, riavviarlo, verificare che suoni all'ora giusta.
+**5.2 · Telaio parametrico.** Calibro alla mano su display, HAT, altoparlanti. **Profondità del guscio: 55 mm** (stack con HAT su header extra-tall ~50 mm: 2,5 parete + 5 display + 3 gap + 20 Pi + 11 HAT + 6 raggio cavi + 2,5). Stampare prima il provino delle torrette.
 
-**4.3 · Le clip di attesa.** Una ventina di clip brevi in italiano generate col TTS di Gemini — attesa («ci penso!», «un attimo…», «vediamo…»), conferma, errore di rete, timer scaduto. *Uscita*: BMO non resta mai muto per più di 0,3 s.
+**5.3 · Guscio: finestra, feritoie, griglie, magneti.** Tutto come *negative volume*, zero CAD: finestra passante **47,6 × 35,4 × 10 mm** (2.4"), tasca d'appoggio ~72 × 45 × 3,4 mm (PCB Waveshare 70,5 × 43,3), griglia altoparlante a fori esagonali Ø 3,2 mm con muri da 1 mm (~55% aperto), foro microfono Ø 4 mm singolo, feritoie ≥300 mm² in basso e in alto su pareti opposte, tasche per i magneti. *Stampa*: PETG, 0,2 mm (0,12 per la mascherina), 3 perimetri sul guscio e 4 sul telaio, 15% gyroid. **Ordine**: mascherina → provino finestra → provino torrette → telaio (~3 h) → guscio (7–10 h).
 
-**4.4 · Portare tutto sul Pi.** Socket Unix, due servizi systemd con `Restart=always` e `MemoryMax=`. `systemd-cgtop` per una giornata intera. *Uscita*: **picco RSS totale < 320 MB, zero eventi OOM in 24 h.**
+**5.4 · Assemblaggio.** Cablaggio completo **fuori dal guscio**, tutto acceso e funzionante. Poi l'altoparlante con la guarnizione (non si raggiunge più dopo), poi il Pi col HAT, per ultimo il display. Prova a telaio nudo. **USB-A e microSD affacciate su un fianco** (~45 mm liberi in linea).
 
-### Fase 5 — Fotocamera *(una sera)*
+### Fase 6 — Integrazione e messa in esercizio
 
-`libcamera-still`, JPEG a Flash col pattern in due parti della §2.4. **Taratura una tantum della lente a ~30 cm** (non 1,5 m) con un giornale: sbloccare la ghiera con una pinzetta, ruotare fino a fuoco netto, fissare con una goccia di smalto. Nessuna finestrella trasparente davanti alla lente. *Uscita*: «cosa vedi?» con qualcosa a ~30 cm → descrizione corretta in meno di 6 s.
+**6.1 · Avvio automatico e resilienza.** `Restart=always`, `RestartSec=2`, `After=network-online.target` solo per core. Watchdog hardware attivo. *Il dettaglio che fa la differenza*: **la faccia deve accendersi prima che la rete sia pronta**, con lo stato "assonnato". *Aggiunta di questa revisione*: uno stato **`errore-rete`** esplicito — un BMO cloud senza rete è muto, e deve **dirlo con la faccia** invece di sembrare guasto.
 
-### Fase 6 — Meccanica *(provini alla S0, resto alle 3–4)*
+**6.2 · Burn-in di 72 ore.** Script che ogni minuto registra temperatura, RSS, `get_throttled`, stato Wi-Fi, uptime dei servizi e conteggio delle chiamate API. *Criteri, tutti e sei*: temp max **< 65 °C** · `get_throttled = 0x0` per 72 h · zero riavvii dei servizi · zero disconnessioni Wi-Fi · RSS stabile entro il 5% · **zero falsi positivi della wake word durante la notte**. *Termica*: < 65 °C nessuna ventola; 65–75 allargare le feritoie; > 75 ventola 25 mm — ma è una sorgente di rumore a 8 cm dai microfoni, e quel rumore lo si paga in accuratezza per sempre. *Dissipatori*: se ci si avvicina ai 65 °C, 4 € e cinque minuti senza riaprire nulla.
 
-**6.1 · Provini, prima di tutto.** I cinque criteri nello slicer (è un guscio o una figura? profondità interna netta ≥ 50 mm? si riapre? faccia piana? meno di 300k triangoli?), poi mascherina e provino della finestra. Dieci minuti ciascuno.
+**6.3 · Rifinitura del carattere.** Personalità nel prompt, `imposta_espressione` collegato agli stati della faccia, un suono di avvio, il battito di palpebre irregolare. La scelta della voce fra le ~30 di Gemini TTS va fatta qui, ascoltandone cinque di seguito sulla stessa frase.
 
-**6.2 · Telaio parametrico.** Calibro alla mano su display, HAT, altoparlanti. **Profondità del guscio: 55 mm** (stack con HAT su header extra-tall ~50 mm: 2,5 parete + 5 display + 3 gap + 20 Pi + 11 HAT + 6 raggio cavi + 2,5). Stampare prima il provino delle torrette.
+### Fase 7 — V2 *(solo dopo due settimane di BMO in casa)*
 
-**6.3 · Guscio: finestra, feritoie, griglie, magneti.** Tutto come *negative volume*, zero CAD: finestra passante **47,6 × 35,4 × 10 mm** (2.4"), tasca d'appoggio ~72 × 45 × 3,4 mm (PCB Waveshare 70,5 × 43,3), griglia altoparlante a fori esagonali Ø 3,2 mm con muri da 1 mm (~55% aperto), foro microfono Ø 4 mm singolo, feritoie ≥300 mm² in basso e in alto su pareti opposte, tasche per i magneti. *Stampa*: PETG, 0,2 mm (0,12 per la mascherina), 3 perimetri sul guscio e 4 sul telaio, 15% gyroid. **Ordine**: mascherina → provino finestra → provino torrette → telaio (~3 h) → guscio (7–10 h).
-
-**6.4 · Assemblaggio.** Cablaggio completo **fuori dal guscio**, tutto acceso e funzionante. Poi l'altoparlante con la guarnizione (non si raggiunge più dopo), poi il Pi col HAT, per ultimo il display. Prova a telaio nudo. **USB-A e microSD affacciate su un fianco** (~45 mm liberi in linea).
-
-### Fase 7 — Integrazione e messa in esercizio *(settimana 4)*
-
-**7.1 · Avvio automatico e resilienza.** `Restart=always`, `RestartSec=2`, `After=network-online.target` solo per core. Watchdog hardware attivo. *Il dettaglio che fa la differenza*: **la faccia deve accendersi prima che la rete sia pronta**, con lo stato "assonnato". *Aggiunta di questa revisione*: uno stato **`errore-rete`** esplicito — un BMO cloud senza rete è muto, e deve **dirlo con la faccia** invece di sembrare guasto.
-
-**7.2 · Burn-in di 72 ore.** Script che ogni minuto registra temperatura, RSS, `get_throttled`, stato Wi-Fi, uptime dei servizi e conteggio delle chiamate API. *Criteri, tutti e sei*: temp max **< 65 °C** · `get_throttled = 0x0` per 72 h · zero riavvii dei servizi · zero disconnessioni Wi-Fi · RSS stabile entro il 5% · **zero falsi positivi della wake word durante la notte**. *Termica*: < 65 °C nessuna ventola; 65–75 allargare le feritoie; > 75 ventola 25 mm — ma è una sorgente di rumore a 8 cm dai microfoni, e quel rumore lo si paga in accuratezza per sempre. *Dissipatori*: se ci si avvicina ai 65 °C, 4 € e cinque minuti senza riaprire nulla.
-
-**7.3 · Rifinitura del carattere.** Personalità nel prompt, `imposta_espressione` collegato agli stati della faccia, un suono di avvio, il battito di palpebre irregolare. La scelta della voce fra le ~30 di Gemini TTS va fatta qui, ascoltandone cinque di seguito sulla stessa frase.
-
-### Fase 8 — V2 *(solo dopo due settimane di BMO in casa)*
-
-**8.1 · Barge-in** — promosso a **funzione più importante della V2**: senza pulsanti è l'unico modo di interrompere BMO. `speexdsp` AEC sfruttando il codec condiviso.
-**8.2 · Grounding nativo** — al passaggio al piano a pagamento, `google_search` al posto di `cerca_sul_web`.
-**8.3 · Modalità Live** — `LiveBrain` dietro la stessa interfaccia. Latenza ~0,85 s invece di ~3, al prezzo dell'inviluppo calcolato al volo e di un costo 4–5× superiore.
-**8.4 · Domotica** — una sola funzione che parla a Home Assistant, lasciando a lui il compito di conoscere i dispositivi.
+**7.1 · Barge-in** — promosso a **funzione più importante della V2**: senza pulsanti è l'unico modo di interrompere BMO. `speexdsp` AEC sfruttando il codec condiviso.
+**7.2 · Grounding nativo** — al passaggio al piano a pagamento, `google_search` al posto di `cerca_sul_web`.
+**7.3 · Modalità Live** — `LiveBrain` dietro la stessa interfaccia. Latenza ~0,85 s invece di ~3, al prezzo dell'inviluppo calcolato al volo e di un costo 4–5× superiore.
+**7.4 · Domotica** — una sola funzione che parla a Home Assistant, lasciando a lui il compito di conoscere i dispositivi.
 
 ---
 
@@ -565,11 +583,11 @@ INTEGR.                                     [F7 integrazione + burn-in 72 h]
 | Rischio | Quando | Contromisura |
 |---|---|---|
 | **Si compra il pannello sbagliato** | alta, alla consegna | ILI9341 **e** 240×320 **e** no touch nel titolo |
-| **Il modello 3D non ha volume interno utile** | alta, settimana 0 | I cinque criteri nello slicer, dieci minuti, prima di stampare |
-| **La wake word non regge a 3 m** | **media, il rischio nuovo di questa revisione** | Senza pulsanti non c'è fallback. Cancello esplicito alla fase 2.4, con hardware ancora sul tavolo. Piano B: mic USB direzionale da 10 € |
-| 1 W su 8 Ω non basta per la cucina | media, fase 2.2 | Misurare col fonometro **prima** di chiudere la meccanica |
-| Backlight su GPIO18 che rompe l'I2S | media, fase 3 | `gpio_LIGHT=12`. Sintomo indiretto: il display funziona e l'audio smette |
-| `openwakeword` che non si installa | media, fase 2.4 | Sistema **arm64** e `onnxruntime` esplicito |
+| **Il modello 3D non ha volume interno utile** | alta, fase 5.1 | I cinque criteri nello slicer, dieci minuti, prima di stampare |
+| **La wake word non regge a 3 m** | **media, il rischio nuovo di questa revisione** | Senza pulsanti non c'è fallback. Logica collaudata sul PC alla fase 1.5, cancello esplicito alla fase 4.4 con hardware ancora sul tavolo. Piano B: mic USB direzionale da 10 € |
+| 1 W su 8 Ω non basta per la cucina | media, fase 4.2 | Misurare col fonometro **prima** di chiudere la meccanica |
+| Backlight su GPIO18 che rompe l'I2S | media, fasi 4.5–4.7 | `gpio_LIGHT=12`. Sintomo indiretto: il display funziona e l'audio smette |
+| `openwakeword` che non si installa | media, fase 4.4 | Sistema **arm64** e `onnxruntime` esplicito |
 | Il calore ammorbidisce il guscio in PLA | media, estate | PETG + feritoie passanti |
 | Il SoC va in throttling senza dissipatori | bassa | Il burn-in lo dice con certezza; si aggiungono dopo in 5 minuti |
 | Foto ravvicinate sfocate | media, se ci si fida del preset di fabbrica | Il modulo esce tarato all'infinito: la taratura a pinza è un passo da 5 minuti, non opzionale |
@@ -582,11 +600,11 @@ INTEGR.                                     [F7 integrazione + burn-in 72 h]
 
 ## In tre righe
 
-**Comprare la microSD subito e fare il bring-up il prima possibile; fare il giro completo di Gemini sul Mac; ordinare il resto in UE in un colpo solo.**
+**Scrivere tutto il software sul PC di sviluppo con `bmo-core`, portarlo sul Pi che è già in mano e misurarlo lì; comprare i componenti per ultimi, in UE, in un colpo solo.**
 
 Il passaggio al cloud non è un ripiego imposto dai 512 MB: è ciò che rende il progetto **più semplice** del riferimento tecnico esterno, non solo più economico. Sparisce l'inferenza locale, e con lei l'SSD, l'acceleratore, lo swap dei modelli, il minuto di attesa per una foto e i 250 € di hardware che esistevano solo per tenere i pesi in RAM. La premessa "solo voce" cancella un intero sottoprogetto — PCB in KiCad, microcontrollore, sette pulsanti — e in cambio chiede **una sola cosa in più**: che la wake word funzioni davvero, perché non c'è più nessun pulsante dietro cui ripararsi.
 
-È per questo che in questa roadmap l'audio viene prima del display, e la wake word a 3 metri con la TV accesa è un criterio di uscita e non una nota a piè di pagina.
+È per questo che nella fase hardware l'audio viene prima del display, e la wake word a 3 metri con la TV accesa è un criterio di uscita e non una nota a piè di pagina.
 
 ---
 
