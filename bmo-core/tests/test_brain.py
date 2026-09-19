@@ -196,3 +196,24 @@ def test_main_stampa_messaggio_invece_del_traceback(monkeypatch, capsys):
     with pytest.raises(SystemExit) as uscita:
         brain_modulo.main()
     assert "BMO non ci arriva" in str(uscita.value)
+
+
+def test_cervello_ripiega_sul_modello_di_riserva():
+    from google.genai import errors
+
+    class Client:
+        def __init__(self):
+            self.models = self
+            self.modelli = []
+
+        def generate_content(self, *, model, contents, config):
+            self.modelli.append(model)
+            if model == "primario":
+                raise errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "x"}})
+            return _risposta_testo("Eccomi!")
+
+    client = Client()
+    cervello = Cervello(client=client, microfono=MicrofonoFinto(), modelli=["primario", "riserva"])
+    risposta = cervello.rispondi(testo="ciao")
+    assert (risposta.testo, risposta.modello) == ("Eccomi!", "riserva")
+    assert client.modelli == ["primario", "riserva"]

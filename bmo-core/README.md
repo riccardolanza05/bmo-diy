@@ -74,6 +74,34 @@ python -m bmo_core.prova_frasi --voce          # le 20 frasi lette al microfono
 
 Criterio di uscita della #19: almeno 18 frasi su 20 corrette.
 
+## Cascata di modelli (issue #12)
+
+Se il modello primario risponde con quota esaurita (429) o sovraccarico
+(500/502/503/504), `modelli.py` passa subito al modello successivo della
+cascata, configurata in una variabile d'ambiente e non nel codice:
+
+```bash
+# quali modelli ha a disposizione la tua chiave
+python -c "from google import genai; [print(m.name) for m in genai.Client().models.list() if 'flash' in m.name]"
+
+export BMO_GEMINI_MODELLI="gemini-3.8-flash,<modello-di-riserva>"
+```
+
+| Errore | Cosa fa | Per quanto sospende il modello |
+|---|---|---|
+| 429 quota | passa al successivo | il `retryDelay` indicato da Google, altrimenti 60 s |
+| 5xx sovraccarico | passa al successivo | 30 s |
+| 404 modello inesistente | passa al successivo | 1 ora |
+| altri 4xx (richiesta, chiave) | si ferma subito: cambiare modello non serve | — |
+| rete giù | si ferma subito: gli altri modelli sono sullo stesso server | — |
+
+Scaduta la sospensione, il primario torna a essere provato per primo. Se
+sono tutti sospesi si riprova comunque il primario; se falliscono tutti,
+`GeminiNonDisponibile` dice il tipo (`quota`, `sovraccarico`, `rete`), che sul
+dispositivo diventerà la frase e la faccia dello stato di errore. L'SDK fa 2
+tentativi per modello invece dei 5 predefiniti, per non aspettare 15 s prima
+di cambiare modello.
+
 ## Sviluppo
 
 ```bash

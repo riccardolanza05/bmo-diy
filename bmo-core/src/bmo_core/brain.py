@@ -11,7 +11,6 @@ altri strumenti arrivano con l'issue #20.
 """
 from __future__ import annotations
 
-import os
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -23,8 +22,7 @@ import httpx
 from google.genai import errors, types
 
 from .adapters import AudioInputAdapter, crea_audio_input
-
-MODELLO_PREDEFINITO = "gemini-3.8-flash"
+from .modelli import TENTATIVI_SDK, CascataModelli, GeminiNonDisponibile
 FUSO_ORARIO = ZoneInfo("Europe/Rome")
 DURATA_ASCOLTO_S = 3.0
 MAX_GIRI = 4
@@ -92,6 +90,7 @@ class ChiamataStrumento:
 class Risposta:
     testo: str
     chiamate: list[ChiamataStrumento] = field(default_factory=list)
+    modello: str = ""
 
 
 def _durata_parlata(secondi: int) -> str:
@@ -130,7 +129,7 @@ def contesto_dinamico(ora: datetime, timer: list[Timer], inietta_ora: bool = Tru
     return "\n".join(righe)
 
 
-ERRORI_GEMINI = (errors.APIError, httpx.HTTPError)
+ERRORI_GEMINI = (GeminiNonDisponibile, errors.APIError, httpx.HTTPError)
 
 
 def descrivi_errore(errore: Exception) -> str:
@@ -139,6 +138,12 @@ def descrivi_errore(errore: Exception) -> str:
     Sul dispositivo vero questi casi diventano lo stato [ERRORE] della §2.1
     (clip "non ci arrivo" e faccia triste), non un traceback.
     """
+    if isinstance(errore, GeminiNonDisponibile):
+        if errore.tipo == "quota":
+            return "quota Gemini esaurita su tutti i modelli della cascata: riprova più tardi"
+        if errore.tipo == "rete":
+            return "rete non raggiungibile"
+        return "Gemini sovraccarico su tutti i modelli della cascata: riprova fra poco"
     if isinstance(errore, errors.APIError):
         if errore.code == 429:
             return "quota Gemini esaurita (429): riprova più tardi o cambia modello"
@@ -163,17 +168,23 @@ class Cervello:
         self,
         client: Any = None,
         microfono: AudioInputAdapter | None = None,
-        modello: str | None = None,
+        modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
         inietta_ora: bool = True,
     ) -> None:
         if client is None:
             from google import genai
 
-            client = genai.Client()  # legge GEMINI_API_KEY dall'ambiente
+            # Legge GEMINI_API_KEY dall'ambiente. Pochi tentativi per modello:
+            # se il primario non risponde si passa alla cascata, non si aspetta.
+            client = genai.Client(
+                http_options=types.HttpOptions(
+                    retry_options=types.HttpRetryOptions(attempts=TENTATIVI_SDK)
+                )
+            )
         self.client = client
         self.microfono = microfono or crea_audio_input()
-        self.modello = modello or os.environ.get("BMO_GEMINI_MODEL", MODELLO_PREDEFINITO)
+        self.cascata = CascataModelli(modelli)
         self.orologio = orologio or (lambda: datetime.now(FUSO_ORARIO))
         self.inietta_ora = inietta_ora
         self.timer: list[Timer] = []
@@ -218,9 +229,10 @@ class Cervello:
 
         eseguite: list[ChiamataStrumento] = []
         risposta = None
+        modello = ""
         for _ in range(MAX_GIRI):
-            risposta = self.client.models.generate_content(
-                model=self.modello,
+            risposta, modello = self.cascata.genera(
+                self.client,
                 contents=contenuti,
                 config=self._configurazione(),
             )
@@ -240,7 +252,7 @@ class Cervello:
                 )
             )
         testo_finale = (risposta.text or "").strip() if risposta is not None else ""
-        return Risposta(testo=testo_finale, chiamate=eseguite)
+        return Risposta(testo=testo_finale, chiamate=eseguite, modello=modello)
 
     def strumenti(self, chiamate: list[types.FunctionCall]) -> list[ChiamataStrumento]:
         """Esegue le chiamate richieste dal modello e ne raccoglie i risultati."""
@@ -290,6 +302,8 @@ def main() -> None:
         raise SystemExit(f"BMO non ci arriva: {descrivi_errore(errore)}") from None
     for chiamata in risposta.chiamate:
         print(f"→ {chiamata.nome}({chiamata.argomenti}) = {chiamata.risultato}")
+    if risposta.modello != cervello.cascata.primario:
+        print(f"(risposto da {risposta.modello}, il primario non era disponibile)")
     print(f"BMO: {risposta.testo}")
 
 
