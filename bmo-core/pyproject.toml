@@ -3,7 +3,7 @@ name = "bmo-core"
 version = "0.1.0"
 description = "Logica di dialogo e adapter hardware per l'assistente BMO"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["google-genai"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

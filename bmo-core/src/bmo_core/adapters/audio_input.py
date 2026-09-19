@@ -58,8 +58,11 @@ class ArecordAdapter:
 
     def registra(self, destinazione: Path, durata_s: float) -> Path:
         destinazione.parent.mkdir(parents=True, exist_ok=True)
+        # `-d` di arecord accetta solo secondi interi: si passa il numero di
+        # campioni con `-s`, cosi' vanno bene anche durate come 1.5 s.
+        campioni = round(durata_s * self.frequenza)
         subprocess.run(
-            self._comando_base() + ["-d", str(durata_s), str(destinazione)],
+            self._comando_base() + ["-s", str(campioni), str(destinazione)],
             check=True,
         )
         return destinazione

@@ -24,7 +24,9 @@ def crea_audio_input(ambiente: Ambiente | None = None) -> AudioInputAdapter:
     ambiente = ambiente or rileva_ambiente()
     if ambiente is Ambiente.PI:
         return ArecordAdapter(dispositivo="hw:0,0", formato="S32_LE")
-    return ArecordAdapter(dispositivo="default")
+    # Sul PC si registra gia' nel formato che va a Gemini (§2.1: WAV 16 kHz
+    # mono): ~96 kB per 3 s invece di ~1,1 MB a 48 kHz stereo 32 bit.
+    return ArecordAdapter(dispositivo="default", frequenza=16000, canali=1, formato="S16_LE")
 
 
 def crea_audio_output(ambiente: Ambiente | None = None) -> AudioOutputAdapter:
