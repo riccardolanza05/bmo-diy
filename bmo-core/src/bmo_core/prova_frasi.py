@@ -1,86 +1,214 @@
-"""Le venti frasi di prova della fase 4.1 (issue #19).
+"""Frasi di prova per il prompt di sistema e gli strumenti (fase 4.1, issue #19).
 
-Criterio di uscita: almeno 18 su 20 corrette. Sotto quella soglia il
-problema è il prompt di sistema, non il modello.
+Criterio di uscita della #19: almeno il 90% di frasi corrette (18 su 20
+nella prima versione, 36 su 40 ora). Sotto quella soglia il problema è il
+prompt di sistema, non il modello.
 
-Una frase è corretta se:
-- per le richieste di timer, il modello chiama `imposta_timer` con la
-  durata attesa in secondi;
-- per tutte le altre, il modello NON chiama strumenti e risponde con del testo.
+Ogni frase dice quali esiti sono accettabili: nessuno strumento, oppure uno
+strumento preciso con alcuni argomenti (numeri uguali, testi contenuti senza
+badare alle maiuscole). `imposta_espressione` non conta mai: il prompt chiede
+di usarla quando la risposta ha un tono, quindi può accompagnare qualsiasi frase.
 
-    python -m bmo_core.prova_frasi            # frasi mandate come testo
-    python -m bmo_core.prova_frasi --voce     # le leggi tu al microfono, una per una
+    python -m bmo_core.prova_frasi                      # frasi mandate come testo
+    python -m bmo_core.prova_frasi --voce               # le leggi tu al microfono
+    python -m bmo_core.prova_frasi --categoria foto     # solo una categoria
+    python -m bmo_core.prova_frasi --prompt nuovo.txt   # prova un prompt fisso diverso
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import Any
 
-from .brain import ERRORI_GEMINI, Cervello, Risposta, descrivi_errore
+from .brain import ERRORI_GEMINI, Cervello, Risposta, Timer, descrivi_errore, prompt_da_file
+from .modelli import GeminiNonDisponibile
+
+SOGLIA = 0.9
+IGNORATI = {"imposta_espressione"}
+
+
+@dataclass(frozen=True)
+class Atteso:
+    strumento: str | None  # None = nessuno strumento
+    argomenti: dict[str, Any] = field(default_factory=dict)
+
+
+def nessuno() -> Atteso:
+    return Atteso(None)
+
+
+def usa(strumento: str, **argomenti: Any) -> Atteso:
+    return Atteso(strumento, argomenti)
 
 
 @dataclass(frozen=True)
 class Frase:
+    categoria: str
     testo: str
-    durata_attesa: int | None  # secondi per imposta_timer, None = nessuno strumento
+    attesi: tuple[Atteso, ...]
+    timer_attivi: tuple[tuple[str, int], ...] = ()  # (etichetta, secondi rimanenti) prima della frase
+
+
+def _f(categoria: str, testo: str, *attesi: Atteso, timer: tuple[tuple[str, int], ...] = ()) -> Frase:
+    return Frase(categoria, testo, attesi, timer)
 
 
 FRASI = [
-    Frase("Metti un timer di dieci minuti", 600),
-    Frase("Timer di cinque minuti per la pasta", 300),
-    Frase("Avvisami fra mezz'ora", 1800),
-    Frase("Mi imposti un timer da un minuto e mezzo per le uova?", 90),
-    Frase("Fra quaranta secondi dimmi di girare la frittata", 40),
-    Frase("Metti un timer di un'ora e un quarto per l'arrosto", 4500),
-    Frase("Timer di tre minuti per il tè", 180),
-    Frase("Ricordami tra venti minuti di togliere la lavatrice", 1200),
-    Frase("Due minuti di timer, per favore", 120),
-    Frase("Fammi partire un conto alla rovescia di quindici minuti", 900),
-    Frase("Ciao BMO, come stai?", None),
-    Frase("Raccontami una barzelletta", None),
-    Frase("Scrivi una poesia sui dinosauri", None),
-    Frase("Quanto fa sette per otto?", None),
-    Frase("Chi è Finn?", None),
-    Frase("Come si dice gatto in inglese?", None),
-    Frase("Che ore sono?", None),
-    Frase("Che giorno è oggi?", None),
-    Frase("Dammi un consiglio per cucinare la pasta al dente", None),
-    Frase("Grazie BMO, sei stato bravissimo", None),
+    # Timer: la durata in secondi deve essere esatta.
+    _f("timer", "Metti un timer di dieci minuti", usa("imposta_timer", durata_secondi=600)),
+    _f("timer", "Timer di cinque minuti per la pasta", usa("imposta_timer", durata_secondi=300)),
+    _f("timer", "Avvisami fra mezz'ora", usa("imposta_timer", durata_secondi=1800)),
+    _f("timer", "Mi imposti un timer da un minuto e mezzo per le uova?", usa("imposta_timer", durata_secondi=90)),
+    _f("timer", "Fra quaranta secondi dimmi di girare la frittata", usa("imposta_timer", durata_secondi=40)),
+    _f("timer", "Metti un timer di un'ora e un quarto per l'arrosto", usa("imposta_timer", durata_secondi=4500)),
+    _f("timer", "Timer di tre minuti per il tè", usa("imposta_timer", durata_secondi=180)),
+    _f("timer", "Ricordami tra venti minuti di togliere la lavatrice", usa("imposta_timer", durata_secondi=1200)),
+    _f("timer", "Due minuti di timer, per favore", usa("imposta_timer", durata_secondi=120)),
+    _f("timer", "Fammi partire un conto alla rovescia di quindici minuti", usa("imposta_timer", durata_secondi=900)),
+    _f("gestione_timer", "Annulla il timer della pasta", usa("annulla_timer", etichetta="pasta"),
+       timer=(("pasta", 300),)),
+    _f("gestione_timer", "Quanti timer ho attivi?", usa("elenca_timer"), nessuno(),
+       timer=(("pasta", 300), ("uova", 90))),
+    # Foto: solo quando la domanda riguarda ciò che BMO vede.
+    _f("foto", "Cosa vedi davanti a te?", usa("scatta_foto")),
+    _f("foto", "Che cosa c'è sul tavolo?", usa("scatta_foto")),
+    _f("foto", "Guarda questa pianta: secondo te sta bene?", usa("scatta_foto")),
+    _f("foto", "Fai una foto e dimmi cosa vedi", usa("scatta_foto")),
+    # Musica e radio.
+    _f("musica", "Metti Radio Deejay", usa("riproduci_musica", sorgente="radio", query="deejay")),
+    _f("musica", "Accendi la radio", usa("riproduci_musica", sorgente="radio")),
+    _f("musica", "Metti Bohemian Rhapsody dei Queen", usa("riproduci_musica", sorgente="libreria", query="bohemian")),
+    _f("musica", "Fammi sentire un po' di jazz", usa("riproduci_musica")),
+    _f("musica", "Riproduci il video di Gangnam Style", usa("riproduci_musica", query="gangnam"), nessuno()),
+    _f("musica", "Metti in pausa la musica", usa("controllo_riproduzione", azione="pausa")),
+    _f("musica", "Passa alla canzone successiva", usa("controllo_riproduzione", azione="successivo")),
+    _f("volume", "Alza il volume al settanta percento", usa("regola_volume", percentuale=70)),
+    _f("volume", "Abbassa un po' il volume", usa("regola_volume")),
+    _f("pausa", "Smetti di ascoltare per un'ora", usa("metti_in_pausa_l_ascolto", minuti=60)),
+    # Web: meteo e fatti che cambiano nel tempo.
+    _f("web", "Che tempo fa a Roma?", usa("cerca_sul_web", query="roma")),
+    _f("web", "Che tempo farà a Torino domani alle otto di sera?", usa("cerca_sul_web", query="torino")),
+    _f("web", "Chi ha vinto l'ultima partita dell'Inter?", usa("cerca_sul_web", query="inter")),
+    _f("web", "Che ore sono a Tokyo?", nessuno(), usa("cerca_sul_web", query="tokyo")),
+    # Nessuno strumento: BMO risponde e basta.
+    _f("conversazione", "Ciao BMO, come stai?", nessuno()),
+    _f("conversazione", "Raccontami una barzelletta", nessuno()),
+    _f("conversazione", "Scrivi una poesia sui dinosauri", nessuno()),
+    _f("conversazione", "Quanto fa sette per otto?", nessuno()),
+    _f("conversazione", "Chi è Finn?", nessuno()),
+    _f("conversazione", "Come si dice gatto in inglese?", nessuno()),
+    _f("conversazione", "Che ore sono?", nessuno()),
+    _f("conversazione", "Che giorno è oggi?", nessuno()),
+    _f("conversazione", "Dammi un consiglio per cucinare la pasta al dente", nessuno()),
+    _f("conversazione", "Grazie BMO, sei stato bravissimo", nessuno()),
 ]
 
 
+def _argomenti_ok(attesi: dict[str, Any], ricevuti: dict[str, Any]) -> bool:
+    for nome, valore in attesi.items():
+        if nome not in ricevuti:
+            return False
+        if isinstance(valore, int):
+            try:
+                if int(ricevuti[nome]) != valore:
+                    return False
+            except (TypeError, ValueError):
+                return False
+        elif str(valore).lower() not in str(ricevuti[nome]).lower():
+            return False
+    return True
+
+
 def valuta(frase: Frase, risposta: Risposta) -> bool:
-    timer = [c for c in risposta.chiamate if c.nome == "imposta_timer"]
-    if frase.durata_attesa is None:
-        return not risposta.chiamate and bool(risposta.testo)
-    return len(timer) == 1 and int(timer[0].argomenti.get("durata_secondi", -1)) == frase.durata_attesa
+    chiamate = [c for c in risposta.chiamate if c.nome not in IGNORATI]
+    for atteso in frase.attesi:
+        if atteso.strumento is None:
+            if not chiamate and risposta.testo:
+                return True
+        elif (
+            len(chiamate) == 1
+            and chiamate[0].nome == atteso.strumento
+            and _argomenti_ok(atteso.argomenti, chiamate[0].argomenti)
+        ):
+            return True
+    return False
+
+
+def _prepara(cervello: Cervello, frase: Frase) -> None:
+    ora = cervello.orologio()
+    cervello.timer = [Timer(e, ora + timedelta(seconds=s)) for e, s in frase.timer_attivi]
+
+
+def _descrivi_attesi(frase: Frase) -> str:
+    return " oppure ".join(
+        "nessuno strumento" if a.strumento is None else f"{a.strumento}({a.argomenti or ''})"
+        for a in frase.attesi
+    )
 
 
 def main() -> None:
     import argparse
+    from pathlib import Path
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--voce", action="store_true", help="leggi ogni frase al microfono")
     parser.add_argument("--durata", type=float, default=4.0, help="secondi di ascolto per frase (--voce)")
+    parser.add_argument("--categoria", help="prova solo questa categoria")
+    parser.add_argument("--prompt", type=Path, help="file di testo da usare come prompt fisso")
+    parser.add_argument("--pausa", type=float, default=4.0, help="secondi fra una frase e l'altra (limiti al minuto)")
     argomenti = parser.parse_args()
 
-    corrette = 0
-    for numero, frase in enumerate(FRASI, start=1):
-        cervello = Cervello()  # stato pulito a ogni frase
-        try:
-            if argomenti.voce:
-                input(f"\n[{numero}/20] Premi Invio e di': «{frase.testo}»")
-                risposta = cervello.rispondi(audio_wav=cervello.ascolta(argomenti.durata))
-            else:
-                risposta = cervello.rispondi(testo=frase.testo)
-        except ERRORI_GEMINI as errore:
-            print(f"✗ {numero:2}. {frase.testo}\n     ERRORE: {descrivi_errore(errore)}")
-            continue
-        esito = valuta(frase, risposta)
-        corrette += esito
-        chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"
-        print(f"{'✓' if esito else '✗'} {numero:2}. {frase.testo}\n     {chiamate} · {risposta.testo}")
+    frasi = [f for f in FRASI if not argomenti.categoria or f.categoria == argomenti.categoria]
+    if not frasi:
+        categorie = ", ".join(sorted({f.categoria for f in FRASI}))
+        raise SystemExit(f"categoria sconosciuta; disponibili: {categorie}")
 
-    print(f"\n{corrette}/20 corrette — {'OK' if corrette >= 18 else 'SOTTO SOGLIA: rivedere il prompt di sistema'}")
+    esiti: dict[str, list[bool]] = {}
+    errori = 0
+    modelli: Counter[str] = Counter()
+    for numero, frase in enumerate(frasi, start=1):
+        cervello = Cervello(**prompt_da_file(argomenti.prompt))  # stato pulito a ogni frase
+        _prepara(cervello, frase)
+        audio = None
+        if argomenti.voce:
+            input(f"\n[{numero}/{len(frasi)}] Premi Invio e di': «{frase.testo}»")
+            audio = cervello.ascolta(argomenti.durata)
+        risposta = None
+        for tentativo in range(2):
+            try:
+                risposta = cervello.rispondi(audio_wav=audio, testo=None if audio else frase.testo)
+                break
+            except ERRORI_GEMINI as errore:
+                if tentativo == 0 and isinstance(errore, GeminiNonDisponibile) and errore.tipo != "rete":
+                    print(f"   … {descrivi_errore(errore)}: riprovo fra 30 s")
+                    time.sleep(30)
+                    continue
+                print(f"!  {numero:2}. {frase.testo}\n     ERRORE (escluso dal punteggio): {descrivi_errore(errore)}")
+                errori += 1
+                break
+        if risposta is not None:
+            esito = valuta(frase, risposta)
+            esiti.setdefault(frase.categoria, []).append(esito)
+            modelli[risposta.modello] += 1
+            chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"
+            print(f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}\n     {chiamate} · {risposta.testo}")
+            if not esito:
+                print(f"     atteso: {_descrivi_attesi(frase)}")
+        if numero < len(frasi):
+            time.sleep(argomenti.pausa)
+
+    print("\nPer categoria:")
+    for categoria, lista in esiti.items():
+        print(f"  {categoria:15} {sum(lista)}/{len(lista)}")
+    corrette = sum(sum(lista) for lista in esiti.values())
+    valutate = sum(len(lista) for lista in esiti.values())
+    if len(modelli) > 1 or errori:
+        print(f"Modelli che hanno risposto: {dict(modelli)} · errori esclusi: {errori}")
+    percentuale = corrette / valutate if valutate else 0.0
+    verdetto = "OK" if percentuale >= SOGLIA else "SOTTO SOGLIA: rivedere il prompt di sistema"
+    print(f"\n{corrette}/{valutate} corrette ({percentuale:.0%}) — {verdetto}")
 
 
 if __name__ == "__main__":

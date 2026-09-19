@@ -6,7 +6,6 @@ from google.genai import types
 
 import bmo_core.brain as brain_modulo
 from bmo_core.brain import FUSO_ORARIO, Cervello, contesto_dinamico
-from bmo_core.prova_frasi import FRASI, Frase, valuta
 
 ORA = datetime(2026, 9, 8, 22, 14, tzinfo=FUSO_ORARIO)
 
@@ -121,7 +120,6 @@ def test_prompt_contiene_strato_fisso_e_dinamico():
     fisso, dinamico = config.system_instruction
     assert "Sei BMO" in fisso
     assert "22:14 DI MARTEDÌ 8 SETTEMBRE 2026" in dinamico
-    assert config.tools[0].function_declarations[0].name == "imposta_timer"
 
 
 def test_contesto_dinamico_timer_e_senza_ora():
@@ -156,14 +154,44 @@ def test_brain_non_importa_adapter_concreti():
     assert nomi.isdisjoint({"ArecordAdapter", "MpvAdapter", "LibcameraAdapter", "WebcamV4L2Adapter"})
 
 
-def test_valutazione_frasi():
-    assert len(FRASI) == 20
+def test_tutti_gli_strumenti_della_2_4_dichiarati():
+    cervello, client = _cervello([_risposta_testo("ok")])
+    cervello.rispondi(testo="ciao")
+    nomi = {d.name for d in client.richieste[0]["config"].tools[0].function_declarations}
+    assert nomi == {
+        "scatta_foto", "cerca_sul_web", "imposta_timer", "annulla_timer", "elenca_timer",
+        "riproduci_musica", "controllo_riproduzione", "regola_volume", "imposta_espressione",
+        "metti_in_pausa_l_ascolto",
+    }
+
+
+def test_strumenti_non_ancora_pronti_rispondono_non_disponibile():
     cervello, _ = _cervello([])
-    esito_timer = cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"durata_secondi": 600, "etichetta": "x"})])
-    assert valuta(Frase("timer", 600), brain_modulo.Risposta("ok", esito_timer))
-    assert not valuta(Frase("timer", 300), brain_modulo.Risposta("ok", esito_timer))
-    assert not valuta(Frase("ciao", None), brain_modulo.Risposta("ok", esito_timer))
-    assert valuta(Frase("ciao", None), brain_modulo.Risposta("Ciao!", []))
+    [esito] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
+    assert esito.risultato["stato"] == "non_disponibile"
+
+
+def test_annulla_ed_elenca_timer():
+    cervello, _ = _cervello([])
+    for etichetta, secondi in (("pasta", 300), ("uova", 90)):
+        cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"durata_secondi": secondi, "etichetta": etichetta})])
+    [elenco] = cervello.strumenti([types.FunctionCall(name="elenca_timer", args={})])
+    assert [t["etichetta"] for t in elenco.risultato["timer"]] == ["pasta", "uova"]
+    [annullato] = cervello.strumenti([types.FunctionCall(name="annulla_timer", args={"etichetta": "Pasta"})])
+    assert annullato.risultato == {"stato": "ok", "annullati": 1}
+    assert [t.etichetta for t in cervello.timer] == ["uova"]
+    cervello.strumenti([types.FunctionCall(name="annulla_timer", args={})])
+    assert cervello.timer == []
+
+
+def test_prompt_fisso_sostituibile(tmp_path):
+    file = tmp_path / "prompt.txt"
+    file.write_text("You are BMO. Always answer in Italian.", encoding="utf-8")
+    client = ClientFinto([_risposta_testo("ok")])
+    cervello = Cervello(client=client, microfono=MicrofonoFinto(), orologio=lambda: ORA,
+                        **brain_modulo.prompt_da_file(file))
+    cervello.rispondi(testo="ciao")
+    assert client.richieste[0]["config"].system_instruction[0] == "You are BMO. Always answer in Italian."
 
 
 def test_descrivi_errore_senza_traceback():

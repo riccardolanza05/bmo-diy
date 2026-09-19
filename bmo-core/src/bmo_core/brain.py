@@ -5,9 +5,10 @@ Protocol di `adapters.base` e dalle funzioni `crea_*` della factory, mai
 dalle classi concrete: gira identico sul PC di sviluppo e sul Pi.
 
 Riferimenti nel piano: §2.1 (loop agentico, max 4 giri), §2.3 (prompt di
-sistema a due strati), §2.4 (strumenti). Per ora c'è un solo strumento,
-`imposta_timer`, e i timer vivono in memoria: la persistenza su disco e gli
-altri strumenti arrivano con l'issue #20.
+sistema a due strati), §2.4 (strumenti, dichiarati in `strumenti.py`). Per
+ora funzionano davvero solo i timer, in memoria; gli altri strumenti
+rispondono `non_disponibile`. Persistenza e implementazione arrivano con
+l'issue #20.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from google.genai import errors, types
 
 from .adapters import AudioInputAdapter, crea_audio_input
 from .modelli import TENTATIVI_SDK, CascataModelli, GeminiNonDisponibile
+from .strumenti import DICHIARAZIONI
 FUSO_ORARIO = ZoneInfo("Europe/Rome")
 DURATA_ASCOLTO_S = 3.0
 MAX_GIRI = 4
@@ -41,30 +43,14 @@ REGOLE DI FORMA — sono vincolanti, il tuo testo va a un sintetizzatore vocale:
 REGOLE SUGLI STRUMENTI:
 - Usa uno strumento solo se la risposta lo richiede davvero. Una poesia sui dinosauri
   non richiede strumenti.
+- scatta_foto SOLO se la domanda riguarda ciò che vedi o l'ambiente fisico intorno a te.
+  Non scattare foto per curiosità e mai senza che qualcuno te l'abbia chiesto.
+- cerca_sul_web per fatti che cambiano nel tempo: notizie, prezzi, orari, meteo, risultati.
+  Se non sai una cosa, cercala invece di inventarla.
+- Chiama imposta_espressione quando la tua risposta ha un tono preciso.
 - Per imposta_timer converti sempre la durata in secondi e scegli un'etichetta breve
   che descriva a cosa serve il timer.
 """
-
-DICHIARAZIONI = [
-    types.FunctionDeclaration(
-        name="imposta_timer",
-        description="Avvia un timer che suona allo scadere della durata indicata.",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "durata_secondi": types.Schema(
-                    type=types.Type.INTEGER,
-                    description="Durata del timer in secondi, ad esempio 600 per dieci minuti.",
-                ),
-                "etichetta": types.Schema(
-                    type=types.Type.STRING,
-                    description="Nome breve del timer, ad esempio 'pasta'.",
-                ),
-            },
-            required=["durata_secondi", "etichetta"],
-        ),
-    ),
-]
 
 _GIORNI = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO", "DOMENICA"]
 _MESI = [
@@ -157,6 +143,14 @@ def descrivi_errore(errore: Exception) -> str:
     return str(errore)
 
 
+_NOMI_DICHIARATI = {d.name for d in DICHIARAZIONI}
+
+
+def prompt_da_file(percorso: Path | None) -> dict[str, str]:
+    """Argomenti per `Cervello` quando si prova un prompt fisso alternativo da file."""
+    return {"prompt_fisso": percorso.read_text(encoding="utf-8")} if percorso else {}
+
+
 class Cervello:
     """Un turno di dialogo: audio in ingresso, testo e chiamate a strumenti in uscita.
 
@@ -171,6 +165,7 @@ class Cervello:
         modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
         inietta_ora: bool = True,
+        prompt_fisso: str = PROMPT_FISSO,
     ) -> None:
         if client is None:
             from google import genai
@@ -187,9 +182,12 @@ class Cervello:
         self.cascata = CascataModelli(modelli)
         self.orologio = orologio or (lambda: datetime.now(FUSO_ORARIO))
         self.inietta_ora = inietta_ora
+        self.prompt_fisso = prompt_fisso
         self.timer: list[Timer] = []
         self._esecutori: dict[str, Callable[..., dict[str, Any]]] = {
             "imposta_timer": self._imposta_timer,
+            "annulla_timer": self._annulla_timer,
+            "elenca_timer": self._elenca_timer,
         }
 
     def ascolta(self, durata_s: float = DURATA_ASCOLTO_S) -> bytes:
@@ -206,7 +204,7 @@ class Cervello:
     def _configurazione(self) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
             system_instruction=[
-                PROMPT_FISSO,
+                self.prompt_fisso,
                 contesto_dinamico(self.orologio(), self.timer, self.inietta_ora),
             ],
             tools=[types.Tool(function_declarations=DICHIARAZIONI)],
@@ -259,8 +257,14 @@ class Cervello:
         eseguite = []
         for chiamata in chiamate:
             argomenti = dict(chiamata.args or {})
-            esecutore = self._esecutori.get(chiamata.name or "")
-            if esecutore is None:
+            nome = chiamata.name or ""
+            esecutore = self._esecutori.get(nome)
+            if esecutore is None and nome in _NOMI_DICHIARATI:
+                risultato = {
+                    "stato": "non_disponibile",
+                    "motivo": "questa funzione di BMO non è ancora pronta",
+                }
+            elif esecutore is None:
                 risultato = {"errore": f"strumento sconosciuto: {chiamata.name}"}
             else:
                 try:
@@ -278,6 +282,25 @@ class Cervello:
         self.timer.append(Timer(etichetta=etichetta, scadenza=scadenza))
         return {"stato": "ok", "scadenza": scadenza.strftime("%H:%M:%S")}
 
+    def _annulla_timer(self, etichetta: str | None = None) -> dict[str, Any]:
+        prima = len(self.timer)
+        if etichetta:
+            self.timer = [t for t in self.timer if t.etichetta.lower() != etichetta.lower()]
+        else:
+            self.timer = []
+        annullati = prima - len(self.timer)
+        return {"stato": "ok" if annullati else "nessun_timer", "annullati": annullati}
+
+    def _elenca_timer(self) -> dict[str, Any]:
+        ora = self.orologio()
+        return {
+            "timer": [
+                {"etichetta": t.etichetta, "rimanenti_secondi": int((t.scadenza - ora).total_seconds())}
+                for t in self.timer
+                if t.scadenza > ora
+            ]
+        }
+
 
 def main() -> None:
     import argparse
@@ -287,9 +310,10 @@ def main() -> None:
     parser.add_argument("--wav", type=Path, help="usa un file WAV invece del microfono")
     parser.add_argument("--testo", help="manda testo invece di audio")
     parser.add_argument("--senza-ora", action="store_true", help="non iniettare l'ora (esperimento 0.3)")
+    parser.add_argument("--prompt", type=Path, help="file di testo da usare come prompt fisso")
     argomenti = parser.parse_args()
 
-    cervello = Cervello(inietta_ora=not argomenti.senza_ora)
+    cervello = Cervello(inietta_ora=not argomenti.senza_ora, **prompt_da_file(argomenti.prompt))
     audio = None
     if argomenti.wav:
         audio = argomenti.wav.read_bytes()
