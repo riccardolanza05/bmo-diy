@@ -5,6 +5,11 @@ per ora sono veri solo i timer (in memoria); gli altri rispondono
 `non_disponibile` finché non arrivano con l'issue #20. Servono già adesso
 perché la prova delle frasi misura se il modello sceglie lo strumento giusto.
 
+Le descrizioni sono in inglese, la lingua in cui i modelli sono più abituati
+a leggere le dichiarazioni di funzioni; nomi di strumenti e parametri e
+valori ammessi restano in italiano, come il resto del codice. Il prompt di
+sistema resta in italiano.
+
 `imposta_espressione` della §2.4 non è uno strumento: l'espressione arriva
 come etichetta all'inizio della risposta ("[felice] ..."), letta da
 `brain.separa_espressione`. Come strumento costava un secondo giro di
@@ -33,75 +38,109 @@ DICHIARAZIONI = [
     types.FunctionDeclaration(
         name="scatta_foto",
         description=(
-            "Scatta una foto con la fotocamera di BMO, che punta in avanti, e la guarda. "
-            "Da usare solo quando la domanda riguarda ciò che BMO vede o l'ambiente fisico intorno."
+            "Takes a photo with BMO's forward-facing camera and looks at it. Use only when the user "
+            "asks about what BMO can see or the physical surroundings (e.g. 'what's on the table?', "
+            "'look at this plant'). Never use it out of curiosity or unprompted."
         ),
-        parameters=_schema({"motivo": _testo("Perché serve la foto, ad esempio 'descrivere il tavolo'.")}, ["motivo"]),
+        parameters=_schema(
+            {"motivo": _testo("Why the photo is needed, in Italian, e.g. 'descrivere il tavolo'.")},
+            ["motivo"],
+        ),
     ),
     types.FunctionDeclaration(
         name="cerca_sul_web",
         description=(
-            "Cerca sul web e restituisce tre risultati con titolo, estratto e indirizzo. "
-            "Per fatti che cambiano nel tempo: meteo, notizie, risultati sportivi, prezzi, orari."
+            "Searches the web and returns three results with title, snippet and URL. Use for facts "
+            "that change over time: weather, news, sports results, prices, opening hours. Do not use "
+            "it for general knowledge, arithmetic, the current time in Italy or the active timers."
         ),
-        parameters=_schema({"query": _testo("La ricerca, ad esempio 'meteo Roma domani sera'.")}, ["query"]),
+        parameters=_schema(
+            {
+                "query": _testo(
+                    "The search query in Italian, specific and including place and time if given, "
+                    "e.g. 'meteo Roma domani sera'."
+                )
+            },
+            ["query"],
+        ),
     ),
     types.FunctionDeclaration(
         name="imposta_timer",
         description=(
-            "Avvia un timer che suona allo scadere della durata indicata. La durata si dà in ore, "
-            "minuti e secondi, come la dice chi parla: 'un'ora e un quarto' è ore 1 e minuti 15. "
-            "Serve almeno uno fra ore, minuti e secondi."
+            "Starts a timer that rings when the duration has elapsed. Use it for any request to be "
+            "alerted or reminded after an amount of time ('avvisami fra', 'ricordami tra'). Give the "
+            "duration split into ore, minuti and secondi, as integers, exactly as spoken: "
+            "'un'ora e un quarto' = ore 1, minuti 15; 'un minuto e mezzo' = minuti 1, secondi 30; "
+            "'quaranta secondi' = secondi 40. At least one of ore, minuti, secondi is required."
         ),
         parameters=_schema(
             {
-                "etichetta": _testo("Nome breve del timer, ad esempio 'pasta'."),
-                "ore": _intero("Ore della durata."),
-                "minuti": _intero("Minuti della durata."),
-                "secondi": _intero("Secondi della durata."),
+                "etichetta": _testo(
+                    "Short name for the timer in Italian, e.g. 'pasta'. Use 'timer' if no purpose is given."
+                ),
+                "ore": _intero("Hours of the duration (integer)."),
+                "minuti": _intero("Minutes of the duration (integer)."),
+                "secondi": _intero("Seconds of the duration (integer)."),
             },
             ["etichetta"],
         ),
     ),
     types.FunctionDeclaration(
         name="annulla_timer",
-        description="Annulla un timer attivo. Senza etichetta annulla tutti i timer.",
-        parameters=_schema({"etichetta": _testo("Etichetta del timer da annullare.")}),
+        description=(
+            "Cancels an active timer by its label. Omit etichetta ONLY when the user explicitly asks "
+            "to cancel all timers."
+        ),
+        parameters=_schema({"etichetta": _testo("Label of the timer to cancel, as shown in the active timers list.")}),
     ),
     types.FunctionDeclaration(
         name="elenca_timer",
-        description="Elenca i timer attivi con il tempo rimanente.",
+        description="Lists the active timers with their remaining time. The active timers are also shown in the STATO section.",
     ),
     types.FunctionDeclaration(
         name="riproduci_musica",
         description=(
-            "Riproduce musica: dalla libreria locale di brani, oppure una stazione radio via internet. "
-            "BMO non ha uno schermo per i video."
+            "Plays music from the local track library, or an internet radio station. "
+            "BMO has no screen, so it cannot play videos."
         ),
         parameters=_schema(
             {
-                "query": _testo("Cosa riprodurre: titolo, artista, genere o nome della radio."),
-                "sorgente": _testo("Da dove: 'libreria' per i brani, 'radio' per le stazioni.", ["libreria", "radio"]),
+                "query": _testo("What to play: song title, artist, genre or radio station name."),
+                "sorgente": _testo(
+                    "'libreria' for songs, artists or genres; 'radio' for radio stations.",
+                    ["libreria", "radio"],
+                ),
             },
             ["query", "sorgente"],
         ),
     ),
     types.FunctionDeclaration(
         name="controllo_riproduzione",
-        description="Controlla la musica in riproduzione.",
+        description="Controls the music that is currently playing: pause, resume, stop or skip to the next track.",
         parameters=_schema(
-            {"azione": _testo("Cosa fare.", ["pausa", "riprendi", "stop", "successivo"])},
+            {
+                "azione": _testo(
+                    "'pausa' pauses, 'riprendi' resumes, 'stop' stops, 'successivo' skips to the next track.",
+                    ["pausa", "riprendi", "stop", "successivo"],
+                )
+            },
             ["azione"],
         ),
     ),
     types.FunctionDeclaration(
         name="regola_volume",
-        description="Imposta il volume dell'altoparlante.",
-        parameters=_schema({"percentuale": _intero("Volume da 0 a 100.")}, ["percentuale"]),
+        description=(
+            "Sets the speaker volume to an absolute level. For relative requests "
+            "('un po' più basso') choose a sensible absolute value."
+        ),
+        parameters=_schema({"percentuale": _intero("Volume level from 0 to 100.")}, ["percentuale"]),
     ),
     types.FunctionDeclaration(
         name="metti_in_pausa_l_ascolto",
-        description="BMO smette di ascoltare la wake word per il numero di minuti indicato e si addormenta.",
-        parameters=_schema({"minuti": _intero("Per quanti minuti non ascoltare.")}, ["minuti"]),
+        description="BMO stops listening for its wake word for the given number of minutes and goes to sleep.",
+        parameters=_schema(
+            {"minuti": _intero("How many minutes to stop listening, e.g. 60 for 'un'ora'.")},
+            ["minuti"],
+        ),
     ),
 ]

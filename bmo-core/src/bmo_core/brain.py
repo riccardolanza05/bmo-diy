@@ -24,7 +24,7 @@ import httpx
 from google.genai import errors, types
 
 from .adapters import AudioInputAdapter, crea_audio_input
-from .modelli import TENTATIVI_SDK, CascataModelli, GeminiNonDisponibile
+from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
 from .strumenti import DICHIARAZIONI
 
 FUSO_ORARIO = ZoneInfo("Europe/Rome")
@@ -254,6 +254,7 @@ class Cervello:
             # se il primario non risponde si passa alla cascata, non si aspetta.
             client = genai.Client(
                 http_options=types.HttpOptions(
+                    timeout=int(TIMEOUT_TENTATIVO_S * 1000),
                     retry_options=types.HttpRetryOptions(attempts=TENTATIVI_SDK)
                 )
             )

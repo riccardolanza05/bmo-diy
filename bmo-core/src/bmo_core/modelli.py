@@ -37,6 +37,11 @@ SOSPENSIONE_INESISTENTE_S = 3600.0  # 404: nome sbagliato o modello non disponib
 # subito al modello successivo.
 TENTATIVI_SDK = 2
 
+# Tempo massimo di ogni tentativo. Senza, una richiesta accettata ma mai
+# servita lasciava BMO in attesa per sempre (prova del 19/9). L'SDK ripete
+# anche i tentativi scaduti: con 2 tentativi sono circa 30 s per modello.
+TIMEOUT_TENTATIVO_S = 15.0
+
 
 class GeminiNonDisponibile(Exception):
     """Tutti i modelli della cascata hanno fallito.
@@ -119,6 +124,10 @@ class CascataModelli:
                     self.sospendi(modello, SOSPENSIONE_INESISTENTE_S, "inesistente")
                 else:
                     raise
+                errori[modello] = errore
+            except httpx.ReadTimeout as errore:
+                # Il server ha accettato la richiesta ma non risponde: come un sovraccarico.
+                self.sospendi(modello, SOSPENSIONE_SOVRACCARICO_S, "sovraccarico")
                 errori[modello] = errore
             except httpx.TransportError as errore:
                 # Rete giù: gli altri modelli stanno sullo stesso server, inutile provarli.

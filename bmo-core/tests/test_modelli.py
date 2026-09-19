@@ -121,3 +121,11 @@ def test_rete_giu_non_prova_gli_altri_modelli():
         CascataModelli(["primario", "riserva"], orologio=Orologio()).genera(client, contents=[])
     assert errore.value.tipo == "rete"
     assert client.chiamati == ["primario"]
+
+
+def test_richiesta_scaduta_passa_al_modello_di_riserva():
+    """Caso reale del 19/9: richiesta accettata ma mai servita, BMO restava in attesa."""
+    client = ClientProgrammato({"primario": [httpx.ReadTimeout("scaduta")], "riserva": ["ok"]})
+    cascata = CascataModelli(["primario", "riserva"], orologio=Orologio())
+    assert cascata.genera(client, contents=[]) == ("ok", "riserva")
+    assert cascata.disponibili() == ["riserva"]
