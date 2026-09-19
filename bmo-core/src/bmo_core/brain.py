@@ -282,20 +282,36 @@ class Cervello:
             self.microfono.registra(percorso, durata_s)
             return percorso.read_bytes()
 
-    def _configurazione(self) -> types.GenerateContentConfig:
+    def _configurazione(self, senza_strumenti: bool = False) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
             system_instruction=[
                 self.prompt_fisso,
                 contesto_dinamico(self.orologio(), self.timer, self.inietta_ora),
             ],
             tools=[types.Tool(function_declarations=DICHIARAZIONI)],
+            # Gli strumenti restano dichiarati (lo storico contiene già delle
+            # chiamate), ma il modello non può chiederne altri.
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.NONE)
+            )
+            if senza_strumenti
+            else None,
+        )
+
+    def _genera(self, contenuti: list[types.Content], senza_strumenti: bool) -> tuple[Any, str]:
+        return self.cascata.genera(
+            self.client,
+            contents=contenuti,
+            config=self._configurazione(senza_strumenti),
         )
 
     def rispondi(self, audio_wav: bytes | None = None, testo: str | None = None) -> Risposta:
         """Manda audio (o testo, utile per le prove) a Gemini ed esegue il loop agentico.
 
         Ogni `functionCall` viene eseguito da `strumenti()` e il risultato
-        rimandato al modello, per al massimo MAX_GIRI chiamate.
+        rimandato al modello, per al massimo MAX_GIRI richieste. L'ultima è
+        senza strumenti, così il turno finisce sempre con del testo; una
+        risposta fatta solo dell'etichetta della faccia viene riprovata una volta.
         """
         if audio_wav is None and testo is None:
             raise ValueError("serve audio_wav oppure testo")
@@ -309,13 +325,16 @@ class Cervello:
         eseguite: list[ChiamataStrumento] = []
         risposta = None
         modello = ""
-        for _ in range(MAX_GIRI):
-            risposta, modello = self.cascata.genera(
-                self.client,
-                contents=contenuti,
-                config=self._configurazione(),
-            )
+        for giro in range(MAX_GIRI):
+            # All'ultimo giro niente strumenti: il turno finisce sempre con del testo.
+            ultimo = giro == MAX_GIRI - 1
+            risposta, modello = self._genera(contenuti, ultimo)
             chiamate = risposta.function_calls or []
+            if not chiamate and not separa_espressione(testo_della_risposta(risposta))[1]:
+                # Solo l'etichetta ("[felice]") e nessuna chiamata, come in due
+                # timer della prova del 19/9: si riprova una volta.
+                risposta, modello = self._genera(contenuti, ultimo)
+                chiamate = risposta.function_calls or []
             if not chiamate:
                 break
             contenuti.append(risposta.candidates[0].content)

@@ -98,6 +98,25 @@ def test_loop_agentico_limitato_a_quattro_giri():
     )
     cervello.rispondi(testo="timer infiniti")
     assert len(client.richieste) == brain_modulo.MAX_GIRI
+    # Solo l'ultima richiesta vieta nuove chiamate, così il turno finisce con del testo.
+    modi = [r["config"].tool_config for r in client.richieste]
+    assert modi[:-1] == [None] * (brain_modulo.MAX_GIRI - 1)
+    assert modi[-1].function_calling_config.mode == types.FunctionCallingConfigMode.NONE
+
+
+def test_solo_etichetta_senza_chiamata_riprovata_una_volta():
+    """Caso reale del 19/9: «Fra quaranta secondi…» → solo "[felice]", nessuno strumento."""
+    cervello, client = _cervello(
+        [
+            _risposta_testo("[felice]"),
+            _risposta_chiamata("imposta_timer", secondi=40, etichetta="frittata"),
+            _risposta_testo("[felice] Fra quaranta secondi ti avviso."),
+        ]
+    )
+    risposta = cervello.rispondi(testo="Fra quaranta secondi dimmi di girare la frittata")
+    assert risposta.testo == "Fra quaranta secondi ti avviso."
+    assert [c.nome for c in risposta.chiamate] == ["imposta_timer"]
+    assert len(client.richieste) == 3
 
 
 def test_strumento_sconosciuto_e_argomenti_errati_non_sollevano():
@@ -314,8 +333,9 @@ def test_risposta_vuota_ne_dice_il_motivo():
     vuota = types.GenerateContentResponse(
         candidates=[types.Candidate(content=types.Content(role="model", parts=[]), finish_reason="STOP")]
     )
-    cervello, _ = _cervello([vuota])
+    cervello, client = _cervello([vuota, vuota])
     assert cervello.rispondi(testo="ciao").motivo_vuota == "finish_reason STOP"
+    assert len(client.richieste) == 2  # riprovata una volta
 
     cervello, _ = _cervello([_risposta_testo("[felice] Ciao!")])
     assert cervello.rispondi(testo="ciao").motivo_vuota is None
