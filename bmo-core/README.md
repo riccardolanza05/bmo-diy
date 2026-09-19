@@ -82,7 +82,7 @@ cascata, configurata in una variabile d'ambiente e non nel codice:
 
 ```bash
 # quali modelli ha a disposizione la tua chiave
-python -c "from google import genai; [print(m.name) for m in genai.Client().models.list() if 'flash' in m.name]"
+python -c "from google import genai; c = genai.Client(); [print(m.name) for m in c.models.list() if 'flash' in m.name]"
 
 export BMO_GEMINI_MODELLI="gemini-3.8-flash,<modello-di-riserva>"
 ```
