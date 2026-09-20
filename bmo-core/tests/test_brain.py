@@ -408,6 +408,8 @@ def test_tutti_gli_strumenti_della_2_4_dichiarati():
         "riproduci_musica", "controllo_riproduzione", "regola_volume", "metti_in_pausa_l_ascolto",
         # La radio si scorre e si salva (#20): due strumenti in più della §2.4.
         "salva_stazione", "elenca_stazioni",
+        # Il diario si scrive con conferma (#14.2): un altro strumento in più.
+        "ricorda",
     }
 
 

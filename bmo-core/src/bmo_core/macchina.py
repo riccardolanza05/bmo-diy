@@ -43,6 +43,7 @@ from .adapters import (
 )
 from .brain import ERRORI_GEMINI, DURATA_ASCOLTO_S, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
+from .memoria import aggiungi_voce
 from .radio import Radio
 from .sveglia import Sveglia
 
@@ -101,6 +102,9 @@ class Macchina:
         # La pausa la sa solo la macchina: il cervello si limita a chiamare
         # lo strumento quando il modello lo chiede.
         cervello.registra_strumento("metti_in_pausa_l_ascolto", self.metti_in_pausa)
+        # Idem per la scrittura del diario (#14.2): serve chiedi_conferma, che
+        # è della macchina, non del cervello.
+        cervello.registra_strumento("ricorda", self._ricorda)
 
     # --- strumento della §2.4 ------------------------------------------------
 
@@ -124,15 +128,46 @@ class Macchina:
             return False
         return True
 
+    def _ricorda(self, testo: str) -> dict[str, Any]:
+        """Lo strumento `ricorda` (#14.2): propone, chiede conferma, scrive.
+
+        Nessuna scrittura silenziosa (#14): il diario si tocca solo dopo un
+        sì esplicito da `chiedi_conferma`. Un "no" o un "non ho capito" non
+        sono errori — il modello deve poterli distinguere per dire la cosa
+        giusta — quindi tornano come `stato: annullato` con un `motivo`, non
+        come eccezione.
+
+        Nota per chi tocca il tetto del turno (#18, TETTO_TURNO_S): questa
+        chiamata può bloccare fino a ~16 s (due ascolti di
+        DURATA_ASCOLTO_CONFERMA_S) dentro un giro del loop agentico, che il
+        cronometro del turno non scorpora. È accettato per ora: chi sta
+        aspettando una conferma sta parlando con BMO, non aspettando in
+        silenzio, e il caso serio (rete giù durante la conferma) lo gestisce
+        già `classifica_risposta` restituendo "boh". Se in pratica il tetto
+        dei 20 s salta spesso per questo, va rivisto.
+        """
+        testo = (testo or "").strip()
+        if not testo:
+            raise ValueError("testo non può essere vuoto")
+        confermato = self.chiedi_conferma(f"Vuoi che mi ricordi che {testo}?")
+        if confermato is True:
+            aggiungi_voce(
+                self.cervello.diario_percorso, testo, self.orologio().strftime("%Y-%m-%d"), fonte="modello"
+            )
+            return {"stato": "ok"}
+        if confermato is False:
+            return {"stato": "annullato", "motivo": "rifiutato"}
+        return {"stato": "annullato", "motivo": "non ho capito la conferma"}
+
     # --- sotto-dialogo di conferma (#17) --------------------------------------
 
     def chiedi_conferma(self, domanda: str) -> bool | None:
         """Proponi/conferma a voce, senza richiedere di nuovo il richiamo.
 
         Nato dalla #14 (memoria persistente): nessuna scrittura deve avvenire
-        in silenzio. Oggi non ha ancora un chiamante concreto — arriverà con
-        la #14.2 — ma è pensato per essere riusabile per qualunque azione che
-        meriti una conferma esplicita, come chiede l'issue #17.
+        in silenzio — `_ricorda` (#14.2) è il primo chiamante. Pensato per
+        essere riusabile per qualunque altra azione che meriti una conferma
+        esplicita, come chiede l'issue #17.
 
         Restituisce True se confermato, False se rifiutato esplicitamente,
         None se non è arrivata una risposta chiara: silenzio, rumore, o

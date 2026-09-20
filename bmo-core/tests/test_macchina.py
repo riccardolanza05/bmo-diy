@@ -14,6 +14,7 @@ from bmo_core.adapters import (
 from bmo_core.brain import Cervello, Risposta
 from bmo_core.config import FUSO_ORARIO
 from bmo_core.macchina import Macchina, Stato
+from bmo_core.memoria import carica_diario
 from bmo_core.modelli import GeminiNonDisponibile
 
 ORA = datetime(2026, 9, 20, 21, 0, tzinfo=FUSO_ORARIO)
@@ -48,6 +49,7 @@ class CervelloFinto:
         self.strumenti_registrati = {}
         self._classificazioni = list(classificazioni or [])
         self.audio_classificati = []
+        self.diario_percorso = None
 
     def registra_strumento(self, nome, esecutore):
         self.strumenti_registrati[nome] = esecutore
@@ -199,3 +201,43 @@ def test_chiedi_conferma_ambigua_non_fa_un_loop():
     assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is None
     assert len(dette) == 2  # la domanda e il chiarimento, non un terzo tentativo
     assert len(cervello.ascolti) == 2  # non tre
+
+
+def test_ricorda_scrive_dopo_conferma_esplicita(tmp_path):
+    """#14.2: nessuna scrittura silenziosa, ma un sì esplicito scrive davvero."""
+    percorso = tmp_path / "memoria.json"
+    macchina, _, cervello, dette = _macchina([], classificazioni=["si"])
+    cervello.diario_percorso = percorso
+    esito = macchina._ricorda("non gli piacciono i funghi")
+    assert esito == {"stato": "ok"}
+    assert dette[0] == "Vuoi che mi ricordi che non gli piacciono i funghi?"
+    [voce] = carica_diario(percorso)
+    assert (voce.testo, voce.fonte, voce.aggiunta_il) == ("non gli piacciono i funghi", "modello", "2026-09-20")
+
+
+def test_ricorda_rifiutato_non_scrive_nulla(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    macchina, _, cervello, _ = _macchina([], classificazioni=["no"])
+    cervello.diario_percorso = percorso
+    assert macchina._ricorda("ceno alle 20") == {"stato": "annullato", "motivo": "rifiutato"}
+    assert not percorso.exists()
+
+
+def test_ricorda_ambiguo_non_scrive_nulla(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    macchina, _, cervello, _ = _macchina([], classificazioni=["boh", "boh"])
+    cervello.diario_percorso = percorso
+    esito = macchina._ricorda("ceno alle 20")
+    assert esito == {"stato": "annullato", "motivo": "non ho capito la conferma"}
+    assert not percorso.exists()
+
+
+def test_ricorda_testo_vuoto_rifiutato():
+    macchina, _, _, _ = _macchina([])
+    with pytest.raises(ValueError):
+        macchina._ricorda("   ")
+
+
+def test_ricorda_registrato_come_strumento():
+    macchina, _, cervello, _ = _macchina([])
+    assert cervello.strumenti_registrati["ricorda"] == macchina._ricorda
