@@ -2,10 +2,13 @@ import ast
 from datetime import datetime
 from pathlib import Path
 
+import httpx
+import pytest
 from google.genai import types
 
 import bmo_core.brain as brain_modulo
 from bmo_core.brain import FUSO_ORARIO, Cervello, contesto_dinamico
+from bmo_core.modelli import TIMEOUT_TENTATIVO_S, GeminiNonDisponibile
 
 ORA = datetime(2026, 9, 8, 22, 14, tzinfo=FUSO_ORARIO)
 
@@ -29,17 +32,38 @@ def _risposta_chiamata(nome, **argomenti):
     )
 
 
-class ClientFinto:
-    """Sostituto di google.genai.Client: restituisce risposte preparate e registra le richieste."""
+class CronometroFinto:
+    """Orologio monotono finto, così il tetto del turno (#18) si prova senza aspettare."""
 
-    def __init__(self, risposte):
+    def __init__(self):
+        self.adesso = 0.0
+
+    def __call__(self) -> float:
+        return self.adesso
+
+
+class ClientFinto:
+    """Sostituto di google.genai.Client: restituisce risposte preparate e registra le richieste.
+
+    Un elemento di `risposte` che è un'eccezione viene sollevato, e `costo_s`
+    fa avanzare il cronometro come farebbe una richiesta vera.
+    """
+
+    def __init__(self, risposte, cronometro=None, costo_s=0.0):
         self._risposte = list(risposte)
         self.richieste = []
         self.models = self
+        self.cronometro = cronometro
+        self.costo_s = costo_s
 
     def generate_content(self, *, model, contents, config):
         self.richieste.append({"model": model, "contents": list(contents), "config": config})
-        return self._risposte.pop(0)
+        if self.cronometro is not None:
+            self.cronometro.adesso += self.costo_s
+        risposta = self._risposte.pop(0)
+        if isinstance(risposta, Exception):
+            raise risposta
+        return risposta
 
 
 class MicrofonoFinto:
@@ -55,9 +79,28 @@ class MicrofonoFinto:
         yield b""
 
 
-def _cervello(risposte, **opzioni):
-    client = ClientFinto(risposte)
-    return Cervello(client=client, microfono=MicrofonoFinto(), orologio=lambda: ORA, **opzioni), client
+class FacciaFinta:
+    """Registra gli stati che il cervello le chiede di mostrare."""
+
+    def __init__(self):
+        self.stati = []
+
+    def mostra(self, stato: str) -> None:
+        self.stati.append(stato)
+
+
+def _cervello(risposte, costo_s=0.0, **opzioni):
+    cronometro = CronometroFinto()
+    client = ClientFinto(risposte, cronometro, costo_s)
+    cervello = Cervello(
+        client=client,
+        microfono=MicrofonoFinto(),
+        faccia=opzioni.pop("faccia", FacciaFinta()),
+        orologio=lambda: ORA,
+        cronometro=cronometro,
+        **opzioni,
+    )
+    return cervello, client
 
 
 def test_timer_di_dieci_minuti_produce_imposta_timer():
@@ -92,16 +135,92 @@ def test_risposta_senza_strumenti_fa_un_solo_giro():
     assert len(client.richieste) == 1
 
 
-def test_loop_agentico_limitato_a_quattro_giri():
+def test_quattro_giri_con_strumenti_poi_riepilogo_forzato():
+    """Issue #18: i 4 giri sono tutti utilizzabili, il riepilogo è una richiesta in più."""
     cervello, client = _cervello(
-        [_risposta_chiamata("imposta_timer", minuti=1, etichetta=f"t{i}") for i in range(10)]
+        [_risposta_chiamata("imposta_timer", minuti=1, etichetta=f"t{i}") for i in range(4)]
+        + [_risposta_testo("[felice] Ho messo i timer.")]
     )
-    cervello.rispondi(testo="timer infiniti")
-    assert len(client.richieste) == brain_modulo.MAX_GIRI
-    # Solo l'ultima richiesta vieta nuove chiamate, così il turno finisce con del testo.
+    risposta = cervello.rispondi(testo="timer infiniti")
+    assert len(client.richieste) == brain_modulo.MAX_GIRI + 1
+    # Anche la chiamata del quarto giro viene eseguita, non buttata via.
+    assert len(risposta.chiamate) == brain_modulo.MAX_GIRI
+    assert risposta.riepilogo == "tetto di 4 giri"
+    assert risposta.testo == "Ho messo i timer."
+    # Solo il riepilogo vieta nuove chiamate e porta l'istruzione in più.
     modi = [r["config"].tool_config for r in client.richieste]
-    assert modi[:-1] == [None] * (brain_modulo.MAX_GIRI - 1)
+    assert modi[:-1] == [None] * brain_modulo.MAX_GIRI
     assert modi[-1].function_calling_config.mode == types.FunctionCallingConfigMode.NONE
+    istruzioni = client.richieste[-1]["config"].system_instruction
+    assert len(istruzioni) == 3 and istruzioni[-1] == brain_modulo.ISTRUZIONE_RIEPILOGO
+    assert len(client.richieste[0]["config"].system_instruction) == 2
+
+
+def test_riepilogo_quando_finisce_il_tempo():
+    """Con richieste da 8 s la riserva per il riepilogo è intaccata al terzo giro."""
+    cervello, client = _cervello(
+        [
+            _risposta_chiamata("cerca_sul_web", query="meteo Torino domani"),
+            _risposta_chiamata("cerca_sul_web", query="previsioni Torino sera"),
+            _risposta_testo("[pensieroso] Non sono riuscito a sapere che tempo farà."),
+        ],
+        costo_s=8.0,
+    )
+    risposta = cervello.rispondi(testo="Che tempo farà a Torino domani alle otto di sera?")
+    assert len(client.richieste) == 3  # due giri e il riepilogo, non quattro giri
+    assert risposta.riepilogo == "tempo finito"
+    assert risposta.testo.startswith("Non sono riuscito")
+    # Il riepilogo ha un timeout pari al tempo che resta: il tetto lo comprende.
+    rimasto_ms = client.richieste[-1]["config"].http_options.timeout
+    assert 0 < rimasto_ms <= (brain_modulo.TETTO_TURNO_S - 16) * 1000
+
+
+def test_giri_con_strumenti_non_intaccano_la_riserva():
+    cervello, client = _cervello(
+        [_risposta_chiamata("cerca_sul_web", query="meteo"), _risposta_testo("[pensieroso] Non lo so.")],
+        max_giri=1,
+    )
+    cervello.rispondi(testo="Che tempo fa?")
+    # Il giro con gli strumenti non può andare oltre l'inizio della riserva...
+    atteso = brain_modulo.TETTO_TURNO_S - brain_modulo.RISERVA_RIEPILOGO_S
+    assert client.richieste[0]["config"].http_options.timeout == atteso * 1000
+    # ...e il riepilogo ha tutto il tempo che resta (qui il cronometro è fermo
+    # a zero, quindi si ferma prima il timeout del singolo tentativo).
+    assert client.richieste[1]["config"].http_options.timeout == TIMEOUT_TENTATIVO_S * 1000
+    # Dentro un tetto di 20 s non c'è spazio per due tentativi da 15: se il
+    # primo non risponde si passa al modello di riserva, non si insiste.
+    assert client.richieste[0]["config"].http_options.retry_options.attempts == 1
+
+
+def test_rete_giu_a_meta_loop_prova_comunque_il_riepilogo():
+    """Due ricerche a metà valgono più di un "non ci arrivo" (#18)."""
+    cervello, client = _cervello(
+        [
+            _risposta_chiamata("cerca_sul_web", query="meteo Torino"),
+            httpx.ConnectError("rete giù"),
+            _risposta_testo("[pensieroso] Non riesco a sapere il meteo di domani."),
+        ]
+    )
+    risposta = cervello.rispondi(testo="Che tempo farà a Torino domani sera?")
+    assert risposta.riepilogo == "modello non disponibile"
+    assert risposta.testo.startswith("Non riesco")
+
+    # Senza niente in mano non c'è niente da riassumere: l'errore sale e sul
+    # dispositivo diventa la clip "non ci arrivo".
+    cervello, client = _cervello([httpx.ConnectError("rete giù")])
+    with pytest.raises(GeminiNonDisponibile):
+        cervello.rispondi(testo="ciao")
+    assert len(client.richieste) == 1
+
+
+def test_max_giri_riducibile_per_le_prove():
+    cervello, client = _cervello(
+        [_risposta_chiamata("cerca_sul_web", query="meteo"), _risposta_testo("[pensieroso] Non lo so.")],
+        max_giri=1,
+    )
+    risposta = cervello.rispondi(testo="Che tempo farà domani?")
+    assert len(client.richieste) == 2
+    assert risposta.riepilogo == "tetto di 1 giro"
 
 
 def test_solo_etichetta_senza_chiamata_riprovata_una_volta():
@@ -171,7 +290,50 @@ def test_brain_non_importa_adapter_concreti():
         if isinstance(nodo, ast.ImportFrom):
             nomi.update(alias.name for alias in nodo.names)
             assert not (nodo.module or "").startswith(("adapters.", "bmo_core.adapters."))
-    assert nomi.isdisjoint({"ArecordAdapter", "MpvAdapter", "LibcameraAdapter", "WebcamV4L2Adapter"})
+    assert nomi.isdisjoint(
+        {"ArecordAdapter", "MpvAdapter", "LibcameraAdapter", "WebcamV4L2Adapter", "FacciaMuta", "FacciaTerminale"}
+    )
+
+
+def test_la_faccia_dice_cosa_sta_facendo_bmo():
+    """BMO tace mentre elabora: la faccia è l'unico segno che non è bloccato."""
+    faccia = FacciaFinta()
+    cervello, _ = _cervello([_risposta_testo("[felice] Ciao!")], faccia=faccia)
+    cervello.ascolta(3.0)
+    cervello.rispondi(testo="ciao")
+    assert faccia.stati == [
+        brain_modulo.STATO_ASCOLTO,
+        brain_modulo.STATO_PENSIERO,
+        "felice",
+    ]
+
+
+def test_la_faccia_resta_in_pensiero_per_tutto_il_loop():
+    faccia = FacciaFinta()
+    cervello, _ = _cervello(
+        [_risposta_chiamata("imposta_timer", minuti=1, etichetta="pasta"), _risposta_testo("Fatto.")],
+        faccia=faccia,
+    )
+    cervello.rispondi(testo="Metti un timer di un minuto")
+    # Un solo passaggio a "pensiero", poi lo stato di chi parla: senza
+    # etichetta la faccia non resta indietro.
+    assert faccia.stati == [brain_modulo.STATO_PENSIERO, brain_modulo.STATO_PARLATO]
+
+
+def test_la_faccia_segnala_il_turno_finito_senza_risposta():
+    faccia = FacciaFinta()
+    vuota = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[]), finish_reason="STOP")]
+    )
+    cervello, _ = _cervello([vuota, vuota], faccia=faccia)
+    cervello.rispondi(testo="ciao")
+    assert faccia.stati[-1] == brain_modulo.STATO_ERRORE
+
+    faccia = FacciaFinta()
+    cervello, _ = _cervello([httpx.ConnectError("rete giù")], faccia=faccia)
+    with pytest.raises(GeminiNonDisponibile):
+        cervello.rispondi(testo="ciao")
+    assert faccia.stati[-1] == brain_modulo.STATO_ERRORE
 
 
 def test_tutti_gli_strumenti_della_2_4_dichiarati():
@@ -373,12 +535,24 @@ def test_durata_parlata_con_le_ore():
     assert brain_modulo._durata_parlata(2 * 3600 + 61) == "2 ore, 1 minuto e 1 secondo"
 
 
-def test_risposta_vuota_ne_dice_il_motivo():
-    cervello, _ = _cervello([_risposta_chiamata("cerca_sul_web", query="meteo") for _ in range(4)])
+def test_riepilogo_senza_testo_ne_dice_il_motivo():
+    """Se fallisce anche il riepilogo il turno resta senza testo, ma spiegato (#18)."""
+    vuota = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[]), finish_reason="STOP")]
+    )
+    cervello, client = _cervello(
+        [_risposta_chiamata("cerca_sul_web", query="meteo") for _ in range(4)] + [vuota, vuota]
+    )
     risposta = cervello.rispondi(testo="Che tempo fa a Torino?")
     assert risposta.testo == ""
-    assert "tetto di 4 giri" in risposta.motivo_vuota
+    assert risposta.riepilogo == "tetto di 4 giri"
+    assert risposta.motivo_vuota == "finish_reason STOP"
+    # Il riepilogo vuoto viene riprovato una volta, come ogni risposta senza testo.
+    assert len(client.richieste) == brain_modulo.MAX_GIRI + 2
+    assert risposta.ripetizioni == 1
 
+
+def test_risposta_vuota_ne_dice_il_motivo():
     vuota = types.GenerateContentResponse(
         candidates=[types.Candidate(content=types.Content(role="model", parts=[]), finish_reason="STOP")]
     )

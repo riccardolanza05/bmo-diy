@@ -1,9 +1,11 @@
 import httpx
 import pytest
-from google.genai import errors
+from google.genai import errors, types
 
 from bmo_core.modelli import (
     SOSPENSIONE_SOVRACCARICO_S,
+    TENTATIVI_SDK,
+    TIMEOUT_TENTATIVO_S,
     CascataModelli,
     GeminiNonDisponibile,
     modelli_da_ambiente,
@@ -34,10 +36,12 @@ class ClientProgrammato:
     def __init__(self, esiti):
         self.esiti = {m: list(e) for m, e in esiti.items()}
         self.chiamati = []
+        self.configurazioni = []
         self.models = self
 
-    def generate_content(self, *, model, **_):
+    def generate_content(self, *, model, config=None, **_):
         self.chiamati.append(model)
+        self.configurazioni.append(config)
         esito = self.esiti[model].pop(0)
         if isinstance(esito, Exception):
             raise esito
@@ -129,3 +133,35 @@ def test_richiesta_scaduta_passa_al_modello_di_riserva():
     cascata = CascataModelli(["primario", "riserva"], orologio=Orologio())
     assert cascata.genera(client, contents=[]) == ("ok", "riserva")
     assert cascata.disponibili() == ["riserva"]
+
+
+def test_scadenza_accorcia_il_timeout_della_richiesta():
+    """Il tetto del turno (#18) vale sulla singola richiesta, non solo fra un giro e l'altro."""
+    orologio = Orologio()
+    client = ClientProgrammato({"primario": ["ok"]})
+    cascata = CascataModelli(["primario"], orologio=orologio)
+    cascata.genera(client, scadenza=orologio() + 4.0, contents=[], config=types.GenerateContentConfig())
+    opzioni = client.configurazioni[0].http_options
+    assert opzioni.timeout == 4000
+    # In quattro secondi non ci stanno due tentativi da quindici.
+    assert opzioni.retry_options.attempts == 1
+
+
+def test_con_tempo_abbondante_restano_i_tentativi_normali():
+    orologio = Orologio()
+    client = ClientProgrammato({"primario": ["ok"]})
+    cascata = CascataModelli(["primario"], orologio=orologio)
+    cascata.genera(client, scadenza=orologio() + 300.0, contents=[], config=types.GenerateContentConfig())
+    opzioni = client.configurazioni[0].http_options
+    assert opzioni.timeout == TIMEOUT_TENTATIVO_S * 1000
+    assert opzioni.retry_options.attempts == TENTATIVI_SDK
+
+
+def test_senza_tempo_rimasto_non_si_chiama_nessun_modello():
+    orologio = Orologio()
+    client = ClientProgrammato({"primario": ["ok"], "riserva": ["ok"]})
+    cascata = CascataModelli(["primario", "riserva"], orologio=orologio)
+    with pytest.raises(GeminiNonDisponibile) as errore:
+        cascata.genera(client, scadenza=orologio(), contents=[], config=types.GenerateContentConfig())
+    assert errore.value.tipo == "tempo"
+    assert client.chiamati == []
