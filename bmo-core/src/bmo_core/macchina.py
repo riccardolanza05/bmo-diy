@@ -36,6 +36,7 @@ from .adapters import (
 )
 from .brain import ERRORI_GEMINI, DURATA_ASCOLTO_S, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
+from .radio import Radio
 from .sveglia import Sveglia
 
 MAX_PAUSA_MINUTI = 8 * 60  # otto ore: oltre, BMO resterebbe sordo per sbaglio
@@ -163,14 +164,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="BMO acceso: premi Invio per parlargli.")
     parser.add_argument("--durata", type=float, default=DURATA_ASCOLTO_S, help="secondi di ascolto")
     parser.add_argument("--senza-timer", action="store_true", help="non far partire la sveglia dei timer")
+    parser.add_argument("--senza-radio", action="store_true", help="non collegare radio e volume")
     argomenti = parser.parse_args()
 
     faccia = crea_faccia(sul_terminale=True)
-    macchina = Macchina(
-        cervello=Cervello(faccia=faccia),
-        faccia=faccia,
-        durata_ascolto_s=argomenti.durata,
-    )
+    cervello = Cervello(faccia=faccia)
+    macchina = Macchina(cervello=cervello, faccia=faccia, durata_ascolto_s=argomenti.durata)
+    if not argomenti.senza_radio:
+        radio = Radio()
+        radio.registra(cervello)
+        print(f"Radio: {len(radio.preferite)} stazioni salvate in {radio.percorso}", flush=True)
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche
         # mentre BMO sta ascoltando o pensando.

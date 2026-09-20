@@ -9,9 +9,18 @@ from __future__ import annotations
 from ..config import Ambiente, rileva_ambiente
 from .audio_input import ArecordAdapter
 from .audio_output import MpvAdapter
-from .base import AudioInputAdapter, AudioOutputAdapter, CameraAdapter, FacciaAdapter
+from .base import (
+    AudioInputAdapter,
+    AudioOutputAdapter,
+    CameraAdapter,
+    FacciaAdapter,
+    LettoreAdapter,
+    VolumeAdapter,
+)
 from .camera import LibcameraAdapter, WebcamV4L2Adapter
 from .faccia import FacciaMuta, FacciaTerminale
+from .lettore import LettoreMpv
+from .volume import VolumeAlsa, VolumePipeWire
 
 
 def crea_camera(ambiente: Ambiente | None = None) -> CameraAdapter:
@@ -45,3 +54,14 @@ def crea_faccia(ambiente: Ambiente | None = None, sul_terminale: bool = False) -
 def crea_audio_output(ambiente: Ambiente | None = None) -> AudioOutputAdapter:
     del ambiente  # mpv è identico in entrambi gli ambienti
     return MpvAdapter()
+
+
+def crea_lettore(ambiente: Ambiente | None = None) -> LettoreAdapter:
+    del ambiente  # anche qui mpv è lo stesso: cambia solo dove sta il socket
+    return LettoreMpv()
+
+
+def crea_volume(ambiente: Ambiente | None = None) -> VolumeAdapter:
+    """Sul PC c'è PipeWire, sul Pi la scheda del HAT senza server audio."""
+    ambiente = ambiente or rileva_ambiente()
+    return VolumeAlsa() if ambiente is Ambiente.PI else VolumePipeWire()

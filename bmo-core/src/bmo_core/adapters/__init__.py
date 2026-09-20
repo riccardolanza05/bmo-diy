@@ -10,8 +10,17 @@ from .base import (
     AudioOutputAdapter,
     CameraAdapter,
     FacciaAdapter,
+    LettoreAdapter,
+    VolumeAdapter,
 )
-from .factory import crea_audio_input, crea_audio_output, crea_camera, crea_faccia
+from .factory import (
+    crea_audio_input,
+    crea_audio_output,
+    crea_camera,
+    crea_faccia,
+    crea_lettore,
+    crea_volume,
+)
 
 __all__ = [
     "STATO_ASCOLTO",
@@ -25,8 +34,12 @@ __all__ = [
     "AudioOutputAdapter",
     "CameraAdapter",
     "FacciaAdapter",
+    "LettoreAdapter",
+    "VolumeAdapter",
     "crea_audio_input",
     "crea_audio_output",
     "crea_camera",
     "crea_faccia",
+    "crea_lettore",
+    "crea_volume",
 ]

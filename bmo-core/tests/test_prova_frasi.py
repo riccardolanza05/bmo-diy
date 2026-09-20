@@ -6,16 +6,16 @@ def _risposta(*chiamate, testo="ok"):
     return Risposta(testo, [ChiamataStrumento(nome, argomenti, {}) for nome, argomenti in chiamate])
 
 
-def test_quaranta_frasi_con_attesi():
-    assert len(FRASI) == 40
+def test_ogni_frase_ha_i_suoi_attesi_e_non_si_ripete():
+    assert len(FRASI) == 43
     assert all(f.attesi for f in FRASI)
-    assert len({f.testo for f in FRASI}) == 40
+    assert len({f.testo for f in FRASI}) == len(FRASI)
 
 
 def test_numeri_esatti_e_testi_contenuti():
-    frase = _f("musica", "Metti Radio Deejay", usa("riproduci_musica", sorgente="radio", query="deejay"))
-    assert valuta(frase, _risposta(("riproduci_musica", {"sorgente": "radio", "query": "Radio DEEJAY"})))
-    assert not valuta(frase, _risposta(("riproduci_musica", {"sorgente": "libreria", "query": "deejay"})))
+    frase = _f("musica", "Metti Radio Deejay", usa("riproduci_musica", query="deejay"))
+    assert valuta(frase, _risposta(("riproduci_musica", {"query": "Radio DEEJAY"})))
+    assert not valuta(frase, _risposta(("riproduci_musica", {"query": "rai radio 2"})))
 
     timer = _f("timer", "dieci minuti", usa("imposta_timer", durata=600))
     assert valuta(timer, _risposta(("imposta_timer", {"minuti": 10.0, "etichetta": "x"})))

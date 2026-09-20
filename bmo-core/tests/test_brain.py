@@ -89,12 +89,18 @@ class FacciaFinta:
         self.stati.append(stato)
 
 
+def _ricerca_finta(query):
+    """Nessun test deve andare su internet: sarebbe lento e dipenderebbe dalla rete."""
+    return {"stato": "non_disponibile", "motivo": "ricerca finta"}
+
+
 def _cervello(risposte, costo_s=0.0, **opzioni):
     cronometro = CronometroFinto()
     client = ClientFinto(risposte, cronometro, costo_s)
     cervello = Cervello(
         client=client,
         microfono=MicrofonoFinto(),
+        ricerca=opzioni.pop("ricerca", _ricerca_finta),
         faccia=opzioni.pop("faccia", FacciaFinta()),
         orologio=lambda: ORA,
         cronometro=cronometro,
@@ -343,6 +349,8 @@ def test_tutti_gli_strumenti_della_2_4_dichiarati():
     assert nomi == {
         "scatta_foto", "cerca_sul_web", "imposta_timer", "annulla_timer", "elenca_timer",
         "riproduci_musica", "controllo_riproduzione", "regola_volume", "metti_in_pausa_l_ascolto",
+        # La radio si scorre e si salva (#20): due strumenti in più della §2.4.
+        "salva_stazione", "elenca_stazioni",
     }
 
 
