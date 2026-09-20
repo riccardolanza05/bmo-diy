@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from bmo_core.adapters import STATO_TIMER
 from bmo_core.config import FUSO_ORARIO
-from bmo_core.sveglia import Sveglia
+from bmo_core.sveglia import TONO_GENERATO, Sveglia, tono_predefinito
 from bmo_core.timer import ArchivioTimer
 
 ORA = datetime(2026, 9, 20, 20, 0, tzinfo=FUSO_ORARIO)
@@ -89,6 +89,22 @@ def test_piu_timer_insieme_un_solo_tono(tmp_path):
     # Un tono solo: due mpv in fila si interromperebbero a vicenda.
     assert len(altoparlante.riprodotti) == 1
     assert len(dette) == 2
+
+
+def test_il_suono_del_timer_si_sceglie_mettendo_un_file(tmp_path, monkeypatch):
+    """Il suono sta fuori dal repository: basta metterlo nella cartella dei dati."""
+    monkeypatch.setenv("BMO_DATI", str(tmp_path))
+    monkeypatch.delenv("BMO_TONO", raising=False)
+    # Senza file BMO suona lo stesso, col tono generato da mpv.
+    assert tono_predefinito() == TONO_GENERATO
+
+    suoni = tmp_path / "suoni"
+    suoni.mkdir()
+    (suoni / "timer.opus").write_bytes(b"finto")
+    assert tono_predefinito() == str(suoni / "timer.opus")
+
+    monkeypatch.setenv("BMO_TONO", "/tmp/un-altro.wav")
+    assert tono_predefinito() == "/tmp/un-altro.wav"
 
 
 def test_esegui_si_ferma_dopo_i_giri_chiesti(tmp_path):

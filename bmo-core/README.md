@@ -138,12 +138,18 @@ i permessi di root. `BMO_DATI` ha la precedenza su entrambi.
 ```bash
 python -m bmo_core.sveglia                  # resta in piedi e fa suonare i timer
 python -m bmo_core.sveglia --intervallo 1   # controlla ogni secondo invece di mezzo
-python -m bmo_core.sveglia --tono FILE      # un suono diverso dal tono predefinito
+python -m bmo_core.sveglia --tono FILE      # un suono solo per questo avvio
 BMO_DATI=/tmp/prova python -m bmo_core.sveglia   # timer usa e getta, per le prove
 ```
 
-Il suono è per ora un tono generato da `mpv`; le clip vere, registrate col TTS
-di Gemini, sono l'issue #21 e prenderanno il posto del tono senza toccare altro.
+**Il suono del timer** si sceglie mettendo un file in `<cartella dati>/suoni/`
+(`timer.opus`, `.mp3`, `.ogg` o `.wav`), cioè `~/.local/state/bmo/suoni/` sul PC.
+Se non c'è, BMO suona un tono generato da `mpv`, così funziona anche su una
+macchina appena installata. `BMO_TONO` ha la precedenza, e `--tono` su tutto.
+
+I file audio stanno **fuori dal repository**, che è pubblico: sono roba di terzi
+e non vanno ridistribuiti. Le clip di BMO registrate col TTS di Gemini sono
+l'issue #21 e useranno la stessa cartella.
 
 La prova che conta (criterio di uscita della #20): far partire un timer, uccidere
 il processo, riavviarlo e verificare che suoni all'ora giusta.
