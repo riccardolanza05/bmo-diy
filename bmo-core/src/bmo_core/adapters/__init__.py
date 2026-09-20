@@ -1,6 +1,7 @@
 from .base import (
     STATO_ASCOLTO,
     STATO_ASSONNATO,
+    STATO_CONFERMA,
     STATO_ERRORE,
     STATO_IDLE,
     STATO_PARLATO,
@@ -25,6 +26,7 @@ from .factory import (
 __all__ = [
     "STATO_ASCOLTO",
     "STATO_ASSONNATO",
+    "STATO_CONFERMA",
     "STATO_ERRORE",
     "STATO_IDLE",
     "STATO_PARLATO",

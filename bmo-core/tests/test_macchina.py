@@ -6,8 +6,10 @@ from google.genai import types
 from bmo_core.adapters import (
     STATO_ASCOLTO,
     STATO_ASSONNATO,
+    STATO_CONFERMA,
     STATO_ERRORE,
     STATO_IDLE,
+    STATO_PENSIERO,
 )
 from bmo_core.brain import Cervello, Risposta
 from bmo_core.config import FUSO_ORARIO
@@ -39,11 +41,13 @@ class FacciaFinta:
 class CervelloFinto:
     """Sostituto di Cervello: la macchina lo usa solo per ascoltare e rispondere."""
 
-    def __init__(self, risposte, faccia=None):
+    def __init__(self, risposte, faccia=None, classificazioni=None):
         self._risposte = list(risposte)
         self.faccia = faccia
         self.ascolti = []
         self.strumenti_registrati = {}
+        self._classificazioni = list(classificazioni or [])
+        self.audio_classificati = []
 
     def registra_strumento(self, nome, esecutore):
         self.strumenti_registrati[nome] = esecutore
@@ -59,10 +63,14 @@ class CervelloFinto:
             raise risposta
         return risposta
 
+    def classifica_risposta(self, audio_wav):
+        self.audio_classificati.append(audio_wav)
+        return self._classificazioni.pop(0)
 
-def _macchina(risposte, orologio=None, richiami=1):
+
+def _macchina(risposte, orologio=None, richiami=1, classificazioni=None):
     faccia = FacciaFinta()
-    cervello = CervelloFinto(risposte, faccia)
+    cervello = CervelloFinto(risposte, faccia, classificazioni=classificazioni)
     dette = []
     macchina = Macchina(
         cervello=cervello,
@@ -161,3 +169,33 @@ def test_minuti_di_pausa_non_validi():
         macchina.metti_in_pausa(0)
     with pytest.raises(ValueError):
         macchina.metti_in_pausa(-5)
+
+
+def test_chiedi_conferma_si_al_primo_colpo():
+    macchina, faccia, cervello, dette = _macchina([], classificazioni=["si"])
+    assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is True
+    assert dette == ["Vuoi che lo ricordi?"]
+    assert len(cervello.ascolti) == 1
+    assert cervello.ascolti[0][0] == 8.0  # DURATA_ASCOLTO_CONFERMA_S
+    assert faccia.stati[-2:] == [STATO_CONFERMA, STATO_PENSIERO]
+
+
+def test_chiedi_conferma_no_esplicito():
+    macchina, _, _, dette = _macchina([], classificazioni=["no"])
+    assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is False
+    assert dette == ["Vuoi che lo ricordi?"]  # nessun messaggio in più per un "no" chiaro
+
+
+def test_chiedi_conferma_boh_poi_si_chiede_un_solo_chiarimento():
+    macchina, _, cervello, dette = _macchina([], classificazioni=["boh", "si"])
+    assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is True
+    assert dette == ["Vuoi che lo ricordi?", "Non ho capito, dimmi solo sì o no."]
+    assert len(cervello.ascolti) == 2
+
+
+def test_chiedi_conferma_ambigua_non_fa_un_loop():
+    """L'issue #17 lo dice esplicitamente: niente loop, un solo chiarimento."""
+    macchina, _, cervello, dette = _macchina([], classificazioni=["boh", "boh"])
+    assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is None
+    assert len(dette) == 2  # la domanda e il chiarimento, non un terzo tentativo
+    assert len(cervello.ascolti) == 2  # non tre
