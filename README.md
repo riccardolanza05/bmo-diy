@@ -11,7 +11,7 @@ Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *A
 | **Piano in vigore** | rev. 5.1 "cloud-first, solo voce" — [`docs/02-piano-attuale.md`](docs/02-piano-attuale.md) |
 | **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A, microSD (bring-up fatto, raggiungibile via SSH) |
 | **Hardware da comprare** | HAT audio, display, camera, minuteria (tutto UE, zero dazi) — **ultima fase** della roadmap |
-| **Software** | scaffolding di `bmo-core` avviato (adapter hardware) — [`bmo-core/`](bmo-core/) |
+| **Software** | `bmo-core` in sviluppo sul PC: cervello con cascata di modelli e loop agentico, timer persistenti, macchina a stati, radio — vedi [`bmo-core/`](bmo-core/); wake word e TTS ancora da collegare (issue #21, #22) |
 | **Meccanica** | non iniziata (niente ancora stampato) |
 | **Fase corrente della roadmap** | Fase 1 — software su PC con `bmo-core`, usando webcam, microfono e casse del computer (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap), software-first dal 2026-09-19) |
 
@@ -33,6 +33,13 @@ docs/
 
 bmo-core/                             Logica di dialogo, in sviluppo sul PC (omarchy) prima
 └── src/bmo_core/                     ancora di comprare HAT/display/camera — vedi bmo-core/README.md
+    ├── brain.py                       il cervello: prompt, cascata di modelli, loop agentico
+    ├── macchina.py                    la macchina a stati (attesa/ascolto/pensiero/parlato)
+    ├── modelli.py                     cascata dei modelli Gemini con ripiego automatico
+    ├── strumenti.py                   le dichiarazioni degli strumenti per Gemini
+    ├── timer.py / sveglia.py          timer persistenti su disco e il processo che li fa suonare
+    ├── radio.py / ricerca.py          radio via internet e ricerca sul web
+    ├── prova_frasi.py                 il banco di prova a frasi del prompt di sistema
     ├── config.py                      rileva l'ambiente: PC di sviluppo o Raspberry Pi
     └── adapters/                      confine hardware: stessa logica, implementazione diversa
 ```
@@ -55,7 +62,7 @@ Le domande implementative ancora senza risposta (display 2.4" vs 3.5", secondo a
 
 ## Una nota sulla privacy
 
-Il prompt di sistema d'esempio in [`02-piano-attuale.md` §2.3](docs/02-piano-attuale.md#23-il-prompt-di-sistema-e-liniezione-di-contesto) include il nome e la città del proprietario del progetto: è il profilo per cui BMO viene configurato, non un dato di terzi, ed è lasciato intenzionalmente com'è.
+Il prompt di sistema, sia l'esempio in [`02-piano-attuale.md` §2.3](docs/02-piano-attuale.md#23-il-prompt-di-sistema-e-liniezione-di-contesto) sia quello vero in `bmo-core/src/bmo_core/brain.py`, include la città del proprietario del progetto: è il profilo per cui BMO viene configurato, non un dato di terzi, ed è lasciato intenzionalmente com'è.
 
 ## Licenza
 
