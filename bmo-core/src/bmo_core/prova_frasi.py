@@ -24,7 +24,17 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from .brain import ERRORI_GEMINI, Cervello, Risposta, Timer, descrivi_errore, durata_in_secondi, prompt_da_file
+from .adapters import crea_faccia
+from .brain import (
+    ERRORI_GEMINI,
+    TETTO_TURNO_S,
+    Cervello,
+    Risposta,
+    Timer,
+    descrivi_errore,
+    durata_in_secondi,
+    prompt_da_file,
+)
 from .modelli import GeminiNonDisponibile
 
 SOGLIA = 0.9
@@ -176,8 +186,15 @@ def main() -> None:
     esiti: dict[str, list[bool]] = {}
     errori = 0
     modelli: Counter[str] = Counter()
+    riepiloghi = 0
+    turno_piu_lungo = 0.0
     for numero, frase in enumerate(frasi, start=1):
-        cervello = Cervello(**prompt_da_file(argomenti.prompt))  # stato pulito a ogni frase
+        cervello = Cervello(
+            # A voce c'è dell'attesa vera: la faccia sul terminale dice quando
+            # BMO sta elaborando. Con le frasi scritte sarebbe solo rumore.
+            faccia=crea_faccia(sul_terminale=argomenti.voce),
+            **prompt_da_file(argomenti.prompt),
+        )  # stato pulito a ogni frase
         _prepara(cervello, frase)
         audio = None
         if argomenti.voce:
@@ -203,9 +220,15 @@ def main() -> None:
             chiamate = ", ".join(f"{c.nome}({c.argomenti})" for c in risposta.chiamate) or "nessuno strumento"
             faccia = f"[{risposta.espressione}] " if risposta.espressione else "[senza espressione] "
             testo = risposta.testo or f"(risposta vuota: {risposta.motivo_vuota})"
-            ripetuta = " · risposta con la sola etichetta ripetuta" if risposta.ripetizioni else ""
+            riepiloghi += bool(risposta.riepilogo)
+            turno_piu_lungo = max(turno_piu_lungo, risposta.durata_s)
+            note = f" · {risposta.durata_s:.1f} s"
+            if risposta.riepilogo:
+                note += f" · riepilogo forzato ({risposta.riepilogo})"
+            if risposta.ripetizioni:
+                note += " · risposta con la sola etichetta ripetuta"
             print(
-                f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}  ({risposta.modello}{ripetuta})\n"
+                f"{'✓' if esito else '✗'} {numero:2}. [{frase.categoria}] {frase.testo}  ({risposta.modello}{note})\n"
                 f"     {chiamate} · {faccia}{testo}"
             )
             if not esito:
@@ -220,6 +243,10 @@ def main() -> None:
     valutate = sum(len(lista) for lista in esiti.values())
     if len(modelli) > 1 or errori:
         print(f"Modelli che hanno risposto: {dict(modelli)} · errori esclusi: {errori}")
+    print(
+        f"Riepiloghi forzati: {riepiloghi} · turno più lungo: "
+        f"{turno_piu_lungo:.1f} s su {TETTO_TURNO_S:.0f}"
+    )
     percentuale = corrette / valutate if valutate else 0.0
     verdetto = "OK" if percentuale >= SOGLIA else "SOTTO SOGLIA: rivedere il prompt di sistema"
     print(f"\n{corrette}/{valutate} corrette ({percentuale:.0%}) — {verdetto}")

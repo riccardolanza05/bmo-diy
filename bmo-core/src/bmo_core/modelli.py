@@ -21,7 +21,7 @@ import time
 from typing import Any, Callable
 
 import httpx
-from google.genai import errors
+from google.genai import errors, types
 
 # Primario e riserva scelti dopo le prime prove reali, quando
 # gemini-3.8-flash rispondeva spesso 503 per sovraccarico.
@@ -42,12 +42,16 @@ TENTATIVI_SDK = 2
 # anche i tentativi scaduti: con 2 tentativi sono circa 30 s per modello.
 TIMEOUT_TENTATIVO_S = 15.0
 
+# Sotto questo tempo rimasto non si chiama più nessun modello: una richiesta
+# che scade a metà costa comunque l'attesa e non produce niente (issue #18).
+MINIMO_RICHIESTA_S = 1.0
+
 
 class GeminiNonDisponibile(Exception):
     """Tutti i modelli della cascata hanno fallito.
 
-    `tipo` è "quota", "sovraccarico" o "rete": sul dispositivo decide la
-    frase e la faccia con cui BMO lo dice.
+    `tipo` è "quota", "sovraccarico", "rete" o "tempo" (il tetto del turno,
+    issue #18): sul dispositivo decide la frase e la faccia con cui BMO lo dice.
     """
 
     def __init__(self, tipo: str, errori: dict[str, Exception]) -> None:
@@ -99,12 +103,35 @@ class CascataModelli:
         self._sospesi_fino_a[modello] = self.orologio() + secondi
         self._motivi[modello] = motivo
 
-    def genera(self, client: Any, **richiesta: Any) -> tuple[Any, str]:
+    def _entro_la_scadenza(self, richiesta: dict[str, Any], rimasto: float | None) -> dict[str, Any]:
+        """Accorcia il timeout della singola richiesta al tempo che resta.
+
+        Senza questo, una richiesta può durare fino a TENTATIVI_SDK *
+        TIMEOUT_TENTATIVO_S (circa 30 s) e il tetto del turno (#18) sarebbe
+        solo un'intenzione. Le opzioni per richiesta vengono fuse con quelle
+        del client campo per campo, quindi i tentativi vanno riscritti qui
+        quando il tempo non basta per tutti.
+        """
+        config = richiesta.get("config")
+        if rimasto is None or config is None or not hasattr(config, "model_copy"):
+            return richiesta
+        tentativi = TENTATIVI_SDK if rimasto >= TENTATIVI_SDK * TIMEOUT_TENTATIVO_S else 1
+        opzioni = types.HttpOptions(
+            timeout=int(min(TIMEOUT_TENTATIVO_S, rimasto) * 1000),
+            retry_options=types.HttpRetryOptions(attempts=tentativi),
+        )
+        return {**richiesta, "config": config.model_copy(update={"http_options": opzioni})}
+
+    def genera(self, client: Any, scadenza: float | None = None, **richiesta: Any) -> tuple[Any, str]:
         """Chiama `generate_content` sul primo modello disponibile.
 
         Restituisce la risposta e il nome del modello che l'ha prodotta.
         Gli errori non legati alla disponibilità (400, 401, 403...) salgono
         subito: cambiare modello non li risolverebbe.
+
+        `scadenza` è un istante dell'orologio della cascata (monotono): oltre
+        quello non si prova nessun altro modello e si solleva
+        GeminiNonDisponibile("tempo").
         """
         errori: dict[str, Exception] = {}
         # Se sono tutti sospesi si riprova comunque il primo che esiste: un
@@ -113,8 +140,16 @@ class CascataModelli:
             m for m in self.modelli if self._motivi.get(m) != "inesistente"
         ][:1]
         for modello in candidati:
+            rimasto = None if scadenza is None else scadenza - self.orologio()
+            if rimasto is not None and rimasto < MINIMO_RICHIESTA_S:
+                raise GeminiNonDisponibile("tempo", errori)
             try:
-                return client.models.generate_content(model=modello, **richiesta), modello
+                return (
+                    client.models.generate_content(
+                        model=modello, **self._entro_la_scadenza(richiesta, rimasto)
+                    ),
+                    modello,
+                )
             except errors.APIError as errore:
                 if errore.code == 429:
                     self.sospendi(modello, attesa_suggerita(errore) or SOSPENSIONE_QUOTA_S, "quota")

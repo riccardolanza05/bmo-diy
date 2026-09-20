@@ -11,10 +11,11 @@ comprare i componenti fisici.
 src/bmo_core/
 ├── config.py              rileva l'ambiente (dev-linux vs pi) via BMO_ENV o device-tree
 └── adapters/
-    ├── base.py            interfacce (Protocol): CameraAdapter, AudioInputAdapter, AudioOutputAdapter
+    ├── base.py            interfacce (Protocol): CameraAdapter, AudioInputAdapter, AudioOutputAdapter, FacciaAdapter
     ├── camera.py           LibcameraAdapter (Pi, CSI/OV5647) · WebcamV4L2Adapter (PC, ffmpeg+V4L2)
     ├── audio_input.py       ArecordAdapter (ALSA, stesso comando su Pi e PC, cambia solo il device)
     ├── audio_output.py      MpvAdapter (identico su Pi e PC)
+    ├── faccia.py            FacciaMuta (predefinita) · FacciaTerminale (stato sullo standard error)
     └── factory.py           unico punto che sceglie quale implementazione usare
 tests/                       test della factory e del rilevamento ambiente
 ```
@@ -70,6 +71,7 @@ export GEMINI_API_KEY=...
 python -m bmo_core.brain --testo "Metti un timer di dieci minuti"
 python -m bmo_core.brain                       # parli per 3 secondi al microfono
 python -m bmo_core.brain --senza-ora --testo "Che ore sono?"   # esperimento fase 0.3
+python -m bmo_core.brain --max-giri 1 --testo "Che tempo farà domani sera?"  # forza il riepilogo
 python -m bmo_core.prova_frasi                 # le 40 frasi di prova, come testo
 python -m bmo_core.prova_frasi --voce          # le 40 frasi lette al microfono
 python -m bmo_core.prova_frasi --categoria web # solo una categoria
@@ -83,9 +85,45 @@ risposta tra parentesi quadre (`[felice] Fatto!`), il codice la toglie prima
 della sintesi vocale e la tiene in `Risposta.espressione`.
 
 `python -m bmo_core.brain` stampa sempre quali strumenti ha chiamato il modello
-(o `Strumenti chiamati: nessuno`), con argomenti e risultato, e quale modello
-ha risposto: nelle prove a voce è il modo di vedere se un timer è stato
-impostato davvero o solo annunciato.
+(o `Strumenti chiamati: nessuno`), con argomenti e risultato, quale modello
+ha risposto e quanto è durato il turno: nelle prove a voce è il modo di vedere
+se un timer è stato impostato davvero o solo annunciato.
+
+## Il tetto del turno e il riepilogo forzato (issue #18)
+
+Il loop agentico ha due limiti (§2.1): **4 giri** in cui BMO può chiamare
+strumenti e **20 secondi** per tutto il turno. Quando uno dei due finisce senza
+che ci sia una risposta da dire ad alta voce, parte **una richiesta di riepilogo
+in più**, fuori dal conteggio dei giri: stessi contenuti raccolti fino a lì,
+nessuno strumento chiamabile e un'istruzione in più che spiega al modello di
+rispondere con quello che sa. Due ricerche a metà valgono più di un «non ci
+arrivo», e senza quell'istruzione il modello a volte restava semplicemente muto.
+
+Il tetto è un limite vero, non un'intenzione: il tempo che resta diventa il
+timeout della singola richiesta, quindi un modello lento non lo sfonda. I giri
+con gli strumenti si fermano sei secondi prima della scadenza, tenuti da parte
+per il riepilogo. Se anche il riepilogo non produce testo, `Risposta.testo` resta
+vuota e `Risposta.motivo_vuota` ne dice la ragione: sul dispositivo sarà il punto
+in cui parte la clip di errore (issue #21).
+
+`Risposta.riepilogo` dice se la richiesta in più c'è stata e perché
+(`tetto di 4 giri`, `tempo finito`, `modello non disponibile`); `--max-giri 1`
+serve a provarla senza aspettare che un caso vero saturi il loop.
+
+## La faccia dice cosa sta facendo BMO
+
+BMO non ha pulsanti né spie, e fra la domanda e la risposta c'è del silenzio: la
+faccia è l'unico modo di distinguere un BMO che sta elaborando da uno bloccato.
+`brain.py` mostra `ascolto` mentre registra, `pensiero` per tutto il loop
+agentico, e alla fine l'espressione scelta dal modello (`felice`, `pensieroso`,
+…), oppure `parlato` se non ce n'è una e `errore-rete` se il turno finisce senza
+risposta.
+
+Sono due vocabolari diversi: le **espressioni** le sceglie il modello per la
+risposta parlata, gli **stati della faccia** li decide il codice. Per ora
+l'unica implementazione è `FacciaTerminale`, che scrive `[faccia: pensiero]`
+sullo standard error (attiva nei comandi `brain` e `prova_frasi --voce`); il
+disegno vero è l'issue #23 e sostituirà solo l'implementazione dell'adapter.
 
 Le frasi di prova coprono timer, gestione dei timer, foto, musica e radio,
 volume, pausa dell'ascolto, ricerche sul web (meteo, risultati) e
@@ -125,10 +163,11 @@ export BMO_GEMINI_MODELLI="<primario>,<riserva>,..."
 
 Scaduta la sospensione, il primario torna a essere provato per primo. Se
 sono tutti sospesi si riprova comunque il primario; se falliscono tutti,
-`GeminiNonDisponibile` dice il tipo (`quota`, `sovraccarico`, `rete`), che sul
-dispositivo diventerà la frase e la faccia dello stato di errore. L'SDK fa 2
-tentativi per modello invece dei 5 predefiniti, per non aspettare 15 s prima
-di cambiare modello.
+`GeminiNonDisponibile` dice il tipo (`quota`, `sovraccarico`, `rete`, `tempo`),
+che sul dispositivo diventerà la frase e la faccia dello stato di errore. L'SDK
+fa 2 tentativi per modello invece dei 5 predefiniti, per non aspettare 15 s prima
+di cambiare modello; dentro il tetto del turno (#18) il tempo per due tentativi
+non c'è quasi mai, quindi in pratica si passa subito alla riserva.
 
 ## Sviluppo
 

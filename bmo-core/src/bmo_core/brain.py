@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,15 +24,36 @@ from zoneinfo import ZoneInfo
 import httpx
 from google.genai import errors, types
 
-from .adapters import AudioInputAdapter, crea_audio_input
+from .adapters import AudioInputAdapter, FacciaAdapter, crea_audio_input, crea_faccia
 from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
 from .strumenti import DICHIARAZIONI
 
 FUSO_ORARIO = ZoneInfo("Europe/Rome")
 DURATA_ASCOLTO_S = 3.0
+
+# Giri in cui BMO può chiamare strumenti (§2.1). Dopo questi, o quando finisce
+# il tempo, arriva una richiesta di riepilogo in più, senza strumenti (#18).
 MAX_GIRI = 4
+
+# Tetto del turno, dall'audio alla risposta (§2.1: «max 4 giri / 20 s»). Non è
+# un obiettivo — quello è 2,5-3,5 s — ma il caso peggiore oltre il quale un
+# BMO che tace sembra rotto. La riserva è il tempo tenuto da parte per il
+# riepilogo: passata quella soglia non si comincia nessun altro giro.
+TETTO_TURNO_S = 20.0
+RISERVA_RIEPILOGO_S = 6.0
+
 ESPRESSIONI = ("felice", "pensieroso", "sorpreso", "triste", "assonnato")
 _ETICHETTA_INIZIALE = re.compile(r"^\s*\[([^\]\n]{1,30})\]\s*")
+
+# Stati della faccia (§2.1). Sono un'altra cosa dalle ESPRESSIONI: quelle le
+# sceglie il modello per la risposta parlata, questi li decide il codice per
+# dire a chi guarda cosa sta facendo BMO. PENSIERO è il più importante: il
+# tempo fra la domanda e la risposta è silenzio, e senza faccia non si
+# distingue un BMO che elabora da un BMO bloccato.
+STATO_ASCOLTO = "ascolto"
+STATO_PENSIERO = "pensiero"
+STATO_PARLATO = "parlato"
+STATO_ERRORE = "errore-rete"
 
 # Primo strato del prompt (§2.3). È la bozza v4 (prompt/bozza-v4.txt), 40 frasi
 # su 40 nella prova del 19/9; le bozze in prompt/ restano come storico.
@@ -88,6 +110,20 @@ QUANDO UNO STRUMENTO NON FUNZIONA:
 - Non fingere mai di esserci riuscito: non dire "accendo la radio" se la radio non è partita.
 """
 
+# Terzo strato, solo per la richiesta di riepilogo (#18). Senza una spiegazione
+# il modello si trova gli strumenti vietati e non sa perché: la prova del 19/9
+# («Che tempo farà a Torino domani sera?») finiva con una risposta vuota dopo
+# tre ricerche non riuscite. Le regole del prompt fisso, faccia compresa,
+# restano valide: questo strato si aggiunge, non sostituisce.
+ISTRUZIONE_RIEPILOGO = """\
+IL TEMPO PER GLI STRUMENTI È FINITO:
+- Non puoi più chiamare nessuno strumento. Non chiederne altri e non dire che riproverai.
+- Rispondi adesso, con l'espressione fra parentesi quadre all'inizio come sempre,
+  usando quello che hai già scoperto dai risultati raccolti finora.
+- Se quei risultati non bastano, di' semplicemente cosa non sei riuscito a sapere,
+  senza scusarti e senza inventare una causa.
+"""
+
 _GIORNI = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO", "DOMENICA"]
 _MESI = [
     "GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO",
@@ -116,6 +152,8 @@ class Risposta:
     espressione: str | None = None  # dall'etichetta iniziale, es. "[felice]"
     motivo_vuota: str | None = None  # perché il testo è vuoto, se lo è
     ripetizioni: int = 0  # risposte con la sola etichetta, richieste di nuovo
+    riepilogo: str | None = None  # perché è servita la richiesta in più (#18)
+    durata_s: float = 0.0  # quanto è durato il turno, per il tetto dei 20 s
 
 
 def _durata_parlata(secondi: int) -> str:
@@ -240,7 +278,8 @@ def motivo_risposta_vuota(risposta: Any) -> str:
     if risposta is None or not risposta.candidates:
         return "nessun candidato"
     if risposta.function_calls:
-        return f"tetto di {MAX_GIRI} giri raggiunto con chiamate ancora in sospeso"
+        # Non dovrebbe succedere: il riepilogo vieta le chiamate (#18).
+        return "ha chiesto altri strumenti invece di rispondere"
     motivo = risposta.candidates[0].finish_reason
     return f"finish_reason {getattr(motivo, 'name', motivo)}" if motivo else "nessun testo"
 
@@ -274,10 +313,13 @@ class Cervello:
         self,
         client: Any = None,
         microfono: AudioInputAdapter | None = None,
+        faccia: FacciaAdapter | None = None,
         modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
+        cronometro: Callable[[], float] = time.monotonic,
         inietta_ora: bool = True,
         prompt_fisso: str = PROMPT_FISSO,
+        max_giri: int = MAX_GIRI,
     ) -> None:
         if client is None:
             from google import genai
@@ -292,10 +334,18 @@ class Cervello:
             )
         self.client = client
         self.microfono = microfono or crea_audio_input()
-        self.cascata = CascataModelli(modelli)
+        # Predefinita muta: la faccia vera è la #23, e nei test non deve
+        # scrivere niente. Il comando a riga di comando chiede quella sul
+        # terminale, l'unico "schermo" che c'è oggi sul PC.
+        self.faccia = faccia or crea_faccia()
+        # Un solo orologio monotono per il turno e per la cascata, altrimenti
+        # la scadenza passata a `genera` sarebbe su un'altra scala.
+        self.cronometro = cronometro
+        self.cascata = CascataModelli(modelli, orologio=cronometro)
         self.orologio = orologio or (lambda: datetime.now(FUSO_ORARIO))
         self.inietta_ora = inietta_ora
         self.prompt_fisso = prompt_fisso
+        self.max_giri = max_giri
         self.timer: list[Timer] = []
         self._esecutori: dict[str, Callable[..., dict[str, Any]]] = {
             "imposta_timer": self._imposta_timer,
@@ -308,42 +358,69 @@ class Cervello:
 
         Il file di appoggio sta in /dev/shm quando c'è (niente scritture su SD).
         """
+        self.faccia.mostra(STATO_ASCOLTO)
         cartella = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path(tempfile.gettempdir())
         with tempfile.NamedTemporaryFile(suffix=".wav", dir=cartella) as file:
             percorso = Path(file.name)
             self.microfono.registra(percorso, durata_s)
             return percorso.read_bytes()
 
-    def _configurazione(self, senza_strumenti: bool = False) -> types.GenerateContentConfig:
+    def _configurazione(self, riepilogo: bool = False) -> types.GenerateContentConfig:
+        istruzioni = [
+            self.prompt_fisso,
+            contesto_dinamico(self.orologio(), self.timer, self.inietta_ora),
+        ]
+        if riepilogo:
+            istruzioni.append(ISTRUZIONE_RIEPILOGO)
         return types.GenerateContentConfig(
-            system_instruction=[
-                self.prompt_fisso,
-                contesto_dinamico(self.orologio(), self.timer, self.inietta_ora),
-            ],
+            system_instruction=istruzioni,
             tools=[types.Tool(function_declarations=DICHIARAZIONI)],
             # Gli strumenti restano dichiarati (lo storico contiene già delle
-            # chiamate), ma il modello non può chiederne altri.
+            # chiamate, toglierli rischia un 400 che fermerebbe la cascata),
+            # ma il modello non può chiederne altri.
             tool_config=types.ToolConfig(
                 function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.NONE)
             )
-            if senza_strumenti
+            if riepilogo
             else None,
         )
 
-    def _genera(self, contenuti: list[types.Content], senza_strumenti: bool) -> tuple[Any, str]:
+    def _genera(
+        self, contenuti: list[types.Content], scadenza: float, riepilogo: bool = False
+    ) -> tuple[Any, str]:
         return self.cascata.genera(
             self.client,
+            scadenza=scadenza,
             contents=contenuti,
-            config=self._configurazione(senza_strumenti),
+            config=self._configurazione(riepilogo),
         )
+
+    def _chiedi(
+        self, contenuti: list[types.Content], scadenza: float, riepilogo: bool = False
+    ) -> tuple[Any, str, int]:
+        """Una richiesta al modello, ripetuta una volta se torna solo l'etichetta.
+
+        Caso reale del 19/9: due timer risposero "[felice]" e basta, senza
+        chiamare lo strumento. Restituisce anche quante ripetizioni sono servite.
+        """
+        risposta, modello = self._genera(contenuti, scadenza, riepilogo)
+        vuota = not (risposta.function_calls or []) and not separa_espressione(
+            testo_della_risposta(risposta)
+        )[1]
+        if not vuota:
+            return risposta, modello, 0
+        risposta, modello = self._genera(contenuti, scadenza, riepilogo)
+        return risposta, modello, 1
 
     def rispondi(self, audio_wav: bytes | None = None, testo: str | None = None) -> Risposta:
         """Manda audio (o testo, utile per le prove) a Gemini ed esegue il loop agentico.
 
         Ogni `functionCall` viene eseguito da `strumenti()` e il risultato
-        rimandato al modello, per al massimo MAX_GIRI richieste. L'ultima è
-        senza strumenti, così il turno finisce sempre con del testo; una
-        risposta fatta solo dell'etichetta della faccia viene riprovata una volta.
+        rimandato al modello, per al massimo `max_giri` richieste. Quando i
+        giri o il tempo finiscono senza una risposta da dire ad alta voce,
+        parte una richiesta di riepilogo in più, senza strumenti (#18): due
+        ricerche a metà valgono più di un "non ci arrivo". Il turno intero,
+        riepilogo compreso, sta dentro TETTO_TURNO_S.
         """
         if audio_wav is None and testo is None:
             raise ValueError("serve audio_wav oppure testo")
@@ -354,36 +431,65 @@ class Cervello:
             parti.append(types.Part.from_text(text=testo))
         contenuti = [types.Content(role="user", parts=parti)]
 
+        partenza = self.cronometro()
+        scadenza = partenza + TETTO_TURNO_S
+        # Dopo questo istante non si comincia un altro giro con gli strumenti:
+        # quello che resta serve al riepilogo.
+        ultimo_inizio = scadenza - RISERVA_RIEPILOGO_S
+        # Da qui in poi BMO tace finché non ha una risposta: la faccia è
+        # l'unico segno che sta lavorando.
+        self.faccia.mostra(STATO_PENSIERO)
+
         eseguite: list[ChiamataStrumento] = []
         risposta = None
         modello = ""
         ripetizioni = 0
-        for giro in range(MAX_GIRI):
-            # All'ultimo giro niente strumenti: il turno finisce sempre con del testo.
-            ultimo = giro == MAX_GIRI - 1
-            risposta, modello = self._genera(contenuti, ultimo)
-            chiamate = risposta.function_calls or []
-            if not chiamate and not separa_espressione(testo_della_risposta(risposta))[1]:
-                # Solo l'etichetta ("[felice]") e nessuna chiamata, come in due
-                # timer della prova del 19/9: si riprova una volta.
-                risposta, modello = self._genera(contenuti, ultimo)
+        motivo_riepilogo: str | None = None
+        try:
+            for giro in range(self.max_giri):
+                if giro and self.cronometro() >= ultimo_inizio:
+                    motivo_riepilogo = "tempo finito"
+                    break
+                # Scadenza ridotta: un giro lento non può mangiarsi la riserva.
+                risposta, modello, ripetuto = self._chiedi(contenuti, ultimo_inizio)
+                ripetizioni += ripetuto
                 chiamate = risposta.function_calls or []
-                ripetizioni += 1
-            if not chiamate:
-                break
-            contenuti.append(risposta.candidates[0].content)
-            nuove = self.strumenti(chiamate)
-            eseguite.extend(nuove)
-            contenuti.append(
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_function_response(name=c.nome, response=c.risultato)
-                        for c in nuove
-                    ],
+                if not chiamate:
+                    break
+                contenuti.append(risposta.candidates[0].content)
+                nuove = self.strumenti(chiamate)
+                eseguite.extend(nuove)
+                contenuti.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_function_response(name=c.nome, response=c.risultato)
+                            for c in nuove
+                        ],
+                    )
                 )
-            )
+            else:
+                # I giri sono finiti e l'ultimo chiedeva ancora strumenti.
+                giri = "giro" if self.max_giri == 1 else "giri"
+                motivo_riepilogo = f"tetto di {self.max_giri} {giri}"
+        except GeminiNonDisponibile as errore:
+            # Senza risultati in mano non c'è niente da riassumere: l'errore
+            # sale e sul dispositivo diventa la clip "non ci arrivo".
+            if not eseguite:
+                self.faccia.mostra(STATO_ERRORE)
+                raise
+            motivo_riepilogo = "tempo finito" if errore.tipo == "tempo" else "modello non disponibile"
+
+        if motivo_riepilogo:
+            try:
+                risposta, modello, ripetuto = self._chiedi(contenuti, scadenza, riepilogo=True)
+            except GeminiNonDisponibile:
+                self.faccia.mostra(STATO_ERRORE)
+                raise
+            ripetizioni += ripetuto
+
         espressione, testo_finale = separa_espressione(testo_della_risposta(risposta))
+        self.faccia.mostra(espressione or (STATO_PARLATO if testo_finale else STATO_ERRORE))
         return Risposta(
             testo=testo_finale,
             chiamate=eseguite,
@@ -391,6 +497,8 @@ class Cervello:
             espressione=espressione,
             motivo_vuota=None if testo_finale else motivo_risposta_vuota(risposta),
             ripetizioni=ripetizioni,
+            riepilogo=motivo_riepilogo,
+            durata_s=self.cronometro() - partenza,
         )
 
     def strumenti(self, chiamate: list[types.FunctionCall]) -> list[ChiamataStrumento]:
@@ -467,9 +575,21 @@ def main() -> None:
     parser.add_argument("--testo", help="manda testo invece di audio")
     parser.add_argument("--senza-ora", action="store_true", help="non iniettare l'ora (esperimento 0.3)")
     parser.add_argument("--prompt", type=Path, help="file di testo da usare come prompt fisso")
+    parser.add_argument(
+        "--max-giri",
+        type=int,
+        default=MAX_GIRI,
+        help=f"giri con gli strumenti prima del riepilogo forzato (predefinito {MAX_GIRI}); "
+        "con 1 il riepilogo scatta di sicuro, utile per provarlo",
+    )
     argomenti = parser.parse_args()
 
-    cervello = Cervello(inietta_ora=not argomenti.senza_ora, **prompt_da_file(argomenti.prompt))
+    cervello = Cervello(
+        faccia=crea_faccia(sul_terminale=True),
+        inietta_ora=not argomenti.senza_ora,
+        max_giri=argomenti.max_giri,
+        **prompt_da_file(argomenti.prompt),
+    )
     audio = None
     if argomenti.wav:
         audio = argomenti.wav.read_bytes()
@@ -492,6 +612,8 @@ def main() -> None:
     if risposta.ripetizioni:
         nota += ", risposta con la sola etichetta ripetuta"
     print(f"Modello: {risposta.modello}{nota}")
+    riepilogo = f", riepilogo forzato ({risposta.riepilogo})" if risposta.riepilogo else ""
+    print(f"Tempo: {risposta.durata_s:.1f} s su {TETTO_TURNO_S:.0f}{riepilogo}")
     faccia = f" [faccia: {risposta.espressione}]" if risposta.espressione else ""
     print(f"BMO{faccia}: {risposta.testo or f'(risposta vuota: {risposta.motivo_vuota})'}")
 

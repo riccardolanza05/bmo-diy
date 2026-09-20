@@ -1,7 +1,8 @@
 from bmo_core.adapters.audio_input import ArecordAdapter
 from bmo_core.adapters.audio_output import MpvAdapter
 from bmo_core.adapters.camera import LibcameraAdapter, WebcamV4L2Adapter
-from bmo_core.adapters.factory import crea_audio_input, crea_audio_output, crea_camera
+from bmo_core.adapters.faccia import FacciaMuta, FacciaTerminale
+from bmo_core.adapters.factory import crea_audio_input, crea_audio_output, crea_camera, crea_faccia
 from bmo_core.config import Ambiente
 
 
@@ -29,6 +30,21 @@ def test_crea_audio_input_dev_linux_usa_default():
 def test_crea_audio_output_identico_su_entrambi():
     assert isinstance(crea_audio_output(Ambiente.PI), MpvAdapter)
     assert isinstance(crea_audio_output(Ambiente.DEV_LINUX), MpvAdapter)
+
+
+def test_crea_faccia_muta_se_non_si_chiede_il_terminale():
+    """Finché la faccia vera non c'è (#23), il predefinito non deve scrivere niente."""
+    assert isinstance(crea_faccia(), FacciaMuta)
+    assert isinstance(crea_faccia(Ambiente.PI), FacciaMuta)
+    assert isinstance(crea_faccia(sul_terminale=True), FacciaTerminale)
+
+
+def test_faccia_sul_terminale_scrive_lo_stato():
+    import io
+
+    uscita = io.StringIO()
+    FacciaTerminale(uscita).mostra("pensiero")
+    assert uscita.getvalue() == "[faccia: pensiero]\n"
 
 
 def test_registra_passa_campioni_interi(monkeypatch, tmp_path):

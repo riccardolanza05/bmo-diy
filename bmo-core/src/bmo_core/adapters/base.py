@@ -28,6 +28,18 @@ class AudioInputAdapter(Protocol):
     def registra(self, destinazione: Path, durata_s: float) -> Path: ...
 
 
+class FacciaAdapter(Protocol):
+    """La faccia di BMO: mostra lo stato in cui si trova (§2.1).
+
+    BMO non ha pulsanti ne' spie: la faccia e' l'unico modo che ha di dire
+    che sta ascoltando, che sta elaborando o che qualcosa e' andato storto.
+    Serve soprattutto nei secondi in cui tace, che altrimenti non si
+    distinguono da un guasto. Il disegno vero arriva con l'issue #23.
+    """
+
+    def mostra(self, stato: str) -> None: ...
+
+
 class AudioOutputAdapter(Protocol):
     """Riproduzione audio (voce TTS e musica)."""
 
