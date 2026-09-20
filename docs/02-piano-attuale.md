@@ -237,7 +237,9 @@ Aggiunte, che nel riferimento non ci sono:
 
 **CONFERMA (#17): un sotto-dialogo, non un giro completo.** Nato dalla #14 (nessuna scrittura del diario deve avvenire in silenzio), `Macchina.chiedi_conferma(domanda)` dice la domanda, riascolta subito — senza richiedere di nuovo il richiamo — e classifica la risposta con una chiamata a Gemini separata dal loop agentico (`Cervello.classifica_risposta`, prompt minuscolo, niente storico né strumenti): sì, no, o boh. Un "boh" chiede un solo chiarimento; se resta ambiguo, o se non arriva nulla, si annulla senza insistere — l'issue vieta esplicitamente un loop di richieste. **Collegato alla scrittura del diario dalla #14.2** (`Macchina._ricorda`, strumento `ricorda` in §2.4): fino a due ascolti da 8 s dentro un giro del loop agentico, che il cronometro del turno (TETTO_TURNO_S) non scorpora — accettato per ora perché chi aspetta sta parlando con BMO, non aspettando in silenzio; da rivedere se in pratica il tetto dei 20 s salta spesso per questo. **La clausola di semplificazione resta valida**: se in uso reale il tasso di falsi annullamenti o falsi positivi è alto, si passa alla soluzione più semplice (una nuova wake word per confermare) invece di insistere su questo meccanismo.
 
-**Cosa c'è oggi al posto della wake word e del TTS.** Il diagramma sopra è l'architettura di destinazione. In `bmo-core` oggi (macchina.py) il richiamo "Hey BMO" è **Invio da tastiera** (`richiamo_da_tastiera`, provvisorio, sostituito dalla wake word con la #22) e la voce di BMO è **stampata sul terminale** (`voce_sul_terminale`, provvisorio fino al TTS, #21). `scatta_foto` è dichiarato ma non ancora collegato a un esecutore: risponde sempre `non_disponibile`. Gli stati reali della macchina (`macchina.Stato`) sono ATTESA, ASCOLTO, PENSIERO, PARLATO, PAUSA, ERRORE, CONFERMA — corrispondenti a WAIT/LISTEN/THINK/SPEAK/PAUSA/ERRORE/CONFERMA qui sopra.
+**L'ascolto fino a endpoint è reale (20/9), non più solo un disegno.** `vad.py` implementa esattamente quello che il diagramma mostrava già: si aspetta che la voce inizi, poi si conta il silenzio che segue (`ascolta_fino_al_silenzio`), con `cap_s` come tetto di sicurezza se il VAD non sente mai un silenzio. 800 ms e l'aggressività del VAD (0-3) sono parametri, non costanti: si tarano con `python -m bmo_core.vad` o con i flag di `macchina.py` (`--silenzio-ms`, `--aggressivita`), verificandoli con l'uso reale — nessuno dei due numeri era una misura, erano ipotesi ragionevoli. `usa_vad=False` torna alla durata fissa di prima, per confronto o se il VAD dà problemi.
+
+**Cosa c'è oggi al posto della wake word e del TTS.** Il diagramma sopra resta, per il resto, l'architettura di destinazione. In `bmo-core` oggi (macchina.py) il richiamo "Hey BMO" è **Invio da tastiera** (`richiamo_da_tastiera`, provvisorio, sostituito dalla wake word con la #22) e la voce di BMO è **stampata sul terminale** (`voce_sul_terminale`, provvisorio fino al TTS, #21). `scatta_foto` è dichiarato ma non ancora collegato a un esecutore: risponde sempre `non_disponibile`. Gli stati reali della macchina (`macchina.Stato`) sono ATTESA, ASCOLTO, PENSIERO, PARLATO, PAUSA, ERRORE, CONFERMA — corrispondenti a WAIT/LISTEN/THINK/SPEAK/PAUSA/ERRORE/CONFERMA qui sopra.
 
 ### 2.2 Tre processi
 
@@ -375,7 +377,7 @@ Dodici strumenti (`strumenti.DICHIARAZIONI`); `imposta_espressione` **non è fra
 | Funzione | Dove | Perché |
 |---|---|---|
 | **Wake word** | **Locale, obbligatorio** | L'alternativa sarebbe streammare il microfono 24/7 verso il cloud: insostenibile per costo, banda e privacy. openWakeWord in ONNX: ~10 MB di modelli, <10% di un core. **Non è una concessione: è l'unico modo di avere un dispositivo cloud che non ascolti sempre** |
-| **VAD / endpointing** | Locale, banale | `webrtcvad` |
+| **VAD / endpointing** | Locale, **fatto** (20/9) | `webrtcvad-wheels` (§2.1); non `webrtcvad` puro, che si è rotto quando setuptools ha tolto `pkg_resources` |
 | **STT** | **Cloud** | Gemini è multimodale: trascrizione e ragionamento sono la stessa chiamata. Whisper.cpp `tiny` su un 3 A+ impiegherebbe 5–10 s per 5 s di audio |
 | **LLM + loop agentico** | **Cloud**, obbligato | 512 MB. Non c'è discussione |
 | **Vision** | **Cloud** | Stesso modello, stessa conversazione: sparisce il model swap da ~1 minuto |
@@ -614,6 +616,8 @@ Si passa a `BMO_ENV=pi` con le periferiche vere. Il software è già finito: que
 | 1 W su 8 Ω non basta per la cucina | media, fase 4.2 | Misurare col fonometro **prima** di chiudere la meccanica |
 | Backlight su GPIO18 che rompe l'I2S | media, fasi 4.5–4.7 | `gpio_LIGHT=12`. Sintomo indiretto: il display funziona e l'audio smette |
 | `openwakeword` che non si installa | media, fase 4.4 | Sistema **arm64** e `onnxruntime` esplicito |
+| `webrtcvad-wheels` (il VAD, §2.1/§2.5) non si compila sul Pi | media, fase 4 | Serve una toolchain C (`gcc`), non solo `pip install`: verificare presto, stesso genere di rischio di `onnxruntime` |
+| `silenzio_ms`/aggressività del VAD sbagliati per la stanza vera | media, appena in uso reale | Tarati a tavolino (800 ms, aggressività 2): da verificare con `python -m bmo_core.vad` nella stanza vera, con la TV accesa, prima di fidarsene |
 | Il calore ammorbidisce il guscio in PLA | media, estate | PETG + feritoie passanti |
 | Il SoC va in throttling senza dissipatori | bassa | Il burn-in lo dice con certezza; si aggiungono dopo in 5 minuti |
 | Foto ravvicinate sfocate | media, se ci si fida del preset di fabbrica | Il modulo esce tarato all'infinito: la taratura a pinza è un passo da 5 minuti, non opzionale |

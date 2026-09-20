@@ -22,9 +22,17 @@ Due pezzi sono ancora provvisori, e sono isolati apposta in due funzioni:
 - il **richiamo** e' Invio sulla tastiera; la wake word «Hey BMO» e' la #22 e
   prendera' il posto di `richiamo_da_tastiera` senza toccare il resto;
 - la **voce** stampa il testo; il TTS e le clip sono la #21 e seguenti.
+
+**L'ascolto, una volta iniziato, non e' piu' provvisorio**: si ferma da solo
+quando rileva silenzio dopo la voce (VAD, `vad.py`), non dopo una durata
+fissa decisa in anticipo — richiesto da Riccardo il 20/9 provando la #14.2 a
+voce, perche' nessuno sa in anticipo quanto debba durare una frase.
+`usa_vad=False` torna alla durata fissa di prima, per i casi in cui il VAD
+non e' disponibile o serve confrontare i due comportamenti.
 """
 from __future__ import annotations
 
+import sys
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
@@ -41,18 +49,20 @@ from .adapters import (
     FacciaAdapter,
     crea_faccia,
 )
-from .brain import ERRORI_GEMINI, DURATA_ASCOLTO_S, Cervello, descrivi_errore
+from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
 from .radio import Radio
 from .sveglia import Sveglia
+from .vad import AGGRESSIVITA_PREDEFINITA, SILENZIO_MS_PREDEFINITO, Diagnostica
 
 MAX_PAUSA_MINUTI = 8 * 60  # otto ore: oltre, BMO resterebbe sordo per sbaglio
 
-# Un sì o un no si dicono in meno di due secondi: otto bastano e avanzano
-# anche a chi esita (#17). Non c'è un VAD reale a tagliare corto: si registra
-# per tutta la durata e si classifica dopo.
-DURATA_ASCOLTO_CONFERMA_S = 8.0
+# Tetto di sicurezza per il sotto-dialogo di conferma (#17): un sì o un no si
+# dicono in meno di due secondi, il VAD si ferma molto prima di arrivarci.
+# Senza VAD (usa_vad=False) diventa invece la durata fissa di ascolto, come
+# prima di questo cambiamento.
+CAP_CONFERMA_S = 8.0
 
 
 class Stato(str, Enum):
@@ -89,13 +99,26 @@ class Macchina:
         richiamo: Callable[[], bool] = richiamo_da_tastiera,
         voce: Callable[[str], None] = voce_sul_terminale,
         durata_ascolto_s: float = DURATA_ASCOLTO_S,
+        cap_ascolto_s: float = CAP_ASCOLTO_S,
+        cap_conferma_s: float = CAP_CONFERMA_S,
+        usa_vad: bool = True,
+        silenzio_ms: float = SILENZIO_MS_PREDEFINITO,
+        aggressivita_vad: int = AGGRESSIVITA_PREDEFINITA,
         orologio: Callable[[], datetime] | None = None,
     ) -> None:
         self.cervello = cervello
         self.faccia = faccia or crea_faccia()
         self.richiamo = richiamo
         self.voce = voce
+        # durata_ascolto_s/cap_conferma_s contano solo con usa_vad=False: col
+        # VAD acceso è cap_ascolto_s/cap_conferma_s a fare da tetto, e ci si
+        # ferma molto prima per silenzio.
         self.durata_ascolto_s = durata_ascolto_s
+        self.cap_ascolto_s = cap_ascolto_s
+        self.cap_conferma_s = cap_conferma_s
+        self.usa_vad = usa_vad
+        self.silenzio_ms = silenzio_ms
+        self.aggressivita_vad = aggressivita_vad
         self.orologio = orologio or (lambda: datetime.now(FUSO_ORARIO))
         self.stato = Stato.ATTESA
         self.pausa_fino_a: datetime | None = None
@@ -138,13 +161,15 @@ class Macchina:
         come eccezione.
 
         Nota per chi tocca il tetto del turno (#18, TETTO_TURNO_S): questa
-        chiamata può bloccare fino a ~16 s (due ascolti di
-        DURATA_ASCOLTO_CONFERMA_S) dentro un giro del loop agentico, che il
-        cronometro del turno non scorpora. È accettato per ora: chi sta
-        aspettando una conferma sta parlando con BMO, non aspettando in
-        silenzio, e il caso serio (rete giù durante la conferma) lo gestisce
-        già `classifica_risposta` restituendo "boh". Se in pratica il tetto
-        dei 20 s salta spesso per questo, va rivisto.
+        chiamata può bloccare dentro un giro del loop agentico per un tempo
+        che il cronometro del turno non scorpora. Col VAD il caso comune è
+        breve (un sì o un no più il silenzio che segue, sotto i 2 s); il
+        caso peggiore resta comunque fino a 2×cap_conferma_s se il VAD non
+        sente mai voce. È accettato per ora: chi sta aspettando una conferma
+        sta parlando con BMO, non aspettando in silenzio, e il caso serio
+        (rete giù durante la conferma) lo gestisce già `classifica_risposta`
+        restituendo "boh". Se in pratica il tetto dei 20 s salta spesso per
+        questo, va rivisto.
         """
         testo = (testo or "").strip()
         if not testo:
@@ -188,7 +213,7 @@ class Macchina:
 
     def _ascolta_e_classifica(self) -> str:
         self._vai(Stato.CONFERMA, STATO_CONFERMA)
-        audio = self.cervello.ascolta(DURATA_ASCOLTO_CONFERMA_S)
+        audio = self._ascolta(self.cap_conferma_s)
         return self.cervello.classifica_risposta(audio)
 
     # --- gli stati -----------------------------------------------------------
@@ -199,10 +224,32 @@ class Macchina:
         self.stato = stato
         self.faccia.mostra(faccia)
 
+    def _ascolta(self, cap_s: float) -> bytes:
+        """Un ascolto, con o senza VAD secondo `usa_vad`.
+
+        `cap_s` è la durata fissa quando `usa_vad` è spento, il tetto di
+        sicurezza quando è acceso: stesso numero, ruolo diverso.
+        """
+        if not self.usa_vad:
+            return self.cervello.ascolta(cap_s)
+        audio, diagnostica = self.cervello.ascolta_fino_al_silenzio(cap_s, self.silenzio_ms, self.aggressivita_vad)
+        self._stampa_diagnostica(diagnostica)
+        return audio
+
+    def _stampa_diagnostica(self, diagnostica: Diagnostica) -> None:
+        # Sullo stderr, come la faccia sul terminale: non deve sporcare
+        # l'eventuale uso di stdout dei comandi di prova.
+        print(
+            f"[ascolto: {diagnostica.durata_totale_s:.1f} s, "
+            f"voce rilevata: {'sì' if diagnostica.voce_rilevata else 'no'}, "
+            f"fine per: {diagnostica.motivo_fine}]",
+            file=sys.stderr,
+        )
+
     def turno(self) -> None:
         """Un giro completo: ascolta, pensa, risponde."""
         self._vai(Stato.ASCOLTO, STATO_ASCOLTO)
-        audio = self.cervello.ascolta(self.durata_ascolto_s)
+        audio = self._ascolta(self.cap_ascolto_s if self.usa_vad else self.durata_ascolto_s)
         try:
             # Il cervello mostra da sé "pensiero" e l'espressione finale.
             self.stato = Stato.PENSIERO
@@ -242,14 +289,35 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="BMO acceso: premi Invio per parlargli.")
-    parser.add_argument("--durata", type=float, default=DURATA_ASCOLTO_S, help="secondi di ascolto")
+    parser.add_argument(
+        "--senza-vad", action="store_true",
+        help="registra per una durata fissa (--durata) invece di fermarsi da solo al silenzio",
+    )
+    parser.add_argument("--durata", type=float, default=DURATA_ASCOLTO_S, help="secondi di ascolto con --senza-vad")
+    parser.add_argument("--cap-ascolto", type=float, default=CAP_ASCOLTO_S, help="tetto massimo di ascolto col VAD")
+    parser.add_argument(
+        "--silenzio-ms", type=float, default=SILENZIO_MS_PREDEFINITO,
+        help="quanto silenzio dopo la voce prima di fermarsi (col VAD)",
+    )
+    parser.add_argument(
+        "--aggressivita", type=int, default=AGGRESSIVITA_PREDEFINITA, choices=[0, 1, 2, 3],
+        help="aggressività del VAD: 0 permissivo, 3 aggressivo (con la TV accesa serve più alta)",
+    )
     parser.add_argument("--senza-timer", action="store_true", help="non far partire la sveglia dei timer")
     parser.add_argument("--senza-radio", action="store_true", help="non collegare radio e volume")
     argomenti = parser.parse_args()
 
     faccia = crea_faccia(sul_terminale=True)
     cervello = Cervello(faccia=faccia)
-    macchina = Macchina(cervello=cervello, faccia=faccia, durata_ascolto_s=argomenti.durata)
+    macchina = Macchina(
+        cervello=cervello,
+        faccia=faccia,
+        durata_ascolto_s=argomenti.durata,
+        cap_ascolto_s=argomenti.cap_ascolto,
+        usa_vad=not argomenti.senza_vad,
+        silenzio_ms=argomenti.silenzio_ms,
+        aggressivita_vad=argomenti.aggressivita,
+    )
     if not argomenti.senza_radio:
         radio = Radio()
         radio.registra(cervello)

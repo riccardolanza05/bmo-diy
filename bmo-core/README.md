@@ -58,6 +58,8 @@ BMO_ENV=pi python -m bmo_core...
 - `v4l2-ctl --list-devices` per confermare che la webcam sia su `/dev/video0`
   (`WebcamV4L2Adapter` lo assume, ma va verificato).
 - `mpv --version` e `ffmpeg -version` installati.
+- `gcc`/`cc` disponibile: `webrtcvad-wheels` (il VAD, vedi sotto) si compila da
+  sorgente, non ha ruote precompilate per ogni versione di Python.
 
 ## Il cervello: primo giro con Gemini (issue #19)
 
@@ -126,9 +128,23 @@ ATTESA ──richiamo──► ASCOLTO ──► PENSIERO ──► PARLATO ─�
 ```
 
 ```bash
-python -m bmo_core.macchina                # premi Invio e parla; Ctrl-D per spegnere
-python -m bmo_core.macchina --durata 5     # ascolta cinque secondi invece di tre
-python -m bmo_core.macchina --senza-timer  # senza la sveglia dei timer
+python -m bmo_core.macchina                       # premi Invio e parla; Ctrl-D per spegnere
+python -m bmo_core.macchina --silenzio-ms 500      # si ferma prima, dopo mezzo secondo di silenzio
+python -m bmo_core.macchina --aggressivita 3       # VAD più aggressivo (utile con la TV accesa)
+python -m bmo_core.macchina --senza-vad --durata 5 # torna all'ascolto a durata fissa (5 s)
+python -m bmo_core.macchina --senza-timer          # senza la sveglia dei timer
+```
+
+**L'ascolto si ferma da solo quando rileva silenzio**, non dopo una durata
+fissa (`vad.py`, con `webrtcvad`): registrare per un tempo deciso in anticipo
+non è realistico, una frase può durare quanto vuole. Ogni ascolto stampa una
+riga di diagnostica su stderr (`[ascolto: 1.4 s, voce rilevata: sì, fine per:
+silenzio]`) per capire cosa ha deciso il VAD. Per tarare `--silenzio-ms` e
+`--aggressivita` senza passare da un turno intero con Gemini di mezzo:
+
+```bash
+python -m bmo_core.vad                              # una registrazione, solo la diagnostica
+python -m bmo_core.vad --silenzio-ms 500 --aggressivita 3
 ```
 
 **A ogni transizione cambia la faccia**, ed è il punto del piano che conta di
