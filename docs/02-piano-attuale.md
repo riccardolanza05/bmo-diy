@@ -306,14 +306,17 @@ senza inventare cause; mai fingere di esserci riusciti.
 
 **L'espressione non è uno strumento.** `[felice]`, `[triste]`, ... arrivano come etichetta a inizio della risposta finale e vengono tolte da `brain.separa_espressione()` prima di mandare il testo al sintetizzatore. Farne uno strumento (come nel primo abbozzo di questa sezione) costava un secondo giro di richiesta su quasi ogni turno solo per ottenere il testo: eliminato per questo.
 
-**Strato dinamico** (`contesto_dinamico()`, rigenerato a ogni turno). Oggi porta **solo** ora locale e timer attivi:
+**Strato dinamico** (`contesto_dinamico()`, rigenerato a ogni turno). Oggi porta ora locale, timer attivi e il diario di preferenze (#14.1, `memoria.py`):
 
 ```
 [STATO ALLE 22:14 DI MARTEDÌ 8 SETTEMBRE 2026, Europe/Rome]
 Timer attivi: "pasta" scade fra 4 minuti e 12 secondi.
+Diario: "non gli piacciono i funghi"; "ceno alle 20".
 ```
 
-Altri campi che compariranno qui in futuro — musica in riproduzione, fotocamera, stato della rete, l'ultima cosa detta — non esistono ancora: arriveranno con la memoria a breve termine (#29) e con quanto la #14 deciderà di iniettare. Chi implementa la #14 deve aggiungere righe a questa funzione, non inventare un terzo canale.
+**Il diario (#14.1) è solo lettura.** `memoria.py` rilegge `<dati>/memoria.json` a ogni turno — una lista di voci in linguaggio naturale (non coppie chiave-valore: le preferenze di casa sono troppo eterogenee per uno schema fisso), ciascuna con una data e una `fonte` ("manuale" per ora). Il file si scrive solo via SSH/SCP dal computer dell'utente, esattamente come le stazioni radio preferite (§1.2bis); oltre 30 voci si tengono solo le più recenti, per non gonfiare il prompt. **BMO non può ancora scriverci da solo**: il prompt fisso gli dice di rispondere onestamente che non sa ancora farlo se qualcuno gli chiede di ricordare qualcosa. Quella parte (#14.2) resta legata allo stato `CONFIRM` della #17, non ancora costruito.
+
+Altri campi che compariranno qui in futuro — musica in riproduzione, fotocamera, stato della rete, l'ultima cosa detta — non esistono ancora: arriveranno con la memoria a breve termine (#29), che scriverà anche nello stesso `memoria.json` (voci con `fonte: "modello"`).
 
 **Terzo strato, solo per il riepilogo forzato** (`ISTRUZIONE_RIEPILOGO`, #18): quando i 4 giri con strumenti o la riserva di 6 s finiscono senza una risposta parlabile, parte una richiesta in più con lo stesso storico, `tool_config` in modalità NONE (il modello non può chiedere altri strumenti) e questo terzo strato che glielo spiega, così non si trova gli strumenti vietati senza sapere perché — la prova del 19/9 («Che tempo farà a Torino domani sera?») finiva altrimenti con una risposta vuota dopo tre ricerche non riuscite.
 
@@ -520,7 +523,7 @@ Tutto gira con `BMO_ENV=dev-linux`: `WebcamV4L2Adapter` per la foto, `ArecordAda
 
 **1.2 · Il giro completo.** `brain.py` con `ascolta()`, `rispondi()`, `strumenti()`, collegati agli adapter e mai alle classi concrete. *Uscita*: la prova delle frasi (`prova_frasi.py`, oggi 43 frasi in 8 categorie) — **sotto la soglia del 90% il problema è il prompt di sistema**. Qui entrano il fallback della cascata quando un modello finisce la quota o è sovraccarico (§2.9) e il riepilogo forzato quando il loop agentico tocca il tetto di 4 giri o la riserva di tempo (§2.1, §2.3). *Fatto (#19, #18): bozza v4 del prompt, 40/40.*
 
-**1.3 · Strumenti e stato.** Le undici funzioni della §2.4, la macchina a stati della §2.1. *Fatto (#20): timer persistenti su disco, strumenti radio veri, macchina a stati con faccia.* Restano da fare, come issue separate: la memoria persistente con conferma vocale obbligatoria (nuovo stato `CONFIRM`, #17), l'elenco configurabile delle persone di casa nel prompt (#15) e il diario di preferenze (#14). *Il test brutale che vale più di dieci unit test*: far partire un timer, uccidere il processo, riavviarlo, verificare che suoni all'ora giusta — verificato a mano il 20/9.
+**1.3 · Strumenti e stato.** Le undici funzioni della §2.4, la macchina a stati della §2.1. *Fatto (#20): timer persistenti su disco, strumenti radio veri, macchina a stati con faccia.* *Fatto (#14.1): il diario di preferenze, in sola lettura (§2.3).* Restano da fare, come issue separate: la conferma vocale obbligatoria (nuovo stato `CONFIRM`, #17) e con essa la scrittura del diario (#14.2), e l'elenco configurabile delle persone di casa nel prompt (#15). *Il test brutale che vale più di dieci unit test*: far partire un timer, uccidere il processo, riavviarlo, verificare che suoni all'ora giusta — verificato a mano il 20/9.
 
 **1.4 · Le clip di attesa.** Una ventina di clip brevi in italiano generate col TTS di Gemini — attesa («ci penso!», «un attimo…», «vediamo…»), conferma, errore di rete, timer scaduto. Suonano sulle casse del PC tramite `MpvAdapter`. *Uscita*: BMO non resta mai muto per più di 0,3 s.
 

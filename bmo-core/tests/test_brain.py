@@ -275,6 +275,47 @@ def test_contesto_dinamico_timer_e_senza_ora():
     assert "22:14" not in contesto_dinamico(ORA, [], inietta_ora=False)
 
 
+def test_contesto_dinamico_senza_diario_lo_dice_esplicitamente():
+    assert "Diario: nessuna voce." in contesto_dinamico(ORA, [])
+
+
+def test_contesto_dinamico_elenca_le_voci_del_diario():
+    from bmo_core.memoria import Voce
+
+    diario = [Voce("non gli piacciono i funghi", "2026-09-14"), Voce("ceno alle 20", "2026-09-15")]
+    testo = contesto_dinamico(ORA, [], diario=diario)
+    assert 'Diario: "non gli piacciono i funghi"; "ceno alle 20".' in testo
+
+
+def test_cervello_inietta_il_diario_letto_dal_file(tmp_path):
+    import json
+
+    percorso = tmp_path / "memoria.json"
+    percorso.write_text(
+        json.dumps([{"testo": "non gli piacciono i funghi", "aggiunta_il": "2026-09-14"}]),
+        encoding="utf-8",
+    )
+    cervello, client = _cervello([_risposta_testo("ok")], diario_percorso=percorso)
+    cervello.rispondi(testo="ciao")
+    dinamico = client.richieste[0]["config"].system_instruction[1]
+    assert '"non gli piacciono i funghi"' in dinamico
+
+
+def test_diario_riletto_a_ogni_turno_non_a_ogni_giro(tmp_path):
+    import json
+
+    percorso = tmp_path / "memoria.json"
+    cervello, client = _cervello(
+        [_risposta_chiamata("elenca_timer"), _risposta_testo("ok")], diario_percorso=percorso
+    )
+    percorso.write_text(json.dumps([{"testo": "ceno alle 20", "aggiunta_il": "2026-09-20"}]), encoding="utf-8")
+    cervello.rispondi(testo="ciao")
+    # Il file esiste già dal primo giro: la lettura è per turno, non a ogni
+    # richiesta, ma entrambi i giri di questo turno la vedono.
+    for richiesta in client.richieste:
+        assert '"ceno alle 20"' in richiesta["config"].system_instruction[1]
+
+
 def test_ascolta_usa_il_microfono_iniettato():
     cervello, _ = _cervello([])
     assert cervello.ascolta(3.0) == b"RIFF-finto"
