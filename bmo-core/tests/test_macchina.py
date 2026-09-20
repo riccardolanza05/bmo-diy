@@ -16,6 +16,7 @@ from bmo_core.config import FUSO_ORARIO
 from bmo_core.macchina import Macchina, Stato
 from bmo_core.memoria import carica_diario
 from bmo_core.modelli import GeminiNonDisponibile
+from bmo_core.vad import Diagnostica
 
 ORA = datetime(2026, 9, 20, 21, 0, tzinfo=FUSO_ORARIO)
 
@@ -42,12 +43,14 @@ class FacciaFinta:
 class CervelloFinto:
     """Sostituto di Cervello: la macchina lo usa solo per ascoltare e rispondere."""
 
-    def __init__(self, risposte, faccia=None, classificazioni=None):
+    def __init__(self, risposte, faccia=None, classificazioni=None, diagnostiche=None):
         self._risposte = list(risposte)
         self.faccia = faccia
         self.ascolti = []
+        self.ascolti_vad = []
         self.strumenti_registrati = {}
         self._classificazioni = list(classificazioni or [])
+        self._diagnostiche = list(diagnostiche or [])
         self.audio_classificati = []
         self.diario_percorso = None
 
@@ -58,6 +61,11 @@ class CervelloFinto:
         # Serve a controllare che la faccia cambi PRIMA di registrare.
         self.ascolti.append((durata_s, list(self.faccia.stati) if self.faccia else []))
         return b"RIFF"
+
+    def ascolta_fino_al_silenzio(self, cap_s, silenzio_ms, aggressivita):
+        self.ascolti_vad.append((cap_s, silenzio_ms, aggressivita, list(self.faccia.stati) if self.faccia else []))
+        diagnostica = self._diagnostiche.pop(0) if self._diagnostiche else Diagnostica(1.0, True, 0, "silenzio")
+        return b"RIFF", diagnostica
 
     def rispondi(self, audio_wav=None, testo=None):
         risposta = self._risposte.pop(0)
@@ -70,9 +78,9 @@ class CervelloFinto:
         return self._classificazioni.pop(0)
 
 
-def _macchina(risposte, orologio=None, richiami=1, classificazioni=None):
+def _macchina(risposte, orologio=None, richiami=1, classificazioni=None, diagnostiche=None, **opzioni):
     faccia = FacciaFinta()
-    cervello = CervelloFinto(risposte, faccia, classificazioni=classificazioni)
+    cervello = CervelloFinto(risposte, faccia, classificazioni=classificazioni, diagnostiche=diagnostiche)
     dette = []
     macchina = Macchina(
         cervello=cervello,
@@ -80,6 +88,11 @@ def _macchina(risposte, orologio=None, richiami=1, classificazioni=None):
         richiamo=lambda: True,
         voce=dette.append,
         orologio=orologio or OrologioFinto(),
+        # Il VAD (aggiunto il 20/9) vive nel microfono vero: CervelloFinto non
+        # lo implementa, perché questi test riguardano gli stati e il
+        # dialogo, non l'ascolto. usa_vad=True si prova a parte, sotto.
+        usa_vad=opzioni.pop("usa_vad", False),
+        **opzioni,
     )
     return macchina, faccia, cervello, dette
 
@@ -178,7 +191,7 @@ def test_chiedi_conferma_si_al_primo_colpo():
     assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is True
     assert dette == ["Vuoi che lo ricordi?"]
     assert len(cervello.ascolti) == 1
-    assert cervello.ascolti[0][0] == 8.0  # DURATA_ASCOLTO_CONFERMA_S
+    assert cervello.ascolti[0][0] == 8.0  # CAP_CONFERMA_S
     assert faccia.stati[-2:] == [STATO_CONFERMA, STATO_PENSIERO]
 
 
@@ -241,3 +254,40 @@ def test_ricorda_testo_vuoto_rifiutato():
 def test_ricorda_registrato_come_strumento():
     macchina, _, cervello, _ = _macchina([])
     assert cervello.strumenti_registrati["ricorda"] == macchina._ricorda
+
+
+def test_turno_con_vad_usa_ascolta_fino_al_silenzio_e_il_cap_giusto():
+    macchina, _, cervello, dette = _macchina(
+        [Risposta(testo="Ciao!")], usa_vad=True, diagnostiche=[Diagnostica(1.2, True, 3, "silenzio")]
+    )
+    macchina.esegui(giri=1)
+    assert dette == ["Ciao!"]
+    assert cervello.ascolti == []  # non l'ascolto a durata fissa
+    [(cap, _silenzio_ms, _aggressivita, _)] = cervello.ascolti_vad
+    assert cap == macchina.cap_ascolto_s
+
+
+def test_turno_con_vad_stampa_la_diagnostica_su_stderr(capsys):
+    macchina, _, _, _ = _macchina(
+        [Risposta(testo="Ciao!")], usa_vad=True, diagnostiche=[Diagnostica(1.2, True, 3, "silenzio")]
+    )
+    macchina.esegui(giri=1)
+    errore = capsys.readouterr().err
+    assert "1.2 s" in errore and "silenzio" in errore
+
+
+def test_chiedi_conferma_con_vad_usa_il_cap_conferma():
+    macchina, _, cervello, _ = _macchina(
+        [], usa_vad=True, classificazioni=["si"], diagnostiche=[Diagnostica(0.9, True, 0, "silenzio")]
+    )
+    assert macchina.chiedi_conferma("Confermi?") is True
+    [(cap, _silenzio_ms, _aggressivita, _)] = cervello.ascolti_vad
+    assert cap == macchina.cap_conferma_s
+
+
+def test_senza_vad_non_chiama_mai_ascolta_fino_al_silenzio():
+    """usa_vad=False deve restare un vero ripiego, non un'etichetta senza effetto."""
+    macchina, _, cervello, _ = _macchina([Risposta(testo="Ciao!")], usa_vad=False)
+    macchina.esegui(giri=1)
+    assert cervello.ascolti_vad == []
+    assert len(cervello.ascolti) == 1

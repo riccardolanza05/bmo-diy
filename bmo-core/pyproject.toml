@@ -5,7 +5,14 @@ description = "Logica di dialogo e adapter hardware per l'assistente BMO"
 requires-python = ">=3.11"
 # ddgs: la ricerca sul web (§2.4), perché il grounding con Google Search non è
 # nel free tier. Importata dove serve, così BMO parte anche senza.
-dependencies = ["google-genai", "ddgs"]
+# webrtcvad-wheels: rilevamento del silenzio per capire da soli quando finisce
+# una frase (§2.1), invece di registrare per una durata fissa. Stesso modulo
+# importabile (`import webrtcvad`) del pacchetto originale `webrtcvad`, ma
+# senza il suo `import pkg_resources` all'avvio: quello viene da setuptools,
+# che lo sta rimuovendo (rotto qui con setuptools 84). È comunque
+# un'estensione C: si compila da sorgente su Python 3.14 (verificato), ma sul
+# Pi servirà una toolchain di compilazione, come già per onnxruntime (§2.6).
+dependencies = ["google-genai", "ddgs", "webrtcvad-wheels"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator, Protocol
 
+from ..vad import Diagnostica
+
 # Stati della faccia (§2.1). Sono un'altra cosa dalle espressioni che sceglie
 # il modello per la risposta parlata: questi li decide il codice per dire a
 # chi guarda cosa sta facendo BMO. Stanno qui, accanto al Protocol, perche'
@@ -33,13 +35,20 @@ class CameraAdapter(Protocol):
 class AudioInputAdapter(Protocol):
     """Ingresso microfono.
 
-    flusso_pcm() serve alla wake word (ascolto continuo); registra() serve
-    alla cattura del comando vocale a durata fissa dopo il risveglio.
+    flusso_pcm() serve alla wake word (ascolto continuo); registra() è la
+    cattura a durata fissa, utile per prove scriptate (`--wav`, `--durata`).
+    registra_fino_al_silenzio() è quella usata davvero in conversazione
+    (macchina.py): si ferma da sola quando rileva silenzio dopo la voce
+    (vad.py), non dopo un numero di secondi deciso in anticipo.
     """
 
     def flusso_pcm(self) -> Iterator[bytes]: ...
 
     def registra(self, destinazione: Path, durata_s: float) -> Path: ...
+
+    def registra_fino_al_silenzio(
+        self, destinazione: Path, cap_s: float, silenzio_ms: float, aggressivita: int
+    ) -> tuple[Path, Diagnostica]: ...
 
 
 class FacciaAdapter(Protocol):

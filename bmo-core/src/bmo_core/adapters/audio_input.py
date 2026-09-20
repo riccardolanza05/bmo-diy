@@ -7,8 +7,13 @@ device. Va verificato sulla macchina reale con `arecord -l`.
 from __future__ import annotations
 
 import subprocess
+import wave
 from pathlib import Path
 from typing import Iterator
+
+import webrtcvad
+
+from .. import vad
 
 CHUNK_BYTES = 4096
 
@@ -66,3 +71,44 @@ class ArecordAdapter:
             check=True,
         )
         return destinazione
+
+    def registra_fino_al_silenzio(
+        self,
+        destinazione: Path,
+        cap_s: float,
+        silenzio_ms: float = vad.SILENZIO_MS_PREDEFINITO,
+        aggressivita: int = vad.AGGRESSIVITA_PREDEFINITA,
+    ) -> tuple[Path, vad.Diagnostica]:
+        """Registra finché non rileva silenzio (o scade `cap_s`) e scrive un WAV vero.
+
+        A differenza di `registra()`, non decide la durata prima di cominciare:
+        la logica di quando fermarsi è in `vad.py`, qui c'è solo il microfono e
+        la scrittura del file (un WAV con l'header, non il flusso grezzo di
+        `flusso_pcm()`: senza header Gemini riceverebbe rumore invece
+        dell'errore chiaro che ci si aspetterebbe).
+
+        Richiede mono a 16 bit: sul PC di sviluppo è già così (`factory.py`),
+        sul Pi (S32_LE stereo) andrà convertito — non ancora fatto, si vedrà
+        con l'hardware in mano (Fase 4).
+        """
+        if self.formato != "S16_LE" or self.canali != 1:
+            raise ValueError(
+                f"il VAD richiede mono a 16 bit (S16_LE), non {self.formato} a {self.canali} canali"
+            )
+        vad.valida_frequenza(self.frequenza)
+        rilevatore = webrtcvad.Vad(aggressivita)
+        dimensione = vad.dimensione_frame(self.frequenza)
+        flusso = self.flusso_pcm()
+        try:
+            audio, diagnostica = vad.ascolta_fino_al_silenzio(
+                vad.ritaglia_in_frame(flusso, dimensione), self.frequenza, rilevatore, cap_s, silenzio_ms
+            )
+        finally:
+            flusso.close()  # ferma subito arecord, anche se ci si è fermati prima della fine del flusso
+        destinazione.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(destinazione), "wb") as scrittore:
+            scrittore.setnchannels(1)
+            scrittore.setsampwidth(2)
+            scrittore.setframerate(self.frequenza)
+            scrittore.writeframes(audio)
+        return destinazione, diagnostica

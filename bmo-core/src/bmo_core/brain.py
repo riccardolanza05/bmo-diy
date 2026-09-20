@@ -39,7 +39,14 @@ from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiN
 from .ricerca import cerca
 from .strumenti import DICHIARAZIONI
 from .timer import ArchivioTimer, Timer
+from .vad import AGGRESSIVITA_PREDEFINITA, SILENZIO_MS_PREDEFINITO, Diagnostica
 DURATA_ASCOLTO_S = 3.0
+
+# Tetto di sicurezza per ascolta_fino_al_silenzio(): a differenza di
+# DURATA_ASCOLTO_S (una durata fissa, per le prove scriptate) questo è un
+# limite massimo che quasi non si dovrebbe mai toccare, perché il VAD si
+# ferma prima da solo. Il piano (§2.1) lo fissava già a 15 s.
+CAP_ASCOLTO_S = 15.0
 
 # Giri in cui BMO può chiamare strumenti (§2.1). Dopo questi, o quando finisce
 # il tempo, arriva una richiesta di riepilogo in più, senza strumenti (#18).
@@ -422,7 +429,10 @@ class Cervello:
     def ascolta(self, durata_s: float = DURATA_ASCOLTO_S) -> bytes:
         """Registra `durata_s` secondi dal microfono e restituisce il WAV.
 
-        Il file di appoggio sta in /dev/shm quando c'è (niente scritture su SD).
+        Durata fissa, decisa in anticipo: utile per prove scriptate (`--wav`,
+        `--durata`), non per una conversazione vera — lì serve
+        `ascolta_fino_al_silenzio`. Il file di appoggio sta in /dev/shm
+        quando c'è (niente scritture su SD).
         """
         self.faccia.mostra(STATO_ASCOLTO)
         cartella = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path(tempfile.gettempdir())
@@ -430,6 +440,32 @@ class Cervello:
             percorso = Path(file.name)
             self.microfono.registra(percorso, durata_s)
             return percorso.read_bytes()
+
+    def ascolta_fino_al_silenzio(
+        self,
+        cap_s: float = CAP_ASCOLTO_S,
+        silenzio_ms: float = SILENZIO_MS_PREDEFINITO,
+        aggressivita: int = AGGRESSIVITA_PREDEFINITA,
+    ) -> tuple[bytes, Diagnostica]:
+        """Registra finché non rileva silenzio dopo la voce, o scade `cap_s`.
+
+        A differenza di `ascolta()`, non decide la durata prima di cominciare:
+        segue quanto dura davvero la frase (vad.py). `cap_s` resta un tetto
+        di sicurezza sempre attivo, per quando il rumore di fondo impedisce
+        al VAD di riconoscere mai un silenzio.
+
+        Richiede un microfono che sappia farlo (oggi solo `ArecordAdapter`
+        mono a 16 bit, non ancora sul Pi): se non lo sa fare, l'errore arriva
+        chiaro invece di un WAV silenzioso mandato a Gemini per sbaglio.
+        """
+        self.faccia.mostra(STATO_ASCOLTO)
+        if not hasattr(self.microfono, "registra_fino_al_silenzio"):
+            raise TypeError("questo microfono non supporta ancora l'ascolto a silenzio (VAD)")
+        cartella = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path(tempfile.gettempdir())
+        with tempfile.NamedTemporaryFile(suffix=".wav", dir=cartella) as file:
+            percorso = Path(file.name)
+            _, diagnostica = self.microfono.registra_fino_al_silenzio(percorso, cap_s, silenzio_ms, aggressivita)
+            return percorso.read_bytes(), diagnostica
 
     def classifica_risposta(self, audio_wav: bytes) -> str:
         """Riconosce un sì, un no o niente di chiaro in una risposta breve (#17).
