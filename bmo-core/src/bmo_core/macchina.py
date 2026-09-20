@@ -1,9 +1,14 @@
 """La macchina a stati di BMO (§2.1 del piano, issue #20).
 
     ATTESA ──richiamo──► ASCOLTO ──► PENSIERO ──► PARLATO ──► ATTESA
-       ▲                                                          │
+       ▲                                  ↕                       │
+       │                             CONFERMA (chiedi_conferma,   │
+       │                             #17: proponi → sì/no/boh)    │
        └────────────────── PAUSA (metti_in_pausa_l_ascolto) ──────┘
        └────────────────── ERRORE (Gemini non risponde) ──────────┘
+
+CONFERMA è un sotto-dialogo, non un giro completo: chi la chiede resta in
+ascolto diretto, senza richiedere di nuovo "Hey BMO" (chiedi_conferma()).
 
 Il punto del piano che conta piu' di tutti: **a ogni transizione cambia la
 faccia**. Senza pulsanti e senza spie, la faccia e' l'unico modo di sapere
@@ -28,9 +33,11 @@ from typing import Any, Callable
 from .adapters import (
     STATO_ASCOLTO,
     STATO_ASSONNATO,
+    STATO_CONFERMA,
     STATO_ERRORE,
     STATO_IDLE,
     STATO_PARLATO,
+    STATO_PENSIERO,
     FacciaAdapter,
     crea_faccia,
 )
@@ -41,6 +48,11 @@ from .sveglia import Sveglia
 
 MAX_PAUSA_MINUTI = 8 * 60  # otto ore: oltre, BMO resterebbe sordo per sbaglio
 
+# Un sì o un no si dicono in meno di due secondi: otto bastano e avanzano
+# anche a chi esita (#17). Non c'è un VAD reale a tagliare corto: si registra
+# per tutta la durata e si classifica dopo.
+DURATA_ASCOLTO_CONFERMA_S = 8.0
+
 
 class Stato(str, Enum):
     ATTESA = "attesa"
@@ -49,6 +61,7 @@ class Stato(str, Enum):
     PARLATO = "parlato"
     PAUSA = "pausa"
     ERRORE = "errore"
+    CONFERMA = "conferma"
 
 
 def richiamo_da_tastiera() -> bool:
@@ -110,6 +123,38 @@ class Macchina:
             self.pausa_fino_a = None
             return False
         return True
+
+    # --- sotto-dialogo di conferma (#17) --------------------------------------
+
+    def chiedi_conferma(self, domanda: str) -> bool | None:
+        """Proponi/conferma a voce, senza richiedere di nuovo il richiamo.
+
+        Nato dalla #14 (memoria persistente): nessuna scrittura deve avvenire
+        in silenzio. Oggi non ha ancora un chiamante concreto — arriverà con
+        la #14.2 — ma è pensato per essere riusabile per qualunque azione che
+        meriti una conferma esplicita, come chiede l'issue #17.
+
+        Restituisce True se confermato, False se rifiutato esplicitamente,
+        None se non è arrivata una risposta chiara: silenzio, rumore, o
+        un'ambiguità che resiste anche dopo un solo chiarimento. Non c'è un
+        secondo tentativo dopo quello: un loop di richieste sarebbe peggio di
+        annullare (l'issue lo dice esplicitamente). Chi chiama decide se dire
+        qualcosa di diverso per "no" esplicito rispetto a "non ho capito".
+        """
+        self.voce(domanda)
+        esito = self._ascolta_e_classifica()
+        if esito == "boh":
+            self.voce("Non ho capito, dimmi solo sì o no.")
+            esito = self._ascolta_e_classifica()
+        # Si torna a "pensiero": chi ha chiesto la conferma è ancora dentro
+        # un turno di Cervello.rispondi(), non è la faccia finale del turno.
+        self._vai(Stato.PENSIERO, STATO_PENSIERO)
+        return {"si": True, "no": False}.get(esito)
+
+    def _ascolta_e_classifica(self) -> str:
+        self._vai(Stato.CONFERMA, STATO_CONFERMA)
+        audio = self.cervello.ascolta(DURATA_ASCOLTO_CONFERMA_S)
+        return self.cervello.classifica_risposta(audio)
 
     # --- gli stati -----------------------------------------------------------
 

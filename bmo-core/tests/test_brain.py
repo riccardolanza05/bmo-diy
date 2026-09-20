@@ -316,6 +316,22 @@ def test_diario_riletto_a_ogni_turno_non_a_ogni_giro(tmp_path):
         assert '"ceno alle 20"' in richiesta["config"].system_instruction[1]
 
 
+@pytest.mark.parametrize(
+    "testo_modello,atteso",
+    [("si", "si"), ("Sì.", "si"), ("no", "no"), ("No, grazie.", "no"), ("boh", "boh"), ("non ho capito", "boh")],
+)
+def test_classifica_risposta_riconosce_si_no_boh(testo_modello, atteso):
+    cervello, client = _cervello([_risposta_testo(testo_modello)])
+    assert cervello.classifica_risposta(b"RIFF-si-o-no") == atteso
+    # Chiamata a sé, fuori dal loop agentico: niente strumenti dichiarati.
+    assert client.richieste[0]["config"].tools is None
+
+
+def test_classifica_risposta_senza_gemini_e_boh_non_un_errore():
+    cervello, _ = _cervello([httpx.ConnectError("rete giù")])
+    assert cervello.classifica_risposta(b"RIFF") == "boh"
+
+
 def test_ascolta_usa_il_microfono_iniettato():
     cervello, _ = _cervello([])
     assert cervello.ascolta(3.0) == b"RIFF-finto"

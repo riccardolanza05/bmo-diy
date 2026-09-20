@@ -21,6 +21,7 @@ STATO_PENSIERO = "pensiero"
 STATO_PARLATO = "parlato"
 STATO_TIMER = "timer"
 STATO_ERRORE = "errore-rete"
+STATO_CONFERMA = "conferma"  # sotto-dialogo proponi/conferma, in attesa di un sì o un no (#17)
 
 
 class CameraAdapter(Protocol):

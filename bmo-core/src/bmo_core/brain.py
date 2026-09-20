@@ -137,6 +137,21 @@ IL TEMPO PER GLI STRUMENTI È FINITO:
   senza scusarti e senza inventare una causa.
 """
 
+# Prompt a sé, per Cervello.classifica_risposta() (#17): non è uno strato del
+# turno normale, non vede lo storico né gli strumenti. Un sotto-dialogo di
+# conferma deve essere veloce e a rischio zero di allucinare un'azione, non
+# un turno di conversazione completo che potrebbe interpretare un "sì" come
+# l'inizio di una richiesta.
+ISTRUZIONE_SI_NO = """\
+Ascolti la risposta, in italiano, a una domanda a cui si può rispondere solo sì o no.
+Rispondi con ESATTAMENTE una di queste tre parole, in minuscolo, senza nient'altro:
+si
+no
+boh
+Usa "boh" se l'audio è silenzio, rumore di fondo, una frase che non risponde alla
+domanda, o qualunque cosa che non sia chiaramente un sì o un no.
+"""
+
 _GIORNI = ["LUNEDÌ", "MARTEDÌ", "MERCOLEDÌ", "GIOVEDÌ", "VENERDÌ", "SABATO", "DOMENICA"]
 _MESI = [
     "GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO",
@@ -411,6 +426,32 @@ class Cervello:
             percorso = Path(file.name)
             self.microfono.registra(percorso, durata_s)
             return percorso.read_bytes()
+
+    def classifica_risposta(self, audio_wav: bytes) -> str:
+        """Riconosce un sì, un no o niente di chiaro in una risposta breve (#17).
+
+        Chiamata a parte dal loop agentico di `rispondi()`: niente storico,
+        niente strumenti, un prompt minuscolo (`ISTRUZIONE_SI_NO`). Serve al
+        sotto-dialogo di conferma di `Macchina.chiedi_conferma()`, che non deve
+        rischiare che un turno di conversazione completo interpreti un sì
+        come l'inizio di una richiesta qualunque.
+        """
+        contenuti = [types.Content(role="user", parts=[types.Part.from_bytes(data=audio_wav, mime_type="audio/wav")])]
+        config = types.GenerateContentConfig(system_instruction=ISTRUZIONE_SI_NO)
+        try:
+            risposta, _ = self.cascata.genera(self.client, contents=contenuti, config=config)
+        except GeminiNonDisponibile:
+            return "boh"  # senza una risposta chiara non si scrive nulla: prudenza, non un errore
+        testo = testo_della_risposta(risposta).strip().lower()
+        # La prima parola intera, non un prefisso: "non ho capito" comincia
+        # per "no" ma non è un no.
+        prima_parola = re.match(r"[a-zà-ù]+", testo)
+        parola = prima_parola.group(0) if prima_parola else ""
+        if parola in ("si", "sì"):
+            return "si"
+        if parola == "no":
+            return "no"
+        return "boh"
 
     @property
     def timer(self) -> list[Timer]:
