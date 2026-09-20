@@ -16,19 +16,27 @@ import re
 import tempfile
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from zoneinfo import ZoneInfo
 
 import httpx
 from google.genai import errors, types
 
-from .adapters import AudioInputAdapter, FacciaAdapter, crea_audio_input, crea_faccia
+from .adapters import (
+    STATO_ASCOLTO,
+    STATO_ERRORE,
+    STATO_PARLATO,
+    STATO_PENSIERO,
+    AudioInputAdapter,
+    FacciaAdapter,
+    crea_audio_input,
+    crea_faccia,
+)
+from .config import FUSO_ORARIO
 from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
 from .strumenti import DICHIARAZIONI
-
-FUSO_ORARIO = ZoneInfo("Europe/Rome")
+from .timer import ArchivioTimer, Timer
 DURATA_ASCOLTO_S = 3.0
 
 # Giri in cui BMO può chiamare strumenti (§2.1). Dopo questi, o quando finisce
@@ -45,15 +53,10 @@ RISERVA_RIEPILOGO_S = 6.0
 ESPRESSIONI = ("felice", "pensieroso", "sorpreso", "triste", "assonnato")
 _ETICHETTA_INIZIALE = re.compile(r"^\s*\[([^\]\n]{1,30})\]\s*")
 
-# Stati della faccia (§2.1). Sono un'altra cosa dalle ESPRESSIONI: quelle le
-# sceglie il modello per la risposta parlata, questi li decide il codice per
-# dire a chi guarda cosa sta facendo BMO. PENSIERO è il più importante: il
-# tempo fra la domanda e la risposta è silenzio, e senza faccia non si
-# distingue un BMO che elabora da un BMO bloccato.
-STATO_ASCOLTO = "ascolto"
-STATO_PENSIERO = "pensiero"
-STATO_PARLATO = "parlato"
-STATO_ERRORE = "errore-rete"
+# Gli stati della faccia (STATO_ASCOLTO, STATO_PENSIERO, …) stanno in
+# adapters/base.py, accanto al Protocol: li usa anche la sveglia dei timer,
+# che non ha niente a che fare con Gemini. Sono un'altra cosa dalle
+# ESPRESSIONI qui sopra, che le sceglie il modello per la risposta parlata.
 
 # Primo strato del prompt (§2.3). È la bozza v4 (prompt/bozza-v4.txt), 40 frasi
 # su 40 nella prova del 19/9; le bozze in prompt/ restano come storico.
@@ -131,10 +134,8 @@ _MESI = [
 ]
 
 
-@dataclass
-class Timer:
-    etichetta: str
-    scadenza: datetime
+# `Timer` ora vive in timer.py, insieme all'archivio su disco: qui resta
+# importato perché è parte dell'interfaccia del cervello (contesto_dinamico).
 
 
 @dataclass
@@ -314,6 +315,7 @@ class Cervello:
         client: Any = None,
         microfono: AudioInputAdapter | None = None,
         faccia: FacciaAdapter | None = None,
+        archivio: ArchivioTimer | None = None,
         modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
         cronometro: Callable[[], float] = time.monotonic,
@@ -343,15 +345,31 @@ class Cervello:
         self.cronometro = cronometro
         self.cascata = CascataModelli(modelli, orologio=cronometro)
         self.orologio = orologio or (lambda: datetime.now(FUSO_ORARIO))
+        # I timer stanno su disco (#20): li mette il cervello, li fa suonare
+        # la sveglia, e sopravvivono a un riavvio.
+        self.archivio = archivio or ArchivioTimer(orologio=self.orologio)
         self.inietta_ora = inietta_ora
         self.prompt_fisso = prompt_fisso
         self.max_giri = max_giri
-        self.timer: list[Timer] = []
+        # I timer letti una volta sola per fase del turno: lo strato STATO non
+        # deve cambiare da un giro all'altro, e non serve rileggere il file a
+        # ogni richiesta.
+        self._timer_letti: list[Timer] | None = None
         self._esecutori: dict[str, Callable[..., dict[str, Any]]] = {
             "imposta_timer": self._imposta_timer,
             "annulla_timer": self._annulla_timer,
             "elenca_timer": self._elenca_timer,
         }
+
+    def registra_strumento(self, nome: str, esecutore: Callable[..., dict[str, Any]]) -> None:
+        """Collega uno strumento che il cervello da solo non può eseguire.
+
+        `metti_in_pausa_l_ascolto` è della macchina a stati, non del cervello:
+        è lei che sa cosa vuol dire smettere di ascoltare. Senza questo gancio
+        il cervello dovrebbe conoscerla, e sono due cose che devono restare
+        separate.
+        """
+        self._esecutori[nome] = esecutore
 
     def ascolta(self, durata_s: float = DURATA_ASCOLTO_S) -> bytes:
         """Registra `durata_s` secondi dal microfono e restituisce il WAV.
@@ -364,6 +382,13 @@ class Cervello:
             percorso = Path(file.name)
             self.microfono.registra(percorso, durata_s)
             return percorso.read_bytes()
+
+    @property
+    def timer(self) -> list[Timer]:
+        """I timer attivi, letti dal file una volta per fase del turno."""
+        if self._timer_letti is None:
+            self._timer_letti = self.archivio.attivi()
+        return self._timer_letti
 
     def _configurazione(self, riepilogo: bool = False) -> types.GenerateContentConfig:
         istruzioni = [
@@ -439,6 +464,7 @@ class Cervello:
         # Da qui in poi BMO tace finché non ha una risposta: la faccia è
         # l'unico segno che sta lavorando.
         self.faccia.mostra(STATO_PENSIERO)
+        self._timer_letti = None  # i timer possono essere cambiati dal turno scorso
 
         eseguite: list[ChiamataStrumento] = []
         risposta = None
@@ -523,6 +549,9 @@ class Cervello:
                 except (TypeError, ValueError) as errore:
                     risultato = {"errore": str(errore)}
             eseguite.append(ChiamataStrumento(chiamata.name or "", argomenti, risultato))
+        # Gli strumenti possono aver toccato i timer: la prossima richiesta
+        # rilegge il file, così lo strato STATO dice la verità.
+        self._timer_letti = None
         return eseguite
 
     def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:
@@ -535,24 +564,19 @@ class Cervello:
         durata = durata_in_secondi({"ore": ore, "minuti": minuti, "secondi": secondi})
         if durata <= 0:
             raise ValueError("la durata deve essere positiva: indica ore, minuti o secondi")
-        scadenza = self.orologio() + timedelta(seconds=durata)
-        self.timer.append(Timer(etichetta=etichetta, scadenza=scadenza))
+        # Scritto su disco: se BMO si riavvia, il timer suona lo stesso (#20).
+        nuovo = self.archivio.aggiungi(etichetta, durata)
         # La durata impostata davvero, perché il modello confermi quella e non
         # quella che ha sentito.
         return {
             "stato": "ok",
             "etichetta": etichetta,
             "durata": _durata_parlata(durata),
-            "scadenza": scadenza.strftime("%H:%M"),
+            "scadenza": nuovo.scadenza.strftime("%H:%M"),
         }
 
     def _annulla_timer(self, etichetta: str | None = None) -> dict[str, Any]:
-        prima = len(self.timer)
-        if etichetta:
-            self.timer = [t for t in self.timer if t.etichetta.lower() != etichetta.lower()]
-        else:
-            self.timer = []
-        annullati = prima - len(self.timer)
+        annullati = self.archivio.annulla(etichetta)
         return {"stato": "ok" if annullati else "nessun_timer", "annullati": annullati}
 
     def _elenca_timer(self) -> dict[str, Any]:
@@ -560,8 +584,7 @@ class Cervello:
         return {
             "timer": [
                 {"etichetta": t.etichetta, "rimanenti_secondi": int((t.scadenza - ora).total_seconds())}
-                for t in self.timer
-                if t.scadenza > ora
+                for t in self.archivio.attivi()
             ]
         }
 
