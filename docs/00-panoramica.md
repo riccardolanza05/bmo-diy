@@ -16,15 +16,16 @@ Le funzioni sono cambiate nel tempo — vedi [Storia del progetto](01-storia-del
 4. Guscio da Printables (*Adventure Time BMO Figure (Interactive)*), stampa in **PETG** (non PLA: temperatura di transizione vetrosa ~60 °C contro i 37–48 °C interni stimati in una scatola sigillata).
 5. **Nessuna esperienza di CAD** e nessuna intenzione di acquisirne: fori come *negative volume* nello slicer, telaio interno parametrico in OpenSCAD (`bmo_chassis.scad`) cambiando numeri.
 
-## Stato del progetto (13 settembre 2026)
+## Stato del progetto (20 settembre 2026)
 
 | Voce | Stato |
 |---|---|
 | Raspberry Pi 3 Model A+ | ✅ comprato |
 | Alimentatore 5V 2.5A | ✅ comprato |
 | microSD, HAT audio, display, camera, minuteria | ⬜ da comprare (~68 €, tutta UE) |
-| Bring-up del Pi | ⬜ non iniziato |
-| Software (`bmo-core`, `bmo-face`, wake word, tool) | ⬜ non iniziato |
+| Bring-up del Pi | ✅ fatto (Raspberry Pi OS 64 bit, SSH a chiave, Wi-Fi) |
+| Software (`bmo-core`): cervello, cascata di modelli, timer persistenti, macchina a stati, radio | ✅ in piedi e testato (112 test offline) |
+| Software: wake word, faccia disegnata, TTS | ⬜ non ancora collegati (issue #21, #22, #23) |
 | Meccanica (provini, telaio, guscio) | ⬜ niente ancora stampato |
 | Piano in vigore | **rev. 5.1 "cloud-first, solo voce"** — vedi [Piano attuale](02-piano-attuale.md) |
 
@@ -38,7 +39,7 @@ Il piano corrente è la **rev. 5.1**, ma è la quinta iterazione di una distinta
 | 2 | *(non conservata)* | 78,40 € — OV5647, `fbcp-ili9341` |
 | 3 | [Distinta base rev. 3](revisioni-precedenti/rev3-hardware-bom.md) + [Piano di progetto](revisioni-precedenti/rev3-piano-progetto.md) | 86,40 € — rientra la camera, censita la minuteria, **cade `fbcp-ili9341`** in favore di `spidev` diretto con blit su dirty rect |
 | 4 | [BOM rev. 4 — senza dazi](revisioni-precedenti/rev4-bom-senza-dazi.md) | ~76 € tutto UE — **i dazi UE da 3 €/riga doganale (dal 1º luglio 2026) uccidono l'ordine AliExpress**: ~59 € di oneri su 44,50 € di merce. I moduli audio discreti diventano un HAT WM8960 |
-| **5.1** | [Piano attuale — cloud-first](02-piano-attuale.md) | **~68 €** — premesse "Pi già comprato / niente modelli locali / solo voce"; display 2.4", camera OV5647 economica, musica su microSD, cinque voci tagliate dal BOM |
+| **5.1** | [Piano attuale — cloud-first](02-piano-attuale.md) | **~68 €** — premesse "Pi già comprato / niente modelli locali / solo voce"; display 2.4", camera OV5647 economica, niente libreria musicale (solo radio), cinque voci tagliate dal BOM |
 
 ## Le decisioni tecniche che reggono il progetto
 
@@ -54,7 +55,7 @@ Il piano corrente è la **rev. 5.1**, ma è la quinta iterazione di una distinta
 - Niente LED/illuminatore per la camera: cucina sempre ben illuminata, scatti sempre a ~30 cm.
 - Dissipatori rimandati al post burn-in, non eliminati: si decide con una misura di temperatura reale, non con una stima.
 - Usare la porta USB-A libera del Pi invece di lasciarla inutilizzata.
-- Musica sulla microSD di sistema, non su chiavetta USB; radio via internet o Spotify Connect come estensioni future.
+- Niente libreria musicale locale (deciso con la #20): solo radio via internet, con preferite salvabili; Spotify Connect resta un'estensione futura (V2).
 - Per la minuteria, evitare kit assortiti che costringono a comprare più unità del necessario.
 
 ## Riferimenti tecnici esterni

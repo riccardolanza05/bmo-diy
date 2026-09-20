@@ -6,6 +6,7 @@
 > **Restano validi** dai documenti precedenti: la pipeline asset della faccia, il blit su dirty rect, la disciplina "solo overlay in-tree", la termica e le regole di stampa (vedi [rev. 2/3](revisioni-precedenti/rev3-piano-progetto.md) e [rev. 3 BOM](revisioni-precedenti/rev3-hardware-bom.md) per i dettagli completi di queste sezioni).
 > **Aggiornamento 2026-09-19 — roadmap software-first**: prima tutto il software sul PC di sviluppo, l'acquisto dei componenti per ultimo. Vedi [§3](#3--roadmap).
 > **Rev. 5.1**: cinque modifiche al BOM per tagliare i costi. Totale: da ~91 € a **~68 €** (~73 € con lo stereo) — **−23 €**.
+> **Aggiornamento 2026-09-20 — allineamento al codice**: §2.1–§2.4 e §2.7–§2.9 riscritte per rispecchiare la cascata di modelli, il riepilogo forzato, il prompt reale e gli strumenti radio già scritti in `bmo-core/`; §1.1/§1.2bis aggiornate alla decisione "niente libreria musicale, solo radio". Le sezioni di hardware e le Fasi 3–7 della roadmap restano piani, non ancora eseguiti.
 
 Questa revisione parte da tre premesse nuove:
 
@@ -81,7 +82,7 @@ Tutto acquistabile in UE, due ordini, consegna 3–5 giorni, **nessun dazio**.
 | 3 | **Display** | **Waveshare 2.4" LCD Module** — ILI9341, **240×320**, **senza touch**, PCB 70,5×43,3 mm (Welectron, cod. 18366) | La faccia di BMO. SPI, pilotato da `spidev` con blit sulle sole regioni cambiate | 12,90 |
 | 4 | **Header stacking 2×20 extra-tall** | passo 2,54 mm, corpo ≥ 11 mm — **in coppia, non in kit assortito** | Fa sporgere i pin **sopra** il HAT audio, così i sette fili del display si innestano lì. Senza questo, HAT e display non coesistono | ~5,00 |
 | 5 | **Fotocamera** | **OV5647 5 MP "a fuoco fisso" regolabile a pinza** + flat CSI 15 pin incluso | Il tool `scatta_foto`. Esce tarata a fuoco infinito, ma la lente si sblocca con una pinzetta: **la stessa taratura una tantum a ~30 cm** della versione "regolabile", a meno della metà del prezzo (§1.1bis) | 5,90 |
-| 6 | **microSD** | **32 GB classe A1 di marca** | Sistema **e libreria musicale sulla stessa scheda** (§1.2bis). **Già in uso**: il Pi ci fa il boot dal bring-up | ~8,00 |
+| 6 | **microSD** | **32 GB classe A1 di marca** | Sistema. **Già in uso**: il Pi ci fa il boot dal bring-up | ~8,00 |
 | 7 | **Magneti al neodimio 5×2 mm** | ×20 | Faceplate apribile senza viti a vista | ~6,00 |
 | 8 | **Minuteria essenziale** | viti M2.5×6 autofilettanti (~20 pz) + Dupont F-F 20 cm | Gli unici due elementi senza alternativa (§1.1ter) | ~5,50 |
 | 9 | Spedizioni | Welectron + Amazon.it | | ~6,00 |
@@ -107,9 +108,9 @@ Più ~200 g di filamento **PETG** (~5 €). Il PLA non è una preferenza estetic
 
 Dei 12 € originari, ~5,50 € sono l'essenziale.
 
-### 1.2bis · Perché la musica va sulla microSD e non su una chiavetta USB
+### 1.2bis · Perché niente libreria musicale, solo radio
 
-Una chiavetta aggiunge un file system rimovibile da montare, un punto in cui una rimozione a caldo può corrompere dati, un componente da procurarsi. La microSD di sistema (32 GB) ospita comodamente la libreria in `/home/bmo/musica/`, popolata via SSH/SCP dal PC di sviluppo. **Zero costo aggiuntivo, un componente fisico in meno, la porta USB-A resta genuinamente libera** — buona per una chiavetta di diagnostica o per un microfono USB di riserva.
+Decisione presa durante la #20: BMO non ha una libreria musicale locale. Riempire una microSD di file è una noia — bisognerebbe procurarsi i brani, copiarli via SSH/SCP, tenerli aggiornati — e una chiavetta USB aggiungerebbe in più un file system rimovibile da montare e un punto in cui una rimozione a caldo può corrompere dati. Ogni richiesta di musica ("metti un po' di jazz", "Radio Deejay") diventa invece una stazione radio via internet (§2.4): zero file da gestire, **la porta USB-A resta genuinamente libera** per una chiavetta di diagnostica o un microfono USB di riserva, e la microSD ospita solo il sistema.
 
 ### 1.2ter · Lo spegnimento: perché la USB non può sostituire il cavo, e perché non serve nessuno dei due
 
@@ -216,31 +217,34 @@ Aggiunte, che nel riferimento non ci sono:
  │     ▼                                                         │
  │  [THINK]                                                      │
  │     │  a 0,2 s: clip di attesa pre-generata, scelta a caso    │
- │     │  audio + storico + tool → gemini-3.8-flash              │
- │     │  ┌── loop agentico, max 4 giri / 20 s ──┐               │
- │     │  │  functionCall → esegui → functionResponse │           │
- │     │  └───────────────────────────────────────┘               │
- │     ▼  testo finale (≤ 2 frasi, imposto dal prompt)           │
+ │     │  audio + prompt (§2.3) + tool → cascata Gemini (§2.9)   │
+ │     │  ┌── loop agentico, max 4 giri, riserva 6 s ──┐         │
+ │     │  │  functionCall → esegui → functionResponse  │         │
+ │     │  └─ oltre: riepilogo forzato, senza tool (§2.3) ┘       │
+ │     ▼  testo finale, entro i 20 s totali del turno            │
  │  [SPEAK]                                                      │
- │     │  testo → gemini-3.1-flash-tts-preview → PCM 24 kHz      │
+ │     │  testo → TTS Gemini → PCM 24 kHz (non ancora costruito) │
  │     │  inviluppo RMS a 25 Hz calcolato PRIMA di riprodurre    │
  │     │  microfono chiuso (half-duplex in V1)                   │
  │     └──────────────────────────────────────────────────────►──┘
  │
- └── [ERRORE] rete giù / timeout → clip "non ci arrivo", faccia triste, → WAIT
+ ├── [PAUSA] metti_in_pausa_l_ascolto → faccia "assonnato" → WAIT
+ └── [ERRORE] rete giù / cascata esaurita → clip "non ci arrivo" → WAIT
 ```
 
 **A ogni transizione cambia la faccia.** Con la premessa "solo voce" non è un tocco estetico: senza pulsanti e senza LED di stato, la faccia è l'**unico** modo di sapere che la wake word è stata sentita. Requisito preciso: **transizione WAIT → LISTEN visibile e udibile entro 150 ms**. Se ci mette mezzo secondo, l'utente ripete "Hey BMO" e rompe la cattura.
+
+**Cosa c'è oggi al posto della wake word e del TTS.** Il diagramma sopra è l'architettura di destinazione. In `bmo-core` oggi (macchina.py) il richiamo "Hey BMO" è **Invio da tastiera** (`richiamo_da_tastiera`, provvisorio, sostituito dalla wake word con la #22) e la voce di BMO è **stampata sul terminale** (`voce_sul_terminale`, provvisorio fino al TTS, #21). `scatta_foto` è dichiarato ma non ancora collegato a un esecutore: risponde sempre `non_disponibile`. Gli stati reali della macchina (`macchina.Stato`) sono ATTESA, ASCOLTO, PENSIERO, PARLATO, PAUSA, ERRORE — corrispondenti a WAIT/LISTEN/THINK/SPEAK/PAUSA/ERRORE qui sopra.
 
 ### 2.2 Tre processi
 
 ```
         2× MEMS ──dsnoop──►┌──────────────────────────────────────┐
         (WM8960)           │ bmo-core   processo 1 · asyncio      │
-                           │  thread: openWakeWord (ONNX)         │──HTTPS──► gemini-3.8-flash
-                           │  task:   VAD + cattura               │  keep-alive
+                           │  thread: openWakeWord (ONNX)         │──HTTPS──► cascata gemini-3.5/3.1
+                           │  task:   VAD + cattura               │  keep-alive (modelli.py)
                            │  task:   loop agentico + tool        │
-                           │  task:   TTS → inviluppo RMS         │──HTTPS──► gemini-3.1-flash-tts
+                           │  task:   TTS → inviluppo RMS         │──HTTPS──► TTS Gemini
                            └──────────────┬───────────────────────┘
                               /run/bmo.sock (un JSON per riga)
                     ┌─────────────────────┴───────────────┐
@@ -267,46 +271,55 @@ Messaggi:
 
 ### 2.3 Il prompt di sistema e l'iniezione di contesto
 
-Due strati: una parte fissa e una **ricostruita a ogni turno** con lo stato reale del dispositivo. È il secondo strato a rendere affidabile il tool calling.
+Tre strati, il terzo solo quando serve: uno fisso, uno **ricostruito a ogni turno** con lo stato reale del dispositivo, e un terzo che si aggiunge — senza sostituire gli altri due — solo quando il loop agentico deve chiudere senza più chiamare strumenti (§2.1, #18). È il secondo strato a rendere affidabile il tool calling.
 
-**Strato fisso** (`system_instruction`):
+**Strato fisso** (`system_instruction`, bozza v4, 40/40 nella prova del 19/9 — il testo esatto è in `brain.PROMPT_FISSO`):
 
 ```
 Sei BMO, la piccola console vivente di Adventure Time, e vivi in una casa a Milano.
 Sei entusiasta, curioso e un po' ingenuo; ti preoccupi dei tuoi amici. Non sei servile.
 
-REGOLE DI FORMA — sono vincolanti, il tuo testo va a un sintetizzatore vocale:
+COME PARLI — il tuo testo va a un sintetizzatore vocale, queste regole sono vincolanti:
 - Rispondi SEMPRE in italiano.
-- Massimo 2 frasi. Se la risposta richiede più di 2 frasi, dai la sintesi e offri di continuare.
-- Niente markdown, niente elenchi puntati, niente emoji, niente parentesi, niente sigle
-  da leggere lettera per lettera. Scrivi i numeri come si pronunciano.
+- Sii conciso: di' quello che serve per rispondere, niente di più.
+- Rispondi solo a quello che ti è stato chiesto. Se chiedono l'ora, di' solo l'ora.
+- Niente markdown, niente elenchi, niente emoji, niente parentesi, niente sigle
+  da leggere lettera per lettera. Numeri, ore e durate come si dicono a voce.
 - Non descrivere quello che stai facendo ("sto cercando..."): lo dice già la faccia.
 
-REGOLE SUGLI STRUMENTI:
-- Usa uno strumento solo se la risposta lo richiede davvero. Una poesia sui dinosauri
-  non richiede strumenti.
-- scatta_foto SOLO se la domanda riguarda ciò che vedi o l'ambiente fisico intorno a te.
-  Non scattare foto per curiosità e mai senza che qualcuno te l'abbia chiesto.
-- cerca_sul_web per fatti che cambiano nel tempo: notizie, prezzi, orari, meteo, risultati.
-  Se non sai una cosa, cercala invece di inventarla.
-- Chiama imposta_espressione quando la tua risposta ha un tono preciso.
+LA TUA FACCIA:
+- La risposta finale inizia con la tua espressione tra parentesi quadre, scelta fra
+  [felice] [pensieroso] [sorpreso] [triste] [assonnato]. Non viene letta ad alta voce:
+  è l'unica eccezione alla regola sulle parentesi.
+
+LE AZIONI SI FANNO SOLO CON GLI STRUMENTI — timer, radio, volume, pausa dell'ascolto,
+foto e ricerche avvengono SOLO chiamando lo strumento corrispondente.
+
+COME USARE GLI STRUMENTI — parametri esatti; se uno strumento segnala un errore,
+richiamarlo subito coi nomi indicati in "parametri_validi"; niente conferme superflue.
+
+QUANDO UNO STRUMENTO NON FUNZIONA — dirlo con semplicità, senza scusarsi e
+senza inventare cause; mai fingere di esserci riusciti.
 ```
 
-**Strato dinamico** (rigenerato a ogni turno):
+**La scelta "sii conciso" al posto di un tetto di frasi.** Il piano precedente imponeva un massimo rigido di 2 frasi. La bozza v4 lo sostituisce con un vincolo di pertinenza ("rispondi solo a quello che ti è stato chiesto"): resta un **requisito funzionale**, non stilistico — senza pulsanti non si può interrompere BMO, quindi una risposta più lunga del necessario è tempo che si deve ascoltare fino in fondo — ma la misura non è più contare le frasi, è chiedere solo la sintesi. La bozza v4 ha comunque fatto 40/40 nella prova del 19/9. Il tetto duro resta comunque previsto **sui secondi di audio sintetizzato** (§2.7), quando il TTS esisterà: quello è il limite che non dipende dal seguire bene l'istruzione.
+
+**L'espressione non è uno strumento.** `[felice]`, `[triste]`, ... arrivano come etichetta a inizio della risposta finale e vengono tolte da `brain.separa_espressione()` prima di mandare il testo al sintetizzatore. Farne uno strumento (come nel primo abbozzo di questa sezione) costava un secondo giro di richiesta su quasi ogni turno solo per ottenere il testo: eliminato per questo.
+
+**Strato dinamico** (`contesto_dinamico()`, rigenerato a ogni turno). Oggi porta **solo** ora locale e timer attivi:
 
 ```
 [STATO ALLE 22:14 DI MARTEDÌ 8 SETTEMBRE 2026, Europe/Rome]
 Timer attivi: "pasta" scade fra 4 minuti e 12 secondi.
-Musica: in riproduzione, "Radio Deejay", volume 60 percento.
-Fotocamera: presente, punta in avanti, illuminatore disponibile.
-Rete: connessa.
-Ultima cosa che hai detto: "Ho messo il timer per la pasta."
 ```
 
-Tre dettagli che sembrano piccoli e non lo sono:
+Altri campi che compariranno qui in futuro — musica in riproduzione, fotocamera, stato della rete, l'ultima cosa detta — non esistono ancora: arriveranno con la memoria a breve termine (#29) e con quanto la #14 deciderà di iniettare. Chi implementa la #14 deve aggiungere righe a questa funzione, non inventare un terzo canale.
+
+**Terzo strato, solo per il riepilogo forzato** (`ISTRUZIONE_RIEPILOGO`, #18): quando i 4 giri con strumenti o la riserva di 6 s finiscono senza una risposta parlabile, parte una richiesta in più con lo stesso storico, `tool_config` in modalità NONE (il modello non può chiedere altri strumenti) e questo terzo strato che glielo spiega, così non si trova gli strumenti vietati senza sapere perché — la prova del 19/9 («Che tempo farà a Torino domani sera?») finiva altrimenti con una risposta vuota dopo tre ricerche non riuscite.
+
+Due dettagli che sembrano piccoli e non lo sono:
 
 - **L'ora locale va iniettata sempre.** È la prima causa di risposte sbagliate su qualsiasi assistente: il modello non ha un orologio, e "fra dieci minuti" senza sapere che ore sono non significa niente.
-- **"Massimo 2 frasi" è un requisito funzionale, non stilistico.** Senza pulsanti non si può interrompere BMO: una risposta di ottanta parole è ottanta parole da ascoltare fino in fondo.
 - **"Niente markdown"** va ripetuto: un asterisco letto ad alta voce da un TTS diventa "asterisco".
 
 ### 2.4 Gli strumenti
@@ -317,14 +330,17 @@ cerca_sul_web(query: str)
 imposta_timer(etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0)
 annulla_timer(etichetta: str | None)
 elenca_timer()
-riproduci_musica(query: str, sorgente: "chiavetta" | "radio")
-controllo_riproduzione(azione: "pausa"|"riprendi"|"stop"|"successivo")
+riproduci_musica(query: str)
+controllo_riproduzione(azione: "pausa"|"riprendi"|"stop"|"successivo"|"precedente")
+salva_stazione(nome: str | None)
+elenca_stazioni()
 regola_volume(percentuale: int)
-imposta_espressione(stato: "felice"|"pensieroso"|"sorpreso"|"triste"|"assonnato")
 metti_in_pausa_l_ascolto(minuti: int)
 ```
 
-**`scatta_foto` — dove il cloud regala un ordine di grandezza.** Nel riferimento questo tool è il più lento: scatta, re-inietta l'immagine, **cambia modello** e l'insieme richiede **circa un minuto**. Con Gemini la foto è un'altra parte della stessa conversazione: **una chiamata in più, ~1,5 s**.
+Undici strumenti (`strumenti.DICHIARAZIONI`); `imposta_espressione` **non è fra questi** — è l'etichetta a inizio risposta descritta in §2.3, non una funzione chiamabile.
+
+**`scatta_foto` — dove il cloud regala un ordine di grandezza.** Nel riferimento questo tool è il più lento: scatta, re-inietta l'immagine, **cambia modello** e l'insieme richiede **circa un minuto**. Con Gemini la foto è un'altra parte della stessa conversazione: **una chiamata in più, ~1,5 s**. Oggi è dichiarato ma non collegato a nessun esecutore: risponde sempre `non_disponibile` finché non arriva la webcam (Fase 1.7, issue #24).
 
 1. `libcamera-still -o /dev/shm/scatto.jpg --width 640 --height 480 -q 75 -n -t 800`. Un JPEG a 640×480 pesa ~50 kB. Nessun illuminatore: la cucina è sempre ben illuminata e BMO scatta sempre da ~30 cm.
 2. Rispondere al `functionCall` con un `functionResponse` breve (`{"stato":"ok"}`) **e** accodare un nuovo `Content` di ruolo `user` con la parte `inlineData` che porta il JPEG.
@@ -332,13 +348,14 @@ metti_in_pausa_l_ascolto(minuti: int)
 
 **`cerca_sul_web` — perché resta DuckDuckGo.** Il grounding con Google Search nativo sarebbe più pulito, ma **sul free tier non è disponibile** (sul piano a pagamento: 5.000 ricerche/mese incluse, poi 14 $ ogni 1.000), e combinare strumenti nativi con le proprie function declaration nella stessa richiesta è in Preview e solo sui modelli Gemini 3. Quindi V1 con `ddgs`, tre risultati con titolo, snippet e URL. Il giorno del passaggio al piano a pagamento si sostituisce con `google_search` senza toccare il resto — vedi la relativa issue V2.
 
-**`riproduci_musica` — tre sorgenti, in ordine di affidabilità.**
+**`riproduci_musica` — solo radio, niente libreria (§1.2bis).** Ogni richiesta di musica, canzone, artista o genere diventa una stazione radio via internet: non esiste (e non è previsto) uno strumento con una sorgente "chiavetta" o "microSD". Due elenchi distinti, gestiti da `radio.Radio`:
 
-1. **Libreria locale sulla microSD** (`/home/bmo/musica/`): istantaneo, funziona senza rete, zero dipendenze. È la sorgente predefinita.
-2. **Radio via internet**: un JSON di stazioni curato a mano, `mpv` ci si attacca in un secondo.
-3. **YouTube via `yt-dlp`**: su un Pi 3 A+ la risoluzione dell'URL richiede 5–10 s e ~100 MB di RSS transitorio. Rimandato alla V2.
+1. **Le preferite**, salvate in `<dati>/radio.json` (scrittura atomica), che sopravvivono senza rete anche se non suonano.
+2. **I risultati di una ricerca** su radio-browser.info (elenco pubblico gratuito, senza chiave), usati per trovarne di nuove.
 
-**Un'idea per la V2 — Spotify Connect.** `raspotify` (servizio systemd attorno a `librespot`) farebbe comparire BMO come cassa fra i dispositivi dell'app Spotify: zero integrazione da programmare, il telefono resta il telecomando. ~30-50 MB solo mentre suona. **Serve un account Spotify Premium.**
+`riproduci_musica(query)` guarda prima fra le preferite (anche per frequenza nel nome, es. "quella sui 101 e 7"); senza risultato cerca online. `controllo_riproduzione(azione)` scorre avanti/indietro (`successivo`/`precedente`, in tondo) sull'elenco che si sta ascoltando, o pausa/riprende/ferma. `salva_stazione(nome)` mette fra le preferite quella in onda; `elenca_stazioni()` le elenca.
+
+**Idee per la V2**, non implementate: **YouTube via `yt-dlp`** (su un Pi 3 A+ la risoluzione dell'URL richiede 5–10 s e ~100 MB di RSS transitorio) e **Spotify Connect** via `raspotify`/`librespot` (BMO comparirebbe come cassa fra i dispositivi dell'app Spotify, ~30-50 MB solo mentre suona, serve un account Premium — issue #4).
 
 `mpv` gira sempre con `--input-ipc-server=/run/mpv.sock`: pausa, volume e ducking sono comandi IPC.
 
@@ -373,7 +390,7 @@ Quindi: **TTS in cloud come motore primario** (`gemini-3.1-flash-tts-preview`, P
 ### 2.7 Le due conseguenze scomode del "solo voce"
 
 **1 · Non si può interrompere BMO mentre parla.** In V1 il microfono è chiuso durante SPEAK.
-- *Subito*: limite di 2 frasi nel prompt, e un tetto duro di ~15 s sull'audio sintetizzato lato codice. Il prompt è un'indicazione, il tetto è una garanzia.
+- *Subito*: l'istruzione "sii conciso, rispondi solo a quanto chiesto" nel prompt (§2.3), e un tetto duro di ~15 s sull'audio sintetizzato lato codice quando il TTS esisterà. Il prompt è un'indicazione, il tetto è una garanzia.
 - *V1.5*: microfono **aperto** durante SPEAK con wake word a soglia alzata; su rilevamento parziale abbassa il volume al 30% per un secondo.
 - *V2*: barge-in con cancellazione d'eco. Funziona perché microfoni e amplificatore stanno sullo **stesso codec**. Su 512 MB conviene **speexdsp** (`SpeexEchoState`, pochi MB) al `module-echo-cancel` di PipeWire.
 
@@ -415,8 +432,8 @@ Regole per non perdere il margine: `MemoryMax=` nelle unit systemd, audio di scr
 |---|---|
 | Endpoint VAD (silenzio di coda) | 0,8 s |
 | Upload audio (5 s a 16 kHz mono, ~160 kB, Wi-Fi) | 0,2–0,4 s |
-| `gemini-3.8-flash`, senza tool | 1,0–1,8 s |
-| `gemini-3.1-flash-tts-preview` | 0,8–1,5 s |
+| Cascata `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite`, senza tool | 1,0–1,8 s |
+| `gemini-3.1-flash-tts-preview` (non ancora costruito, §2.5) | 0,8–1,5 s |
 | **Totale** | **~2,8–4,5 s** |
 | *con un tool (ricerca o foto)* | *+1,5–3 s* |
 
@@ -426,8 +443,8 @@ Il numero che conta non è questo: è **0,2 s**, il tempo entro cui parte la cli
 
 | | Free tier | Piano a pagamento |
 |---|---|---|
-| `gemini-3.8-flash` (audio in, testo out) | **0 €** | ~1,2 $/mese |
-| `gemini-3.1-flash-tts-preview` | **0 €** | ~5 $/mese |
+| Cascata `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite` (audio in, testo out) | **0 €** | ~1,2 $/mese |
+| `gemini-3.1-flash-tts-preview` (non ancora costruito) | **0 €** | ~5 $/mese |
 | Ricerca web (DuckDuckGo) | 0 € | 0 € |
 | **Totale** | **0 €** | **~6 $/mese** |
 
@@ -463,7 +480,7 @@ def rgb565(im):
 # → faces.bin + faces.json  {stato: {regione:[x,y,w,h], frames:N, offset:B}}
 ```
 
-Stati minimi: `assonnato` (boot e pausa), `idle` (battito di palpebre a intervalli **irregolari** — la regolarità è ciò che fa sembrare morta un'animazione), `ascolto` (pupille che reagiscono al livello del microfono), `pensiero`, `parlato` (bocca pilotata dall'inviluppo RMS), `felice`, `triste`, `sorpreso`, `errore-rete`, `timer` (countdown grande).
+Due elenchi distinti, entrambi da disegnare, ma decisi da chi diverso: gli **stati** (`adapters.base.STATO_*`) li sceglie il codice per dire cosa sta facendo BMO — `assonnato` (boot e pausa), `idle` (battito di palpebre a intervalli **irregolari** — la regolarità è ciò che fa sembrare morta un'animazione), `ascolto` (pupille che reagiscono al livello del microfono), `pensiero`, `parlato` (bocca pilotata dall'inviluppo RMS), `timer` (countdown grande), `errore-rete`. Le **espressioni** (`brain.ESPRESSIONI`: `felice`, `pensieroso`, `sorpreso`, `triste`, `assonnato`) le sceglie il modello, arrivano come etichetta a inizio della risposta finale (§2.3) e si sovrappongono allo stato `parlato` solo per la durata di quella battuta.
 
 Fra due fotogrammi cambiano ~12.000 pixel su 76.800: da 153,6 kB a **24,7 kB per fotogramma**, 4,5 ms di bus invece di 28 — l'11% del bus SPI a 25 fps e meno dell'8% di un core.
 
@@ -499,11 +516,11 @@ Le milestone su GitHub seguono questa divisione:
 
 Tutto gira con `BMO_ENV=dev-linux`: `WebcamV4L2Adapter` per la foto, `ArecordAdapter` sul microfono del portatile, `MpvAdapter` sulle sue casse. Prima di cominciare, le verifiche del [README di bmo-core](../bmo-core/README.md) (`arecord -l`, `v4l2-ctl --list-devices`, `mpv` e `ffmpeg` installati).
 
-**1.1 · Chiave API e primo contatto con Gemini** — *il singolo esperimento che vale di più di tutto il progetto*. Venti righe sul PC di sviluppo: tre secondi di audio dal microfono del portatile → `gemini-3.8-flash` con una `function_declaration` per `imposta_timer`. *Criterio di uscita*: «Metti un timer di dieci minuti» produce `imposta_timer(durata_secondi=600, etichetta="...")`. Provare anche «che ore sono» **senza** iniettare l'ora: si vedrà il modello inventare, dimostrazione pratica del perché §2.3 esiste.
+**1.1 · Chiave API e primo contatto con Gemini** — *il singolo esperimento che vale di più di tutto il progetto*. Venti righe sul PC di sviluppo: tre secondi di audio dal microfono del portatile → un modello Gemini con una `function_declaration` per `imposta_timer`. *Criterio di uscita*: «Metti un timer di dieci minuti» produce `imposta_timer(minuti=10, etichetta="...")` — durata in ore/minuti/secondi separati, non un totale in secondi: un composto come "un'ora e un quarto" è più facile da sbagliare se il modello deve fare lui la conversione in secondi. Provare anche «che ore sono» **senza** iniettare l'ora: si vedrà il modello inventare, dimostrazione pratica del perché §2.3 esiste. *Fatto (#19).*
 
-**1.2 · Il giro completo.** `brain.py` con `ascolta()`, `rispondi()`, `strumenti()`, collegati agli adapter e mai alle classi concrete. *Uscita*: venti frasi di prova — **sotto 18 su 20 il problema è il prompt di sistema**. Qui entrano il fallback a un modello inferiore quando finisce la quota e il riepilogo forzato quando il loop agentico tocca il tetto di 4 giri/20 s.
+**1.2 · Il giro completo.** `brain.py` con `ascolta()`, `rispondi()`, `strumenti()`, collegati agli adapter e mai alle classi concrete. *Uscita*: la prova delle frasi (`prova_frasi.py`, oggi 43 frasi in 8 categorie) — **sotto la soglia del 90% il problema è il prompt di sistema**. Qui entrano il fallback della cascata quando un modello finisce la quota o è sovraccarico (§2.9) e il riepilogo forzato quando il loop agentico tocca il tetto di 4 giri o la riserva di tempo (§2.1, §2.3). *Fatto (#19, #18): bozza v4 del prompt, 40/40.*
 
-**1.3 · Strumenti e stato.** Le dieci funzioni della §2.4, la macchina a stati della §2.1, la memoria persistente con conferma vocale obbligatoria (stato `CONFIRM`) e l'elenco configurabile delle persone di casa nel prompt di sistema. *Il test brutale che vale più di dieci unit test*: far partire un timer, uccidere il processo, riavviarlo, verificare che suoni all'ora giusta.
+**1.3 · Strumenti e stato.** Le undici funzioni della §2.4, la macchina a stati della §2.1. *Fatto (#20): timer persistenti su disco, strumenti radio veri, macchina a stati con faccia.* Restano da fare, come issue separate: la memoria persistente con conferma vocale obbligatoria (nuovo stato `CONFIRM`, #17), l'elenco configurabile delle persone di casa nel prompt (#15) e il diario di preferenze (#14). *Il test brutale che vale più di dieci unit test*: far partire un timer, uccidere il processo, riavviarlo, verificare che suoni all'ora giusta — verificato a mano il 20/9.
 
 **1.4 · Le clip di attesa.** Una ventina di clip brevi in italiano generate col TTS di Gemini — attesa («ci penso!», «un attimo…», «vediamo…»), conferma, errore di rete, timer scaduto. Suonano sulle casse del PC tramite `MpvAdapter`. *Uscita*: BMO non resta mai muto per più di 0,3 s.
 
@@ -591,7 +608,7 @@ Si passa a `BMO_ENV=pi` con le periferiche vere. Il software è già finito: que
 | Il calore ammorbidisce il guscio in PLA | media, estate | PETG + feritoie passanti |
 | Il SoC va in throttling senza dissipatori | bassa | Il burn-in lo dice con certezza; si aggiungono dopo in 5 minuti |
 | Foto ravvicinate sfocate | media, se ci si fida del preset di fabbrica | Il modulo esce tarato all'infinito: la taratura a pinza è un passo da 5 minuti, non opzionale |
-| Risposte troppo lunghe che non si possono interrompere | media, dal primo giorno | Limite di 2 frasi nel prompt **e** tetto duro sull'audio sintetizzato |
+| Risposte troppo lunghe che non si possono interrompere | media, dal primo giorno | "Sii conciso, rispondi solo a quanto chiesto" nel prompt **e** tetto duro sull'audio sintetizzato quando il TTS esisterà |
 | Leak di memoria | media, mese 2 | RSS nel burn-in + `MemoryMax=` nelle unit |
 | Rete giù = BMO muto | bassa ma certa quando capita | Stato `errore-rete` con faccia dedicata; Piper `x_low` come voce di riserva |
 | Consumo di quota Gemini | bassa | Contatore giornaliero con tetto, dal primo giorno |
