@@ -1,6 +1,6 @@
 import json
 
-from bmo_core.memoria import MAX_VOCI, Voce, carica_diario
+from bmo_core.memoria import MAX_VOCI, Voce, aggiungi_voce, carica_diario, salva_diario
 
 
 def _scrivi(percorso, righe):
@@ -65,3 +65,46 @@ def test_tetto_personalizzabile(tmp_path):
     _scrivi(percorso, [{"testo": f"voce {i}", "aggiunta_il": "2026-09-20"} for i in range(10)])
     voci = carica_diario(percorso, tetto=3)
     assert [v.testo for v in voci] == ["voce 7", "voce 8", "voce 9"]
+
+
+def test_salva_diario_scrive_leggibile_dopo(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    salva_diario(percorso, [Voce("ceno alle 20", "2026-09-20", "manuale")])
+    [voce] = carica_diario(percorso)
+    assert voce == Voce("ceno alle 20", "2026-09-20", "manuale")
+
+
+def test_salva_diario_crea_la_cartella_se_manca(tmp_path):
+    percorso = tmp_path / "bmo" / "memoria.json"
+    salva_diario(percorso, [Voce("ceno alle 20", "2026-09-20", "manuale")])
+    assert percorso.exists()
+
+
+def test_aggiungi_voce_su_file_mancante(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    nuova = aggiungi_voce(percorso, "non gli piacciono i funghi", "2026-09-20")
+    assert nuova == Voce("non gli piacciono i funghi", "2026-09-20", "modello")
+    assert carica_diario(percorso) == [nuova]
+
+
+def test_aggiungi_voce_si_accoda_alle_esistenti(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    _scrivi(percorso, [{"testo": "voce vecchia", "aggiunta_il": "2026-09-14"}])
+    aggiungi_voce(percorso, "voce nuova", "2026-09-20")
+    assert [v.testo for v in carica_diario(percorso)] == ["voce vecchia", "voce nuova"]
+
+
+def test_aggiungi_voce_fonte_esplicita(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    nuova = aggiungi_voce(percorso, "test", "2026-09-20", fonte="manuale")
+    assert nuova.fonte == "manuale"
+
+
+def test_aggiungi_voce_rispetta_il_tetto(tmp_path):
+    percorso = tmp_path / "memoria.json"
+    _scrivi(percorso, [{"testo": f"voce {i}", "aggiunta_il": "2026-09-20"} for i in range(MAX_VOCI)])
+    aggiungi_voce(percorso, "voce nuova", "2026-09-20")
+    voci = carica_diario(percorso)
+    assert len(voci) == MAX_VOCI
+    assert voci[0].testo == "voce 1"  # la più vecchia (voce 0) è caduta
+    assert voci[-1].testo == "voce nuova"

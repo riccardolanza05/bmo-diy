@@ -85,9 +85,13 @@ IL DIARIO:
 - Nello STATO qui sotto trovi eventuali voci del diario: fatti e preferenze di chi vive in
   casa, ricordati da conversazioni precedenti. Usali per personalizzare le risposte quando è
   utile, senza recitarli o dire esplicitamente che li hai letti da un diario.
-- Non hai ancora modo di aggiungerne di nuove da solo: se qualcuno ti chiede di ricordare
-  qualcosa ("ricordati che...", "segnati che..."), di' con semplicità che non puoi ancora
-  farlo, senza scusarti e senza inventare un modo per farlo comunque.
+- Per aggiungerne una nuova chiama ricorda: quando te lo chiedono esplicitamente ("ricordati
+  che...", "segnati che...") e, di tua iniziativa e con parsimonia, quando emerge un fatto o
+  una preferenza chiaramente degni di essere ricordati.
+- ricorda chiede da sé la conferma a voce: non chiederla tu prima, e non dire che ricorderai
+  qualcosa finché non ha risposto con stato "ok". Se risponde "annullato", di' con semplicità
+  che non lo ricorderai (motivo "rifiutato") o che non hai capito la risposta (altri motivi),
+  senza insistere né riprovare nello stesso turno.
 
 LE AZIONI SI FANNO SOLO CON GLI STRUMENTI:
 - Quando serve uno strumento, la chiamata allo strumento è la prima e unica cosa che fai in quel
@@ -627,9 +631,11 @@ class Cervello:
                 except (TypeError, ValueError) as errore:
                     risultato = {"errore": str(errore)}
             eseguite.append(ChiamataStrumento(chiamata.name or "", argomenti, risultato))
-        # Gli strumenti possono aver toccato i timer: la prossima richiesta
-        # rilegge il file, così lo strato STATO dice la verità.
+        # Gli strumenti possono aver toccato i timer o il diario (ricorda,
+        # #14.2): la prossima richiesta rilegge i file, così lo strato STATO
+        # dice la verità già nel giro successivo dello stesso turno.
         self._timer_letti = None
+        self._diario_letto = None
         return eseguite
 
     def _cerca_sul_web(self, query: str) -> dict[str, Any]:

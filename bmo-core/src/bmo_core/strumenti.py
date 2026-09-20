@@ -168,4 +168,25 @@ DICHIARAZIONI = [
             ["minuti"],
         ),
     ),
+    types.FunctionDeclaration(
+        name="ricorda",
+        description=(
+            "Proposes adding a fact or preference to BMO's persistent diary (issue #14), so it is "
+            "remembered across restarts. Use it both when explicitly asked ('ricordati che...', "
+            "'segnati che...') and, sparingly, when a fact clearly worth remembering comes up on its "
+            "own (a stated food dislike, a recurring habit). Calling this tool triggers a mandatory "
+            "spoken confirmation before anything is saved (issue #17): wait for its result, which is "
+            "'ok' only if the person confirmed, before saying it has been remembered. Never claim to "
+            "have remembered something without calling this tool first."
+        ),
+        parameters=_schema(
+            {
+                "testo": _testo(
+                    "The fact or preference to remember, in Italian, as a short natural sentence, "
+                    "e.g. 'non gli piacciono i funghi' or 'cena alle 20'."
+                )
+            },
+            ["testo"],
+        ),
+    ),
 ]
