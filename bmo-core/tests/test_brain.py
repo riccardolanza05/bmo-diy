@@ -89,12 +89,18 @@ class FacciaFinta:
         self.stati.append(stato)
 
 
+def _ricerca_finta(query):
+    """Nessun test deve andare su internet: sarebbe lento e dipenderebbe dalla rete."""
+    return {"stato": "non_disponibile", "motivo": "ricerca finta"}
+
+
 def _cervello(risposte, costo_s=0.0, **opzioni):
     cronometro = CronometroFinto()
     client = ClientFinto(risposte, cronometro, costo_s)
     cervello = Cervello(
         client=client,
         microfono=MicrofonoFinto(),
+        ricerca=opzioni.pop("ricerca", _ricerca_finta),
         faccia=opzioni.pop("faccia", FacciaFinta()),
         orologio=lambda: ORA,
         cronometro=cronometro,

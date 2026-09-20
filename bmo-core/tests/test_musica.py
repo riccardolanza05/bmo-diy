@@ -1,7 +1,9 @@
 import json
 
 import pytest
+from google.genai import types
 
+from bmo_core.brain import Cervello
 from bmo_core.musica import Musica, cartella_musica, scegli_brani, stazioni_radio
 
 
@@ -141,6 +143,31 @@ def test_stazioni_da_file(tmp_path):
     assert stazioni_radio(percorso) == {"Radio Deejay": "http://stream/deejay"}
     percorso.write_text("non è json")
     assert stazioni_radio(percorso) == {}  # e può essere rotto: BMO parte lo stesso
+
+
+def test_gli_strumenti_passano_dal_cervello(tmp_path):
+    """Il percorso vero: il modello chiama, il cervello instrada, la musica esegue."""
+    musica, lettore, volume = _musica(tmp_path)
+    cervello = Cervello(client=object(), microfono=object())
+    musica.registra(cervello)
+
+    [alzato] = cervello.strumenti([types.FunctionCall(name="regola_volume", args={"percentuale": 60})])
+    assert alzato.risultato == {"stato": "ok", "percentuale": 60}
+    assert volume.impostati == [60]
+
+    [messa] = cervello.strumenti(
+        [types.FunctionCall(name="riproduci_musica", args={"query": "daft punk", "sorgente": "libreria"})]
+    )
+    assert messa.risultato["stato"] == "ok"
+    assert lettore.code
+
+    # "sorgente" è obbligatoria nella dichiarazione: senza, il controllo degli
+    # argomenti la rimanda al modello invece di indovinare.
+    [senza] = cervello.strumenti(
+        [types.FunctionCall(name="riproduci_musica", args={"query": "daft punk"})]
+    )
+    assert "errore" in senza.risultato
+    assert "sorgente" in senza.risultato["parametri_validi"]
 
 
 def test_cartella_musica_configurabile(tmp_path, monkeypatch):
