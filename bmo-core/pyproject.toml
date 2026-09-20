@@ -3,7 +3,9 @@ name = "bmo-core"
 version = "0.1.0"
 description = "Logica di dialogo e adapter hardware per l'assistente BMO"
 requires-python = ">=3.11"
-dependencies = ["google-genai"]
+# ddgs: la ricerca sul web (§2.4), perché il grounding con Google Search non è
+# nel free tier. Importata dove serve, così BMO parte anche senza.
+dependencies = ["google-genai", "ddgs"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

@@ -35,6 +35,7 @@ from .adapters import (
 )
 from .config import FUSO_ORARIO
 from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
+from .ricerca import cerca
 from .strumenti import DICHIARAZIONI
 from .timer import ArchivioTimer, Timer
 DURATA_ASCOLTO_S = 3.0
@@ -316,6 +317,7 @@ class Cervello:
         microfono: AudioInputAdapter | None = None,
         faccia: FacciaAdapter | None = None,
         archivio: ArchivioTimer | None = None,
+        ricerca: Callable[[str], dict[str, Any]] | None = None,
         modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
         cronometro: Callable[[], float] = time.monotonic,
@@ -355,10 +357,14 @@ class Cervello:
         # deve cambiare da un giro all'altro, e non serve rileggere il file a
         # ogni richiesta.
         self._timer_letti: list[Timer] | None = None
+        # Sostituibile nei test, e il giorno del piano a pagamento diventa
+        # google_search senza toccare altro (#6).
+        self.ricerca = ricerca or cerca
         self._esecutori: dict[str, Callable[..., dict[str, Any]]] = {
             "imposta_timer": self._imposta_timer,
             "annulla_timer": self._annulla_timer,
             "elenca_timer": self._elenca_timer,
+            "cerca_sul_web": self._cerca_sul_web,
         }
 
     def registra_strumento(self, nome: str, esecutore: Callable[..., dict[str, Any]]) -> None:
@@ -553,6 +559,9 @@ class Cervello:
         # rilegge il file, così lo strato STATO dice la verità.
         self._timer_letti = None
         return eseguite
+
+    def _cerca_sul_web(self, query: str) -> dict[str, Any]:
+        return self.ricerca(query)
 
     def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:
         # "Un'ora e un quarto" arrivò come ore 1 e minuti 75 (prova del 19/9):

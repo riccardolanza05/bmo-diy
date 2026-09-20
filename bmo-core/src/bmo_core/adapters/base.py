@@ -54,8 +54,36 @@ class FacciaAdapter(Protocol):
 
 
 class AudioOutputAdapter(Protocol):
-    """Riproduzione audio (voce TTS e musica)."""
+    """Riproduzione audio breve e senza comandi: clip, toni, voce."""
 
     def riproduci(self, sorgente: Path | str) -> None: ...
 
     def ferma(self) -> None: ...
+
+
+class LettoreAdapter(Protocol):
+    """Lettore musicale, che a differenza delle clip si comanda mentre suona.
+
+    §2.4: mpv gira sempre con un socket IPC, e pausa, volume e ducking sono
+    comandi su quel socket.
+    """
+
+    def riproduci(self, tracce: list[str]) -> None: ...
+
+    def pausa(self) -> None: ...
+
+    def riprendi(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def successivo(self) -> None: ...
+
+    def in_riproduzione(self) -> bool: ...
+
+
+class VolumeAdapter(Protocol):
+    """Il volume dell'altoparlante: riguarda tutto quello che BMO emette."""
+
+    def imposta(self, percentuale: int) -> None: ...
+
+    def leggi(self) -> int | None: ...
