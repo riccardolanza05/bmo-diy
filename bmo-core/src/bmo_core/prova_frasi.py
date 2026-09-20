@@ -18,10 +18,12 @@ comunque visibile nell'output).
 """
 from __future__ import annotations
 
+import tempfile
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from .adapters import crea_faccia
@@ -30,12 +32,12 @@ from .brain import (
     TETTO_TURNO_S,
     Cervello,
     Risposta,
-    Timer,
     descrivi_errore,
     durata_in_secondi,
     prompt_da_file,
 )
 from .modelli import GeminiNonDisponibile
+from .timer import ArchivioTimer, Timer
 
 SOGLIA = 0.9
 
@@ -156,7 +158,9 @@ def valuta(frase: Frase, risposta: Risposta) -> bool:
 
 def _prepara(cervello: Cervello, frase: Frase) -> None:
     ora = cervello.orologio()
-    cervello.timer = [Timer(e, ora + timedelta(seconds=s)) for e, s in frase.timer_attivi]
+    # Stato noto a ogni frase: i timer stanno su disco (#20), quindi si
+    # riscrive l'elenco invece di riempire una lista in memoria.
+    cervello.archivio.sostituisci([Timer(e, ora + timedelta(seconds=s)) for e, s in frase.timer_attivi])
 
 
 def _descrivi_attesi(frase: Frase) -> str:
@@ -168,7 +172,6 @@ def _descrivi_attesi(frase: Frase) -> str:
 
 def main() -> None:
     import argparse
-    from pathlib import Path
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--voce", action="store_true", help="leggi ogni frase al microfono")
@@ -188,11 +191,15 @@ def main() -> None:
     modelli: Counter[str] = Counter()
     riepiloghi = 0
     turno_piu_lungo = 0.0
+    # I timer della prova stanno in un file usa e getta: `_prepara` riscrive
+    # l'elenco a ogni frase, e non deve toccare i timer veri dell'utente.
+    cartella_prova = tempfile.TemporaryDirectory(prefix="bmo-prova-")
     for numero, frase in enumerate(frasi, start=1):
         cervello = Cervello(
             # A voce c'è dell'attesa vera: la faccia sul terminale dice quando
             # BMO sta elaborando. Con le frasi scritte sarebbe solo rumore.
             faccia=crea_faccia(sul_terminale=argomenti.voce),
+            archivio=ArchivioTimer(Path(cartella_prova.name) / "timers.json"),
             **prompt_da_file(argomenti.prompt),
         )  # stato pulito a ogni frase
         _prepara(cervello, frase)

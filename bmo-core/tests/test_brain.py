@@ -357,7 +357,8 @@ def test_annulla_ed_elenca_timer():
     for etichetta, secondi in (("pasta", 300), ("uova", 90)):
         cervello.strumenti([types.FunctionCall(name="imposta_timer", args={"secondi": secondi, "etichetta": etichetta})])
     [elenco] = cervello.strumenti([types.FunctionCall(name="elenca_timer", args={})])
-    assert [t["etichetta"] for t in elenco.risultato["timer"]] == ["pasta", "uova"]
+    # In ordine di scadenza, non di inserimento: il primo che suona per primo.
+    assert [t["etichetta"] for t in elenco.risultato["timer"]] == ["uova", "pasta"]
     [annullato] = cervello.strumenti([types.FunctionCall(name="annulla_timer", args={"etichetta": "Pasta"})])
     assert annullato.risultato == {"stato": "ok", "annullati": 1}
     assert [t.etichetta for t in cervello.timer] == ["uova"]

@@ -2,6 +2,9 @@
 
 Entrambi gli ambienti sono Linux, quindi la distinzione non si basa sul
 sistema operativo ma sulla presenza del device-tree del Raspberry Pi.
+
+Qui sta anche il fuso orario di casa e la cartella in cui BMO tiene quello
+che deve sopravvivere a un riavvio (per ora i timer, issue #20).
 """
 from __future__ import annotations
 
@@ -9,6 +12,9 @@ import os
 import platform
 from enum import Enum
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+FUSO_ORARIO = ZoneInfo("Europe/Rome")
 
 
 class Ambiente(str, Enum):
@@ -46,3 +52,21 @@ def rileva_ambiente() -> Ambiente:
     raise RuntimeError(
         "Impossibile rilevare l'ambiente automaticamente: imposta BMO_ENV=dev-linux o BMO_ENV=pi"
     )
+
+
+def percorso_dati(ambiente: Ambiente | None = None) -> Path:
+    """Cartella dei dati che devono sopravvivere a un riavvio.
+
+    Sul Pi e' `/var/lib/bmo`, come il piano (§2.4), perche' li' BMO e' un
+    servizio di sistema. Sul PC di sviluppo scriverci vorrebbe i permessi di
+    root, quindi si usa la cartella di stato dell'utente. `BMO_DATI` ha la
+    precedenza su tutto: serve ai test, che non devono mai scrivere nella
+    cartella vera.
+    """
+    forzato = os.environ.get("BMO_DATI")
+    if forzato:
+        return Path(forzato)
+    if (ambiente or rileva_ambiente()) is Ambiente.PI:
+        return Path("/var/lib/bmo")
+    stato = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    return Path(stato) / "bmo"

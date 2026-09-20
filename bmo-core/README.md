@@ -9,7 +9,9 @@ comprare i componenti fisici.
 
 ```
 src/bmo_core/
-├── config.py              rileva l'ambiente (dev-linux vs pi) via BMO_ENV o device-tree
+├── config.py              rileva l'ambiente (dev-linux vs pi) e dove stanno i dati persistenti
+├── timer.py               i timer su disco: scadenza assoluta, scrittura atomica, lock
+├── sveglia.py             il processo che fa suonare i timer scaduti
 └── adapters/
     ├── base.py            interfacce (Protocol): CameraAdapter, AudioInputAdapter, AudioOutputAdapter, FacciaAdapter
     ├── camera.py           LibcameraAdapter (Pi, CSI/OV5647) · WebcamV4L2Adapter (PC, ffmpeg+V4L2)
@@ -109,6 +111,42 @@ in cui parte la clip di errore (issue #21).
 `Risposta.riepilogo` dice se la richiesta in più c'è stata e perché
 (`tetto di 4 giri`, `tempo finito`, `modello non disponibile`); `--max-giri 1`
 serve a provarla senza aspettare che un caso vero saturi il loop.
+
+## Timer persistenti e sveglia (issue #20)
+
+I timer non stanno più in memoria: vivono in `timers.json`, e sopravvivono a un
+riavvio. Il piano li chiama «la funzione col costo di errore più alto» e detta
+tre regole, tutte rispettate da `timer.py`:
+
+- si salva la **scadenza assoluta**, mai i secondi rimanenti, così cinque minuti
+  di spegnimento non allungano un timer di dieci;
+- il file si riscrive con un temporaneo più `rename`, che è atomico: una
+  caduta di corrente a metà scrittura lascia il file vecchio intero, non mezzo
+  file illeggibile;
+- un timer scaduto mentre BMO era spento suona lo stesso, con un messaggio
+  diverso.
+
+Il cervello e la sveglia sono due processi che scrivono lo stesso file, quindi
+ogni operazione prende un lock esclusivo (`flock`) su `timers.lock`: senza,
+la sveglia che riscrive l'elenco cancellerebbe il timer appena aggiunto dal
+cervello, e il difetto sarebbe silenzioso — un timer che non suona.
+
+Dove sta il file: `/var/lib/bmo/` sul Pi, dove BMO è un servizio di sistema, e
+`~/.local/state/bmo/` sul PC di sviluppo, dove scrivere in `/var/lib` vorrebbe
+i permessi di root. `BMO_DATI` ha la precedenza su entrambi.
+
+```bash
+python -m bmo_core.sveglia                  # resta in piedi e fa suonare i timer
+python -m bmo_core.sveglia --intervallo 1   # controlla ogni secondo invece di mezzo
+python -m bmo_core.sveglia --tono FILE      # un suono diverso dal tono predefinito
+BMO_DATI=/tmp/prova python -m bmo_core.sveglia   # timer usa e getta, per le prove
+```
+
+Il suono è per ora un tono generato da `mpv`; le clip vere, registrate col TTS
+di Gemini, sono l'issue #21 e prenderanno il posto del tono senza toccare altro.
+
+La prova che conta (criterio di uscita della #20): far partire un timer, uccidere
+il processo, riavviarlo e verificare che suoni all'ora giusta.
 
 ## La faccia dice cosa sta facendo BMO
 

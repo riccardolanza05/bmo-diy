@@ -9,6 +9,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterator, Protocol
 
+# Stati della faccia (§2.1). Sono un'altra cosa dalle espressioni che sceglie
+# il modello per la risposta parlata: questi li decide il codice per dire a
+# chi guarda cosa sta facendo BMO. Stanno qui, accanto al Protocol, perche'
+# sono parte del contratto della faccia e perche' cosi' anche chi non parla
+# con Gemini (la sveglia dei timer) puo' usarli senza importare il cervello.
+STATO_ASCOLTO = "ascolto"
+STATO_PENSIERO = "pensiero"
+STATO_PARLATO = "parlato"
+STATO_TIMER = "timer"
+STATO_ERRORE = "errore-rete"
+
 
 class CameraAdapter(Protocol):
     """Cattura una singola foto e la scrive su disco come JPEG."""
