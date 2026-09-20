@@ -361,6 +361,16 @@ class Cervello:
             "elenca_timer": self._elenca_timer,
         }
 
+    def registra_strumento(self, nome: str, esecutore: Callable[..., dict[str, Any]]) -> None:
+        """Collega uno strumento che il cervello da solo non può eseguire.
+
+        `metti_in_pausa_l_ascolto` è della macchina a stati, non del cervello:
+        è lei che sa cosa vuol dire smettere di ascoltare. Senza questo gancio
+        il cervello dovrebbe conoscerla, e sono due cose che devono restare
+        separate.
+        """
+        self._esecutori[nome] = esecutore
+
     def ascolta(self, durata_s: float = DURATA_ASCOLTO_S) -> bytes:
         """Registra `durata_s` secondi dal microfono e restituisce il WAV.
 
