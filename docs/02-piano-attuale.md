@@ -241,6 +241,8 @@ Aggiunte, che nel riferimento non ci sono:
 
 **Cosa c'è oggi al posto della wake word e del TTS.** Il diagramma sopra resta, per il resto, l'architettura di destinazione. In `bmo-core` oggi (macchina.py) il richiamo "Hey BMO" è **Invio da tastiera** (`richiamo_da_tastiera`, provvisorio, sostituito dalla wake word con la #22) e la voce di BMO è **stampata sul terminale** (`voce_sul_terminale`, provvisorio fino al TTS, #21). `scatta_foto` è dichiarato ma non ancora collegato a un esecutore: risponde sempre `non_disponibile`. Gli stati reali della macchina (`macchina.Stato`) sono ATTESA, ASCOLTO, PENSIERO, PARLATO, PAUSA, ERRORE, CONFERMA — corrispondenti a WAIT/LISTEN/THINK/SPEAK/PAUSA/ERRORE/CONFERMA qui sopra.
 
+**"Ctrl-D per spegnere" non è una funzione di BMO: è una comodità del CLI di sviluppo.** BMO non ha un vero interruttore software (è pensato acceso 24/7, come un servizio di sistema sul Pi): l'unico spegnimento reale è staccare la corrente. Bug trovato il 21/9 provando la #14.2 a voce: chiudere il processo mentre la radio suonava la lasciava orfana (mpv restava acceso, ma nessuna sessione futura lo riconosceva più come "suo", e cancellandogli il socket per aprirne uno nuovo BMO diceva "è chiusa" mentre suonava ancora). Corretto in due punti: **`LettoreMpv`** ora riconosce un mpv già vivo sullo stesso socket invece di aprirne un secondo sopra, e lo spegne per davvero anche se non l'ha acceso lui; **`Macchina.esegui()`** non esce subito su Ctrl-D se la radio sta suonando o c'è un timer attivo — resta acceso in sottofondo finché non finiscono da soli, coerente con "nessun vero interruttore". Ctrl-C resta la via per uscire subito comunque, e in quel caso la radio si spegne esplicitamente.
+
 ### 2.2 Tre processi
 
 ```
@@ -603,6 +605,7 @@ Si passa a `BMO_ENV=pi` con le periferiche vere. Il software è già finito: que
 **7.2 · Grounding nativo** — al passaggio al piano a pagamento, `google_search` al posto di `cerca_sul_web`.
 **7.3 · Modalità Live** — `LiveBrain` dietro la stessa interfaccia. Latenza ~0,85 s invece di ~3, al prezzo dell'inviluppo calcolato al volo e di un costo 4–5× superiore.
 **7.4 · Domotica** — una sola funzione che parla a Home Assistant, lasciando a lui il compito di conoscere i dispositivi.
+**7.5 · Risparmio energetico dopo inattività** — idea proposta il 21/9, non ancora progettata: dopo un certo numero di ore senza richiami, entrare in una modalità a consumo ridotto (faccia "assonnato", forse la wake word a bassa frequenza di campionamento) restando comunque pronto a rispondere a "Hey BMO". Da specificare: dopo quante ore, cosa si spegne davvero (la wake word deve restare sempre attiva, è l'unica cosa che *deve* restare locale, §2.6) e quanto consuma il Pi 3 A+ in idle rispetto a quanto si risparmierebbe.
 
 ---
 

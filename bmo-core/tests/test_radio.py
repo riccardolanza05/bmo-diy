@@ -33,6 +33,10 @@ class LettoreFinto:
     def in_riproduzione(self):
         return self.suona
 
+    def spegni(self):
+        self.azioni.append("spegni")
+        self.suona = False
+
 
 class VolumeFinto:
     def __init__(self):
