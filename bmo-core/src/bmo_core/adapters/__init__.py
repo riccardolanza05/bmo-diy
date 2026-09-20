@@ -1,6 +1,8 @@
 from .base import (
     STATO_ASCOLTO,
+    STATO_ASSONNATO,
     STATO_ERRORE,
+    STATO_IDLE,
     STATO_PARLATO,
     STATO_PENSIERO,
     STATO_TIMER,
@@ -13,7 +15,9 @@ from .factory import crea_audio_input, crea_audio_output, crea_camera, crea_facc
 
 __all__ = [
     "STATO_ASCOLTO",
+    "STATO_ASSONNATO",
     "STATO_ERRORE",
+    "STATO_IDLE",
     "STATO_PARLATO",
     "STATO_PENSIERO",
     "STATO_TIMER",

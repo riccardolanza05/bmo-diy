@@ -12,6 +12,7 @@ src/bmo_core/
 ├── config.py              rileva l'ambiente (dev-linux vs pi) e dove stanno i dati persistenti
 ├── timer.py               i timer su disco: scadenza assoluta, scrittura atomica, lock
 ├── sveglia.py             il processo che fa suonare i timer scaduti
+├── macchina.py            la macchina a stati: attesa → ascolto → pensiero → parlato
 └── adapters/
     ├── base.py            interfacce (Protocol): CameraAdapter, AudioInputAdapter, AudioOutputAdapter, FacciaAdapter
     ├── camera.py           LibcameraAdapter (Pi, CSI/OV5647) · WebcamV4L2Adapter (PC, ffmpeg+V4L2)
@@ -111,6 +112,37 @@ in cui parte la clip di errore (issue #21).
 `Risposta.riepilogo` dice se la richiesta in più c'è stata e perché
 (`tetto di 4 giri`, `tempo finito`, `modello non disponibile`); `--max-giri 1`
 serve a provarla senza aspettare che un caso vero saturi il loop.
+
+## BMO acceso: la macchina a stati (issue #20)
+
+```
+ATTESA ──richiamo──► ASCOLTO ──► PENSIERO ──► PARLATO ──► ATTESA
+   ▲                                                         │
+   └──────── PAUSA (metti_in_pausa_l_ascolto) · ERRORE ───────┘
+```
+
+```bash
+python -m bmo_core.macchina                # premi Invio e parla; Ctrl-D per spegnere
+python -m bmo_core.macchina --durata 5     # ascolta cinque secondi invece di tre
+python -m bmo_core.macchina --senza-timer  # senza la sveglia dei timer
+```
+
+**A ogni transizione cambia la faccia**, ed è il punto del piano che conta di
+più: senza pulsanti e senza spie, la faccia è l'unico modo di sapere che BMO ha
+sentito il richiamo. La faccia si mostra *prima* di cominciare l'azione, mai
+dopo — il piano chiede che il passaggio ad ASCOLTO si veda entro 150 ms,
+altrimenti la persona ripete la frase e rovina la registrazione.
+
+La sveglia dei timer gira nello stesso processo, in un thread: un timer deve
+suonare anche mentre BMO sta ascoltando o pensando.
+
+`metti_in_pausa_l_ascolto` è vero: durante la pausa la faccia è `assonnato`, i
+richiami vengono ignorati e i timer suonano lo stesso. Lo strumento appartiene
+alla macchina, non al cervello, e si collega con `registra_strumento`.
+
+Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
+**richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
+**voce** stampa il testo (il TTS e le clip sono la #21).
 
 ## Timer persistenti e sveglia (issue #20)
 

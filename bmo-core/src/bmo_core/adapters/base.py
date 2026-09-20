@@ -14,6 +14,8 @@ from typing import Iterator, Protocol
 # chi guarda cosa sta facendo BMO. Stanno qui, accanto al Protocol, perche'
 # sono parte del contratto della faccia e perche' cosi' anche chi non parla
 # con Gemini (la sveglia dei timer) puo' usarli senza importare il cervello.
+STATO_ASSONNATO = "assonnato"  # acceso ma non in ascolto: avvio e pausa
+STATO_IDLE = "idle"            # sveglio, in attesa di essere chiamato
 STATO_ASCOLTO = "ascolto"
 STATO_PENSIERO = "pensiero"
 STATO_PARLATO = "parlato"
