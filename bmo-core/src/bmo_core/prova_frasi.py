@@ -1,8 +1,7 @@
 """Frasi di prova per il prompt di sistema e gli strumenti (fase 4.1, issue #19).
 
-Criterio di uscita della #19: almeno il 90% di frasi corrette (18 su 20
-nella prima versione, 36 su 40 ora). Sotto quella soglia il problema è il
-prompt di sistema, non il modello.
+Criterio di uscita della #19: almeno il 90% di frasi corrette. Sotto quella
+soglia il problema è il prompt di sistema, non il modello.
 
 Ogni frase dice quali esiti sono accettabili: nessuno strumento, oppure uno
 strumento preciso con alcuni argomenti (numeri uguali, testi contenuti senza
@@ -90,13 +89,18 @@ FRASI = [
     _f("foto", "Guarda questa pianta: secondo te sta bene?", usa("scatta_foto")),
     _f("foto", "Fai una foto e dimmi cosa vedi", usa("scatta_foto")),
     # Musica e radio.
-    _f("musica", "Metti Radio Deejay", usa("riproduci_musica", sorgente="radio", query="deejay")),
-    _f("musica", "Accendi la radio", usa("riproduci_musica", sorgente="radio")),
-    _f("musica", "Metti Bohemian Rhapsody dei Queen", usa("riproduci_musica", sorgente="libreria", query="bohemian")),
-    _f("musica", "Fammi sentire un po' di jazz", usa("riproduci_musica")),
-    _f("musica", "Riproduci il video di Gangnam Style", usa("riproduci_musica", query="gangnam"), nessuno()),
+    _f("musica", "Metti Radio Deejay", usa("riproduci_musica", query="deejay")),
+    _f("musica", "Accendi la radio", usa("riproduci_musica")),
+    # Non c'è una libreria locale: una canzone precisa diventa una radio, oppure
+    # BMO spiega che può solo mettere la radio. Tutt'e due vanno bene.
+    _f("musica", "Metti Bohemian Rhapsody dei Queen", usa("riproduci_musica"), nessuno()),
+    _f("musica", "Fammi sentire un po' di jazz", usa("riproduci_musica", query="jazz")),
+    _f("musica", "Riproduci il video di Gangnam Style", usa("riproduci_musica"), nessuno()),
     _f("musica", "Metti in pausa la musica", usa("controllo_riproduzione", azione="pausa")),
-    _f("musica", "Passa alla canzone successiva", usa("controllo_riproduzione", azione="successivo")),
+    _f("musica", "Cambia stazione", usa("controllo_riproduzione", azione="successivo")),
+    _f("musica", "Torna alla stazione di prima", usa("controllo_riproduzione", azione="precedente")),
+    _f("musica", "Questa mi piace, salvala", usa("salva_stazione")),
+    _f("musica", "Quali radio ho salvato?", usa("elenca_stazioni")),
     _f("volume", "Alza il volume al settanta percento", usa("regola_volume", percentuale=70)),
     _f("volume", "Abbassa un po' il volume", usa("regola_volume")),
     _f("pausa", "Smetti di ascoltare per un'ora", usa("metti_in_pausa_l_ascolto", minuti=60)),

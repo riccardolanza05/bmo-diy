@@ -100,32 +100,57 @@ DICHIARAZIONI = [
     types.FunctionDeclaration(
         name="riproduci_musica",
         description=(
-            "Plays music from the local track library, or an internet radio station. "
-            "BMO has no screen, so it cannot play videos."
+            "Turns on the radio. BMO has no local music library and no screen: every request for "
+            "music, a song, an artist or a genre becomes an internet radio station. It first looks "
+            "among the saved favourite stations, then searches the public station directory."
         ),
         parameters=_schema(
             {
-                "query": _testo("What to play: song title, artist, genre or radio station name."),
-                "sorgente": _testo(
-                    "'libreria' for songs, artists or genres; 'radio' for radio stations.",
-                    ["libreria", "radio"],
-                ),
+                "query": _testo(
+                    "Station name, frequency, genre or artist, e.g. 'radio deejay', '101.7', "
+                    "'jazz'. Leave it out to turn the radio on where it was."
+                )
             },
-            ["query", "sorgente"],
+            [],
         ),
     ),
     types.FunctionDeclaration(
         name="controllo_riproduzione",
-        description="Controls the music that is currently playing: pause, resume, stop or skip to the next track.",
+        description=(
+            "Controls the radio that is currently playing. 'successivo' and 'precedente' tune to "
+            "the next or previous station of the list being listened to, like turning a dial."
+        ),
         parameters=_schema(
             {
                 "azione": _testo(
-                    "'pausa' pauses, 'riprendi' resumes, 'stop' stops, 'successivo' skips to the next track.",
-                    ["pausa", "riprendi", "stop", "successivo"],
+                    "'pausa' pauses, 'riprendi' resumes, 'stop' turns the radio off, "
+                    "'successivo' tunes to the next station, 'precedente' to the previous one.",
+                    ["pausa", "riprendi", "stop", "successivo", "precedente"],
                 )
             },
             ["azione"],
         ),
+    ),
+    types.FunctionDeclaration(
+        name="salva_stazione",
+        description=(
+            "Saves the station playing right now among the favourites, so it can be asked for by "
+            "name later. Use it when the person says they like it or asks to keep it."
+        ),
+        parameters=_schema(
+            {
+                "nome": _testo(
+                    "What to call it, if the person said so, e.g. 'quella del jazz' or "
+                    "'Radio Deejay 107.0'. Leave it out to keep the station's own name."
+                )
+            },
+            [],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="elenca_stazioni",
+        description="Lists the saved favourite radio stations.",
+        parameters=_schema({}, []),
     ),
     types.FunctionDeclaration(
         name="regola_volume",
