@@ -34,6 +34,7 @@ from .adapters import (
     crea_faccia,
 )
 from .config import FUSO_ORARIO
+from .memoria import Voce, carica_diario
 from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
 from .ricerca import cerca
 from .strumenti import DICHIARAZIONI
@@ -79,6 +80,14 @@ LA TUA FACCIA:
   [felice] [pensieroso] [sorpreso] [triste] [assonnato].
   Decide la tua faccia e non viene letta ad alta voce: è l'unica eccezione alla regola sulle parentesi.
   Esempio: [felice] Sette per otto fa cinquantasei.
+
+IL DIARIO:
+- Nello STATO qui sotto trovi eventuali voci del diario: fatti e preferenze di chi vive in
+  casa, ricordati da conversazioni precedenti. Usali per personalizzare le risposte quando è
+  utile, senza recitarli o dire esplicitamente che li hai letti da un diario.
+- Non hai ancora modo di aggiungerne di nuove da solo: se qualcuno ti chiede di ricordare
+  qualcosa ("ricordati che...", "segnati che..."), di' con semplicità che non puoi ancora
+  farlo, senza scusarti e senza inventare un modo per farlo comunque.
 
 LE AZIONI SI FANNO SOLO CON GLI STRUMENTI:
 - Quando serve uno strumento, la chiamata allo strumento è la prima e unica cosa che fai in quel
@@ -171,7 +180,9 @@ def _durata_parlata(secondi: int) -> str:
     return ", ".join(parti[:-1]) + " e " + parti[-1] if len(parti) > 1 else parti[0]
 
 
-def contesto_dinamico(ora: datetime, timer: list[Timer], inietta_ora: bool = True) -> str:
+def contesto_dinamico(
+    ora: datetime, timer: list[Timer], inietta_ora: bool = True, diario: list[Voce] | None = None
+) -> str:
     """Secondo strato del prompt (§2.3), rigenerato a ogni turno.
 
     `inietta_ora=False` serve solo all'esperimento della fase 0.3: senza
@@ -194,6 +205,10 @@ def contesto_dinamico(ora: datetime, timer: list[Timer], inietta_ora: bool = Tru
         righe.append("Timer attivi: " + "; ".join(descrizioni) + ".")
     else:
         righe.append("Timer attivi: nessuno.")
+    if diario:
+        righe.append("Diario: " + "; ".join(f'"{v.testo}"' for v in diario) + ".")
+    else:
+        righe.append("Diario: nessuna voce.")
     return "\n".join(righe)
 
 
@@ -317,6 +332,7 @@ class Cervello:
         microfono: AudioInputAdapter | None = None,
         faccia: FacciaAdapter | None = None,
         archivio: ArchivioTimer | None = None,
+        diario_percorso: Path | None = None,
         ricerca: Callable[[str], dict[str, Any]] | None = None,
         modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
@@ -350,6 +366,10 @@ class Cervello:
         # I timer stanno su disco (#20): li mette il cervello, li fa suonare
         # la sveglia, e sopravvivono a un riavvio.
         self.archivio = archivio or ArchivioTimer(orologio=self.orologio)
+        # Il percorso si risolve dentro carica_diario(), non qui: un default
+        # calcolato all'importazione del modulo precederebbe BMO_DATI nei test
+        # (stesso motivo di ArchivioTimer, vedi timer.py).
+        self.diario_percorso = diario_percorso
         self.inietta_ora = inietta_ora
         self.prompt_fisso = prompt_fisso
         self.max_giri = max_giri
@@ -357,6 +377,9 @@ class Cervello:
         # deve cambiare da un giro all'altro, e non serve rileggere il file a
         # ogni richiesta.
         self._timer_letti: list[Timer] | None = None
+        # Stesso motivo dei timer: il diario non deve cambiare a metà turno,
+        # e non serve rileggere il file a ogni giro del loop agentico.
+        self._diario_letto: list[Voce] | None = None
         # Sostituibile nei test, e il giorno del piano a pagamento diventa
         # google_search senza toccare altro (#6).
         self.ricerca = ricerca or cerca
@@ -396,10 +419,17 @@ class Cervello:
             self._timer_letti = self.archivio.attivi()
         return self._timer_letti
 
+    @property
+    def diario(self) -> list[Voce]:
+        """Le voci del diario di preferenze (#14), lette dal file una volta per turno."""
+        if self._diario_letto is None:
+            self._diario_letto = carica_diario(self.diario_percorso)
+        return self._diario_letto
+
     def _configurazione(self, riepilogo: bool = False) -> types.GenerateContentConfig:
         istruzioni = [
             self.prompt_fisso,
-            contesto_dinamico(self.orologio(), self.timer, self.inietta_ora),
+            contesto_dinamico(self.orologio(), self.timer, self.inietta_ora, self.diario),
         ]
         if riepilogo:
             istruzioni.append(ISTRUZIONE_RIEPILOGO)
@@ -471,6 +501,7 @@ class Cervello:
         # l'unico segno che sta lavorando.
         self.faccia.mostra(STATO_PENSIERO)
         self._timer_letti = None  # i timer possono essere cambiati dal turno scorso
+        self._diario_letto = None  # idem: il file può essere stato modificato via SCP
 
         eseguite: list[ChiamataStrumento] = []
         risposta = None
