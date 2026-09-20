@@ -29,11 +29,20 @@ fissa decisa in anticipo — richiesto da Riccardo il 20/9 provando la #14.2 a
 voce, perche' nessuno sa in anticipo quanto debba durare una frase.
 `usa_vad=False` torna alla durata fissa di prima, per i casi in cui il VAD
 non e' disponibile o serve confrontare i due comportamenti.
+
+**Ctrl-D non spegne qualcosa che sta ancora lavorando** (bug del 21/9: BMO
+chiuso a metà lasciava la radio orfana). Il piano dice che BMO e' acceso
+24/7, senza un vero interruttore software (§2.1): coerente con questo, se
+la radio sta suonando o c'e' un timer attivo, `esegui()` resta acceso in
+sottofondo finche' non finiscono da soli, poi esce senza dover spegnere
+niente a forza. Ctrl-C (KeyboardInterrupt) resta la via per uscire subito
+comunque, e in quel caso sì si spegne la radio esplicitamente (`main()`).
 """
 from __future__ import annotations
 
 import sys
 import threading
+import time
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable
@@ -63,6 +72,10 @@ MAX_PAUSA_MINUTI = 8 * 60  # otto ore: oltre, BMO resterebbe sordo per sbaglio
 # Senza VAD (usa_vad=False) diventa invece la durata fissa di ascolto, come
 # prima di questo cambiamento.
 CAP_CONFERMA_S = 8.0
+
+# Quanto aspettare fra un controllo e l'altro mentre BMO resta acceso in
+# sottofondo dopo Ctrl-D, aspettando che radio o timer finiscano da soli.
+ATTESA_SPEGNIMENTO_S = 2.0
 
 
 class Stato(str, Enum):
@@ -105,6 +118,9 @@ class Macchina:
         silenzio_ms: float = SILENZIO_MS_PREDEFINITO,
         aggressivita_vad: int = AGGRESSIVITA_PREDEFINITA,
         orologio: Callable[[], datetime] | None = None,
+        qualcosa_attivo: Callable[[], bool] | None = None,
+        attesa_spegnimento_s: float = ATTESA_SPEGNIMENTO_S,
+        dormi: Callable[[float], None] = time.sleep,
     ) -> None:
         self.cervello = cervello
         self.faccia = faccia or crea_faccia()
@@ -120,6 +136,12 @@ class Macchina:
         self.silenzio_ms = silenzio_ms
         self.aggressivita_vad = aggressivita_vad
         self.orologio = orologio or (lambda: datetime.now(FUSO_ORARIO))
+        # Cosa impedisce l'uscita dopo Ctrl-D: radio e timer sono cose che
+        # Macchina non conosce direttamente, chi la costruisce (main()) dice
+        # come controllarle. Senza niente di collegato, esce sempre subito.
+        self.qualcosa_attivo = qualcosa_attivo or (lambda: False)
+        self.attesa_spegnimento_s = attesa_spegnimento_s
+        self.dormi = dormi
         self.stato = Stato.ATTESA
         self.pausa_fino_a: datetime | None = None
         # La pausa la sa solo la macchina: il cervello si limita a chiamare
@@ -268,21 +290,35 @@ class Macchina:
             self.voce("Non sono riuscito a rispondere.")
 
     def esegui(self, giri: int | None = None) -> None:
-        """Aspetta di essere chiamato, finché non si esce (`giri` serve ai test)."""
+        """Aspetta di essere chiamato, finché non si esce (`giri` serve ai test).
+
+        Quando il richiamo dice di uscire (Ctrl-D), non si esce subito se
+        `qualcosa_attivo()` dice che radio o timer stanno ancora lavorando:
+        BMO non ha un vero interruttore (§2.1), quindi resta acceso in
+        sottofondo finché non finiscono da soli, controllando ogni
+        `attesa_spegnimento_s` secondi.
+        """
         fatti = 0
+        avvisato = False
         while giri is None or fatti < giri:
             if self.in_pausa:
                 self._vai(Stato.PAUSA, STATO_ASSONNATO)
             else:
                 self._vai(Stato.ATTESA, STATO_IDLE)
-            if not self.richiamo():
-                return
-            fatti += 1
-            if self.in_pausa:
-                # Chiamato mentre dorme: non registra, e la faccia lo dice.
-                self.faccia.mostra(STATO_ASSONNATO)
+            if self.richiamo():
+                fatti += 1
+                if self.in_pausa:
+                    # Chiamato mentre dorme: non registra, e la faccia lo dice.
+                    self.faccia.mostra(STATO_ASSONNATO)
+                    continue
+                self.turno()
                 continue
-            self.turno()
+            if not self.qualcosa_attivo():
+                return
+            if not avvisato:
+                self.voce("Radio o timer sono ancora attivi: resto acceso finché non finiscono da soli.")
+                avvisato = True
+            self.dormi(self.attesa_spegnimento_s)
 
 
 def main() -> None:
@@ -309,6 +345,11 @@ def main() -> None:
 
     faccia = crea_faccia(sul_terminale=True)
     cervello = Cervello(faccia=faccia)
+    radio = None
+    if not argomenti.senza_radio:
+        radio = Radio()
+        radio.registra(cervello)
+        print(f"Radio: {len(radio.preferite)} stazioni salvate in {radio.percorso}", flush=True)
     macchina = Macchina(
         cervello=cervello,
         faccia=faccia,
@@ -317,21 +358,34 @@ def main() -> None:
         usa_vad=not argomenti.senza_vad,
         silenzio_ms=argomenti.silenzio_ms,
         aggressivita_vad=argomenti.aggressivita,
+        # Ctrl-D non spegne BMO se radio o timer stanno ancora lavorando
+        # (§2.1: acceso 24/7, senza un vero interruttore software) — vedi
+        # Macchina.esegui(). I timer sono sempre disponibili via l'archivio
+        # del cervello; la radio solo se collegata.
+        qualcosa_attivo=lambda: (radio is not None and radio.lettore.in_riproduzione())
+        or bool(cervello.archivio.attivi()),
     )
-    if not argomenti.senza_radio:
-        radio = Radio()
-        radio.registra(cervello)
-        print(f"Radio: {len(radio.preferite)} stazioni salvate in {radio.percorso}", flush=True)
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche
         # mentre BMO sta ascoltando o pensando.
         sveglia = Sveglia(archivio=macchina.cervello.archivio, faccia=faccia)
         threading.Thread(target=sveglia.esegui, daemon=True).start()
-    print("BMO è sveglio. Premi Invio e parla; Ctrl-D per spegnerlo.", flush=True)
+    print(
+        "BMO è sveglio. Premi Invio e parla; Ctrl-D per spegnerlo "
+        "(se radio o timer sono attivi resta acceso finché non finiscono da soli; Ctrl-C spegne comunque subito).",
+        flush=True,
+    )
     try:
         macchina.esegui()
     except KeyboardInterrupt:
         pass
+    finally:
+        # Sempre, qualunque sia stata l'uscita: mpv resta acceso "idle" (§2.4)
+        # anche quando non sta più suonando niente, ed è questo comando, non
+        # l'assenza di riproduzione, a spegnerlo per davvero. spegni() non fa
+        # niente se la radio non è mai partita.
+        if radio is not None:
+            radio.lettore.spegni()
     print("\nBuonanotte.", flush=True)
 
 

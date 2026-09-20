@@ -40,6 +40,13 @@ class FacciaFinta:
         self.stati.append(stato)
 
 
+class ArchivioFinto:
+    """Basta a soddisfare cervello.archivio.attivi(), usato da main() per Ctrl-D."""
+
+    def attivi(self):
+        return []
+
+
 class CervelloFinto:
     """Sostituto di Cervello: la macchina lo usa solo per ascoltare e rispondere."""
 
@@ -53,6 +60,7 @@ class CervelloFinto:
         self._diagnostiche = list(diagnostiche or [])
         self.audio_classificati = []
         self.diario_percorso = None
+        self.archivio = ArchivioFinto()
 
     def registra_strumento(self, nome, esecutore):
         self.strumenti_registrati[nome] = esecutore
@@ -291,3 +299,85 @@ def test_senza_vad_non_chiama_mai_ascolta_fino_al_silenzio():
     macchina.esegui(giri=1)
     assert cervello.ascolti_vad == []
     assert len(cervello.ascolti) == 1
+
+
+def test_main_spegne_la_radio_all_uscita(monkeypatch, tmp_path):
+    """Bug del 21/9: BMO chiuso senza spegnere la radio la lasciava orfana."""
+    import sys
+
+    from bmo_core import macchina as macchina_modulo
+    from bmo_core.radio import Radio
+
+    class LettoreFinto:
+        def __init__(self):
+            self.spento = False
+
+        def riproduci(self, tracce):
+            pass
+
+        def pausa(self):
+            pass
+
+        def riprendi(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def successivo(self):
+            pass
+
+        def in_riproduzione(self):
+            return False
+
+        def spegni(self):
+            self.spento = True
+
+    lettore = LettoreFinto()
+    cervello_finto = CervelloFinto([], FacciaFinta())
+    monkeypatch.setattr(macchina_modulo, "Cervello", lambda **_: cervello_finto)
+    monkeypatch.setattr(macchina_modulo, "Radio", lambda: Radio(lettore=lettore, percorso=tmp_path / "radio.json"))
+
+    def _eof():
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", lambda: _eof())
+    monkeypatch.setattr(sys, "argv", ["macchina", "--senza-timer"])
+    macchina_modulo.main()
+    assert lettore.spento is True
+
+
+def test_esegui_resta_acceso_finche_la_radio_non_finisce_da_sola():
+    """Chiesto il 21/9: Ctrl-D non deve spegnere qualcosa che sta ancora lavorando."""
+    faccia = FacciaFinta()
+    cervello = CervelloFinto([], faccia)
+    stato_radio = iter([True, True, False])  # suona, suona, poi si è fermata da sola
+    dormite = []
+    dette = []
+    macchina = Macchina(
+        cervello=cervello,
+        faccia=faccia,
+        richiamo=lambda: False,  # Ctrl-D subito
+        voce=dette.append,
+        qualcosa_attivo=lambda: next(stato_radio),
+        dormi=dormite.append,
+    )
+    macchina.esegui()
+    assert dormite == [macchina.attesa_spegnimento_s, macchina.attesa_spegnimento_s]
+    assert dette == ["Radio o timer sono ancora attivi: resto acceso finché non finiscono da soli."]
+
+
+def test_esegui_esce_subito_se_niente_e_attivo():
+    faccia = FacciaFinta()
+    cervello = CervelloFinto([], faccia)
+    dormite = []
+    macchina = Macchina(
+        cervello=cervello,
+        faccia=faccia,
+        richiamo=lambda: False,
+        voce=lambda t: None,
+        qualcosa_attivo=lambda: False,
+        dormi=dormite.append,
+    )
+    macchina.esegui()
+    assert dormite == []

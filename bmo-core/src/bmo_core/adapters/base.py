@@ -90,6 +90,8 @@ class LettoreAdapter(Protocol):
 
     def in_riproduzione(self) -> bool: ...
 
+    def spegni(self) -> None: ...
+
 
 class VolumeAdapter(Protocol):
     """Il volume dell'altoparlante: riguarda tutto quello che BMO emette."""

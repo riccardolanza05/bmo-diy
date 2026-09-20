@@ -38,8 +38,32 @@ class LettoreMpv:
     def _acceso(self) -> bool:
         return self._processo is not None and self._processo.poll() is None
 
+    def _raggiungibile(self) -> bool:
+        """C'è già un mpv vero in ascolto su `socket_path`, non solo il file rimasto lì.
+
+        Distingue un mpv di una sessione precedente ancora vivo (BMO chiuso
+        senza spegnere la radio, o un crash: bug del 21/9) da un socket
+        abbandonato da un mpv morto, che invece va ricreato.
+        """
+        if not self.socket_path.exists():
+            return False
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as presa:
+                presa.settimeout(0.5)
+                presa.connect(str(self.socket_path))
+            return True
+        except OSError:
+            return False
+
     def _accendi(self) -> None:
         if self._acceso():
+            return
+        if self._raggiungibile():
+            # Non e' un mpv acceso da questa istanza, ma e' vivo per davvero:
+            # riusarlo. Cancellare il socket per aprirne un secondo sopra
+            # lascerebbe il primo orfano e sordo a ogni comando nuovo — è
+            # esattamente il bug per cui BMO, riaperto, diceva che la radio
+            # era spenta mentre suonava ancora.
             return
         self.socket_path.unlink(missing_ok=True)
         self._processo = subprocess.Popen(
@@ -60,9 +84,12 @@ class LettoreMpv:
                 return
             time.sleep(0.02)
 
-    def _comanda(self, *comando: object) -> dict | None:
-        """Manda un comando a mpv e restituisce la sua risposta, se arriva."""
-        self._accendi()
+    def _invia(self, *comando: object) -> dict | None:
+        """Manda un comando sul socket così com'è, senza accendere mpv.
+
+        Serve a `spegni()`: mandare "quit" a un mpv non deve prima accenderne
+        uno solo per spegnerlo.
+        """
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as presa:
                 presa.settimeout(1.0)
@@ -79,6 +106,11 @@ class LettoreMpv:
             if "error" in dato:  # le righe senza "error" sono eventi, non risposte
                 return dato
         return None
+
+    def _comanda(self, *comando: object) -> dict | None:
+        """Manda un comando a mpv e restituisce la sua risposta, se arriva."""
+        self._accendi()
+        return self._invia(*comando)
 
     # --- LettoreAdapter ------------------------------------------------------
 
@@ -105,8 +137,16 @@ class LettoreMpv:
         return bool(risposta and risposta.get("error") == "success" and risposta.get("data"))
 
     def spegni(self) -> None:
+        """Spegne mpv per davvero — anche uno ereditato da una sessione precedente.
+
+        `_acceso()` da solo non basta (bug del 21/9): dice se *questa*
+        istanza ne ha uno in mano, non se ce n'è uno vivo sul socket. Un BMO
+        chiuso senza spegnere la radio prima lascerebbe altrimenti mpv orfano
+        per sempre, perché nessuna istanza futura lo riconoscerebbe come "suo".
+        """
+        if self._raggiungibile():
+            self._invia("quit")
         if self._acceso():
-            self._comanda("quit")
             assert self._processo is not None
             try:
                 self._processo.wait(timeout=2)
