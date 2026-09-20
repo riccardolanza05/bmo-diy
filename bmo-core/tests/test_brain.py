@@ -349,6 +349,8 @@ def test_tutti_gli_strumenti_della_2_4_dichiarati():
     assert nomi == {
         "scatta_foto", "cerca_sul_web", "imposta_timer", "annulla_timer", "elenca_timer",
         "riproduci_musica", "controllo_riproduzione", "regola_volume", "metti_in_pausa_l_ascolto",
+        # La radio si scorre e si salva (#20): due strumenti in più della §2.4.
+        "salva_stazione", "elenca_stazioni",
     }
 
 

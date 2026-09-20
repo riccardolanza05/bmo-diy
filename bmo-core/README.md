@@ -14,14 +14,14 @@ src/bmo_core/
 ├── sveglia.py             il processo che fa suonare i timer scaduti
 ├── macchina.py            la macchina a stati: attesa → ascolto → pensiero → parlato
 ├── ricerca.py             cerca_sul_web con DuckDuckGo
-├── musica.py              libreria locale, radio e volume
+├── radio.py               radio online: sintonia, scorrimento, stazioni preferite, volume
 └── adapters/
     ├── base.py            interfacce (Protocol): CameraAdapter, AudioInputAdapter, AudioOutputAdapter, FacciaAdapter
     ├── camera.py           LibcameraAdapter (Pi, CSI/OV5647) · WebcamV4L2Adapter (PC, ffmpeg+V4L2)
     ├── audio_input.py       ArecordAdapter (ALSA, stesso comando su Pi e PC, cambia solo il device)
     ├── audio_output.py      MpvAdapter (identico su Pi e PC)
     ├── faccia.py            FacciaMuta (predefinita) · FacciaTerminale (stato sullo standard error)
-    ├── lettore.py           LettoreMpv: mpv acceso e comandato dal socket IPC (musica e radio)
+    ├── lettore.py           LettoreMpv: mpv acceso e comandato dal socket IPC (radio)
     ├── volume.py            VolumePipeWire (PC, wpctl) · VolumeAlsa (Pi, amixer)
     └── factory.py           unico punto che sceglie quale implementazione usare
 tests/                       test della factory e del rilevamento ambiente
@@ -148,7 +148,7 @@ Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
 **voce** stampa il testo (il TTS e le clip sono la #21).
 
-## Ricerca sul web, musica e volume (issue #20)
+## Ricerca sul web, radio e volume (issue #20)
 
 **`cerca_sul_web`** usa DuckDuckGo (`ddgs`), non il grounding con Google Search:
 quello non è nel free tier, e mescolare strumenti nativi e dichiarazioni proprie
@@ -157,34 +157,31 @@ titolo, estratto accorciato e indirizzo — finiscono in un `functionResponse` e
 costano token a ogni giro, quindi tre e corti. Il giorno del piano a pagamento
 si sostituisce `ricerca.cerca` con `google_search` e non cambia altro (#6).
 
-**La musica** ha due sorgenti, nell'ordine di affidabilità del piano:
+**La radio** ha preso il posto della musica: niente libreria locale da riempire
+di file, e quindi «metti un po' di jazz» diventa una stazione che suona jazz.
+Ci sono due elenchi, e la differenza conta:
 
-- la **libreria locale**, predefinita, che funziona senza rete: `~/Musica` se
-  esiste, altrimenti `<cartella dati>/musica`, e `BMO_MUSICA` vince su entrambe.
-  La ricerca è sul nome di file e cartella, dove in una libreria di casa stanno
-  artista e titolo: prima i brani che contengono tutte le parole chieste, poi
-  quelli che ne contengono almeno una;
-- la **radio**, da un elenco curato a mano in `<cartella dati>/radio.json`:
+- le **preferite**, salvate in `<cartella dati>/radio.json`, che sono le tue;
+- i **risultati di una ricerca** su [radio-browser.info](https://www.radio-browser.info/),
+  l'elenco pubblico e gratuito di radio online — nessuna chiave, nessun account —
+  che serve a trovarne di nuove.
 
-```json
-{
-  "Radio Deejay": "https://indirizzo-dello-stream",
-  "Rai Radio 2": "https://indirizzo-dello-stream"
-}
-```
+`riproduci_musica` guarda prima fra le preferite (anche per frequenza: «quella
+sui 101 e 7»), e solo se non trova niente cerca online. Da lì si **scorre come
+con una manopola**: `successivo` e `precedente` girano in tondo sull'elenco che
+si sta ascoltando, che siano le preferite o i risultati della ricerca. Quando ne
+passa una che piace, `salva_stazione` la mette fra le preferite, con il nome che
+le hai dato tu e con la frequenza se compare nel nome; `elenca_stazioni` le
+elenca. Il file si riscrive in modo atomico, come quello dei timer.
 
-Nel codice non ci sono stazioni predefinite di proposito: gli indirizzi degli
-stream cambiano, e un elenco che marcisce nel repository farebbe dire a BMO che
-sta suonando qualcosa che non suona. Senza il file, BMO risponde che non ha
-ancora un elenco di stazioni. YouTube è rimandato alla V2 (#4).
+YouTube resta alla V2 (#4).
 
 **Il volume** è quello dell'altoparlante, non del lettore: «abbassa il volume»
-detto a un BMO che parla troppo forte non riguarda la musica. Sul PC passa per
+detto a un BMO che parla troppo forte non riguarda la radio. Sul PC passa per
 `wpctl` (PipeWire), sul Pi per `amixer`.
 
-Musica e radio girano su un mpv separato da quello delle clip, tenuto acceso e
-comandato dal suo socket IPC (§2.4), perché la musica va messa in pausa e
-saltata mentre suona.
+La radio gira su un mpv separato da quello delle clip, tenuto acceso e comandato
+dal suo socket IPC (§2.4), perché va messa in pausa e cambiata mentre suona.
 
 ## Timer persistenti e sveglia (issue #20)
 
