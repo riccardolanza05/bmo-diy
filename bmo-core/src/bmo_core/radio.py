@@ -24,9 +24,10 @@ import json
 import os
 import re
 import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from .adapters import LettoreAdapter, VolumeAdapter, crea_lettore, crea_volume
 from .config import percorso_dati
@@ -172,6 +173,27 @@ class Radio:
         if 0 <= self.posizione < len(self.elenco):
             return self.elenco[self.posizione]
         return None
+
+    @contextmanager
+    def sospesa(self) -> Iterator[None]:
+        """Mette in pausa la radio per la durata del blocco, se sta suonando.
+
+        Il microfono aperto durante l'ascolto (o la conferma, #17) sente la
+        radio come se fosse voce: con il volume alto il VAD non distingue
+        più niente. Se non ha mai suonato non fa nulla — chiamare `pausa()`
+        accenderebbe un mpv idle inutilmente. Non distingue una radio già in
+        pausa per un comando esplicito da una che sta suonando: la si
+        riprenderà comunque alla fine del blocco, un limite noto e accettato
+        per ora.
+        """
+        if not self.lettore.in_riproduzione():
+            yield
+            return
+        self.lettore.pausa()
+        try:
+            yield
+        finally:
+            self.lettore.riprendi()
 
     def _sintonizza(self, posizione: int) -> dict[str, Any]:
         self.posizione = posizione

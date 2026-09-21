@@ -37,12 +37,19 @@ la radio sta suonando o c'e' un timer attivo, `esegui()` resta acceso in
 sottofondo finche' non finiscono da soli, poi esce senza dover spegnere
 niente a forza. Ctrl-C (KeyboardInterrupt) resta la via per uscire subito
 comunque, e in quel caso sì si spegne la radio esplicitamente (`main()`).
+
+**Il microfono aperto sente anche la radio** (trovato il 21/9 provando dal
+vivo): col volume alto il VAD non distingue più la voce dalla musica.
+`turno()` e `_ascolta_e_classifica()` sospendono `sospendi_ascolto()` (di
+solito `Radio.sospesa()`, agganciata in `main()`) per la durata
+dell'ascolto e la riprendono subito dopo, non a fine turno.
 """
 from __future__ import annotations
 
 import sys
 import threading
 import time
+from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable
@@ -121,6 +128,7 @@ class Macchina:
         qualcosa_attivo: Callable[[], bool] | None = None,
         attesa_spegnimento_s: float = ATTESA_SPEGNIMENTO_S,
         dormi: Callable[[float], None] = time.sleep,
+        sospendi_ascolto: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> None:
         self.cervello = cervello
         self.faccia = faccia or crea_faccia()
@@ -142,6 +150,9 @@ class Macchina:
         self.qualcosa_attivo = qualcosa_attivo or (lambda: False)
         self.attesa_spegnimento_s = attesa_spegnimento_s
         self.dormi = dormi
+        # Cosa mettere in pausa mentre il microfono è aperto (di solito
+        # Radio.sospesa()): senza niente di collegato non sospende nulla.
+        self.sospendi_ascolto = sospendi_ascolto or (lambda: nullcontext())
         self.stato = Stato.ATTESA
         self.pausa_fino_a: datetime | None = None
         # La pausa la sa solo la macchina: il cervello si limita a chiamare
@@ -235,7 +246,8 @@ class Macchina:
 
     def _ascolta_e_classifica(self) -> str:
         self._vai(Stato.CONFERMA, STATO_CONFERMA)
-        audio = self._ascolta(self.cap_conferma_s)
+        with self.sospendi_ascolto():
+            audio = self._ascolta(self.cap_conferma_s)
         return self.cervello.classifica_risposta(audio)
 
     # --- gli stati -----------------------------------------------------------
@@ -271,7 +283,8 @@ class Macchina:
     def turno(self) -> None:
         """Un giro completo: ascolta, pensa, risponde."""
         self._vai(Stato.ASCOLTO, STATO_ASCOLTO)
-        audio = self._ascolta(self.cap_ascolto_s if self.usa_vad else self.durata_ascolto_s)
+        with self.sospendi_ascolto():
+            audio = self._ascolta(self.cap_ascolto_s if self.usa_vad else self.durata_ascolto_s)
         try:
             # Il cervello mostra da sé "pensiero" e l'espressione finale.
             self.stato = Stato.PENSIERO
@@ -364,6 +377,10 @@ def main() -> None:
         # del cervello; la radio solo se collegata.
         qualcosa_attivo=lambda: (radio is not None and radio.lettore.in_riproduzione())
         or bool(cervello.archivio.attivi()),
+        # Il microfono aperto sente la radio come voce (trovato il 21/9): la
+        # si sospende per la durata dell'ascolto e la si riprende subito
+        # dopo. Radio.sospesa() non fa nulla se non sta suonando.
+        sospendi_ascolto=radio.sospesa if radio is not None else None,
     )
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche

@@ -15,8 +15,9 @@ from bmo_core.adapters.lettore import LettoreMpv
 class AscoltatoreFinto:
     """Un socket Unix che risponde come farebbe mpv, senza esserlo."""
 
-    def __init__(self, percorso):
+    def __init__(self, percorso, risposta=None):
         self.percorso = percorso
+        self.risposta = risposta if risposta is not None else {"error": "success"}
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock.bind(str(percorso))
         self._sock.listen(1)
@@ -36,7 +37,7 @@ class AscoltatoreFinto:
                 dati = connessione.recv(65536)
                 if dati:
                     self.ricevuti.append(json.loads(dati.decode()))
-                    connessione.sendall(json.dumps({"error": "success"}).encode() + b"\n")
+                    connessione.sendall(json.dumps(self.risposta).encode() + b"\n")
 
     def chiudi(self):
         self._attivo = False
@@ -87,3 +88,29 @@ def test_spegni_manda_quit_a_un_mpv_non_acceso_da_questa_istanza(tmp_path):
 def test_spegni_senza_niente_acceso_non_solleva(tmp_path):
     lettore = LettoreMpv(socket_path=tmp_path / "assente.sock")
     lettore.spegni()  # non deve sollevare, e non deve provare a spegnere niente
+
+
+def test_in_riproduzione_falso_senza_accendere_mpv(tmp_path):
+    """Una semplice interrogazione non deve accendere mpv dal nulla.
+
+    Prima del fix, `in_riproduzione()` passava da `_comanda()`, che chiama
+    `_accendi()`: bastava chiedere lo stato per far partire un mpv idle,
+    cosa che sarebbe capitata ad ogni turno di ascolto una volta collegata
+    la sospensione della radio durante il microfono aperto.
+    """
+    percorso = tmp_path / "assente.sock"
+    lettore = LettoreMpv(socket_path=percorso)
+    assert lettore.in_riproduzione() is False
+    assert lettore._processo is None
+    assert not percorso.exists()
+
+
+def test_in_riproduzione_vero_con_una_playlist_caricata(tmp_path):
+    percorso = tmp_path / "finto.sock"
+    finto = AscoltatoreFinto(percorso, risposta={"error": "success", "data": 1})
+    try:
+        lettore = LettoreMpv(socket_path=percorso)
+        assert lettore.in_riproduzione() is True
+        assert lettore._processo is None  # interrogazione, non accensione
+    finally:
+        finto.chiudi()
