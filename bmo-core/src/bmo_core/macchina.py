@@ -17,11 +17,16 @@ Per questo la faccia si mostra *prima* di cominciare l'azione, mai dopo: il
 piano chiede che il passaggio ad ASCOLTO si veda entro 150 ms, altrimenti la
 persona ripete la frase e rovina la registrazione.
 
-Due pezzi sono ancora provvisori, e sono isolati apposta in due funzioni:
+Due pezzi restano isolati apposta dietro due funzioni, per ragioni ormai
+diverse — uno e' provvisorio, l'altro e' una scelta:
 
 - il **richiamo** e' Invio sulla tastiera; la wake word «Hey BMO» e' la #22 e
   prendera' il posto di `richiamo_da_tastiera` senza toccare il resto;
-- la **voce** stampa il testo; il TTS e le clip sono la #21 e seguenti.
+- la **voce** stampa il testo di default (`voce_sul_terminale`); `VoceTts`
+  (#42) la sintetizza col TTS di Gemini e la suona, e si chiede con
+  `--voce-tts`. Resta opt-in finché non è stata sentita funzionare dal vivo:
+  il terminale non ha bisogno di rete, di una chiave e di un nome di voce
+  giusto. Le clip fisse pre-generate sono un'altra cosa ancora (#21).
 
 **L'ascolto, una volta iniziato, non e' piu' provvisorio**: si ferma da solo
 quando rileva silenzio dopo la voce (VAD, `vad.py`), non dopo una durata
@@ -62,7 +67,9 @@ from .adapters import (
     STATO_IDLE,
     STATO_PARLATO,
     STATO_PENSIERO,
+    AudioOutputAdapter,
     FacciaAdapter,
+    crea_audio_output,
     crea_faccia,
 )
 from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, descrivi_errore
@@ -70,6 +77,7 @@ from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
 from .radio import Radio
 from .sveglia import Sveglia
+from .tts import TtsNonDisponibile, durata_s, sintetizza
 from .vad import AGGRESSIVITA_PREDEFINITA, SILENZIO_MS_PREDEFINITO, Diagnostica
 
 MAX_PAUSA_MINUTI = 8 * 60  # otto ore: oltre, BMO resterebbe sordo per sbaglio
@@ -105,8 +113,86 @@ def richiamo_da_tastiera() -> bool:
 
 
 def voce_sul_terminale(testo: str) -> None:
-    """La voce provvisoria: BMO scrive quello che direbbe."""
+    """La voce di ripiego: BMO scrive quello che direbbe.
+
+    Era la voce provvisoria in attesa del TTS (#42). Adesso che il TTS c'è
+    resta come rete di sicurezza — senza rete, senza chiave o con un nome di
+    voce sbagliato la risposta si legge invece di perdersi — e come voce
+    predefinita finché `VoceTts` non viene chiesta esplicitamente.
+    """
     print(f"BMO: {testo}", flush=True)
+
+
+class VoceTts:
+    """La voce vera (#42): sintetizza la risposta e la fa sentire.
+
+    Sta qui e non in `tts.py` perché è il punto in cui tre cose separate si
+    incontrano — la sintesi, l'altoparlante e il ripiego — e perché `Macchina`
+    prende già una `voce` come `Callable[[str], None]`: questa classe è
+    chiamabile, quindi si innesta lì senza toccare altro. `tts.py` resta
+    ignaro di tutto e riutilizzabile dalla #21 per generare le clip offline.
+
+    **Il ripiego è largo di proposito.** Qualunque cosa vada storta nella
+    sintesi o nella riproduzione, la risposta finisce sul terminale: una
+    risposta letta è molto meglio di una risposta persa, e questo è il
+    comportamento che la #42 promette.
+
+    **Aspetta la fine della frase** (`altoparlante.attendi()`). Senza, la
+    macchina a stati tirerebbe dritto e la riproduzione successiva —
+    `riproduci` comincia con `ferma()` — taglierebbe BMO a metà parola.
+    """
+
+    def __init__(
+        self,
+        altoparlante: AudioOutputAdapter | None = None,
+        ripiego: Callable[[str], None] = voce_sul_terminale,
+        sintetizza_fn: Callable[[str], Any] = sintetizza,
+        diagnostica: bool = True,
+        cronometro: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.altoparlante = altoparlante or crea_audio_output()
+        self.ripiego = ripiego
+        self.sintetizza_fn = sintetizza_fn
+        self.diagnostica = diagnostica
+        self.cronometro = cronometro
+
+    def __call__(self, testo: str) -> None:
+        inizio = self.cronometro()
+        try:
+            percorso = self.sintetizza_fn(testo)
+        except (TtsNonDisponibile, ValueError) as errore:
+            print(f"[voce: sintesi non riuscita, leggo il testo — {errore}]", file=sys.stderr)
+            self.ripiego(testo)
+            return
+        sintesi = self.cronometro()
+        try:
+            self.altoparlante.riproduci(percorso)
+        except OSError as errore:  # mpv non installato, dispositivo audio occupato
+            print(f"[voce: riproduzione non riuscita, leggo il testo — {errore}]", file=sys.stderr)
+            self.ripiego(testo)
+            return
+        partenza = self.cronometro()
+        if self.diagnostica:
+            self._stampa_tempi(percorso, sintesi - inizio, partenza - sintesi)
+        self.altoparlante.attendi()
+
+    def _stampa_tempi(self, percorso: Any, sintesi_s: float, avvio_s: float) -> None:
+        """I due tempi separati, non la somma (criterio di uscita della #42).
+
+        Il primo è l'attesa di rete, il secondo è il tempo di far partire
+        mpv: si curano in modi diversi — il primo con una clip di attesa
+        (#21), il secondo tenendo un processo già pronto — e sommati non si
+        distinguono piu'. Sullo stderr come la diagnostica del VAD, per non
+        sporcare lo stdout dei comandi di prova.
+        """
+        try:
+            durata = f"{durata_s(percorso):.1f} s di audio"
+        except Exception:  # un WAV illeggibile non deve far saltare una risposta già detta
+            durata = "durata ignota"
+        print(
+            f"[voce: sintesi {sintesi_s:.2f} s, primo suono +{avvio_s:.2f} s, {durata}]",
+            file=sys.stderr,
+        )
 
 
 class Macchina:
@@ -354,6 +440,10 @@ def main() -> None:
     )
     parser.add_argument("--senza-timer", action="store_true", help="non far partire la sveglia dei timer")
     parser.add_argument("--senza-radio", action="store_true", help="non collegare radio e volume")
+    parser.add_argument(
+        "--voce-tts", action="store_true",
+        help="parla col TTS di Gemini (#42) invece di scrivere sul terminale; serve GEMINI_API_KEY",
+    )
     argomenti = parser.parse_args()
 
     faccia = crea_faccia(sul_terminale=True)
@@ -363,9 +453,14 @@ def main() -> None:
         radio = Radio()
         radio.registra(cervello)
         print(f"Radio: {len(radio.preferite)} stazioni salvate in {radio.percorso}", flush=True)
+    # Opt-in: il terminale resta la voce predefinita finché il TTS non è
+    # stato sentito funzionare dal vivo. Così prova_frasi e i test non
+    # cominciano di colpo a dipendere da una chiamata di rete.
+    voce = VoceTts() if argomenti.voce_tts else voce_sul_terminale
     macchina = Macchina(
         cervello=cervello,
         faccia=faccia,
+        voce=voce,
         durata_ascolto_s=argomenti.durata,
         cap_ascolto_s=argomenti.cap_ascolto,
         usa_vad=not argomenti.senza_vad,

@@ -133,6 +133,7 @@ python -m bmo_core.macchina --silenzio-ms 500      # si ferma prima, dopo mezzo 
 python -m bmo_core.macchina --aggressivita 3       # VAD più aggressivo (utile con la TV accesa)
 python -m bmo_core.macchina --senza-vad --durata 5 # torna all'ascolto a durata fissa (5 s)
 python -m bmo_core.macchina --senza-timer          # senza la sveglia dei timer
+python -m bmo_core.macchina --voce-tts             # BMO parla davvero invece di scrivere (#42)
 ```
 
 **L'ascolto si ferma da solo quando rileva silenzio**, non dopo una durata
@@ -163,6 +164,60 @@ alla macchina, non al cervello, e si collega con `registra_strumento`.
 Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
 **voce** stampa il testo (il TTS e le clip sono la #21).
+
+## La voce: TTS di Gemini (issue #42)
+
+Di default BMO **scrive** la risposta sul terminale (`voce_sul_terminale`).
+Con `--voce-tts` la sintetizza col TTS di Gemini e la suona con `MpvAdapter`.
+È opt-in di proposito: il terminale non ha bisogno di rete, di una chiave né
+di un nome di voce valido, e resta il ripiego automatico se la sintesi non
+riesce — una risposta letta è meglio di una risposta persa.
+
+La sintesi da sola si prova senza tirare in ballo BMO intero:
+
+```bash
+python -m bmo_core.tts "Ciao, sono BMO"            # sintetizza e riproduce
+python -m bmo_core.tts "Ciao" --zitto              # scrive solo il WAV
+python -m bmo_core.tts "Ciao" --voce Vega          # prova un'altra voce
+python -m bmo_core.tts "Ciao" --senza-cache        # risintetizza anche se è già su disco
+```
+
+**Modello e voce non sono ancora verificati con una chiave vera.** Il nome
+`gemini-3.1-flash-tts-preview` viene dal piano (§2.5), scritto prima di
+questo SDK, e `Kore` è solo un punto di partenza fra le ~30 voci. Si cambiano
+senza toccare il codice:
+
+| Variabile | Cosa cambia | Default |
+|---|---|---|
+| `BMO_GEMINI_TTS_MODEL` | il modello TTS | `gemini-3.1-flash-tts-preview` |
+| `BMO_VOCE` | il nome della voce | `Kore` |
+| `BMO_LINGUA_TTS` | il codice lingua | `it-IT` |
+
+La lista vera si chiede alla propria chiave:
+
+```bash
+python -c "from google import genai; print([m.name for m in genai.Client().models.list() if 'tts' in m.name])"
+```
+
+Un 400 o un 404 in sintesi è quasi sempre uno di quei due nomi; un 401/403 è
+`GEMINI_API_KEY`. Il messaggio d'errore lo dice.
+
+I WAV sintetizzati finiscono in `<cartella dati>/voce/`, con una chiave che
+comprende testo, modello, voce e lingua: una frase già detta non si paga due
+volte (§2.5 stima che l'80% del costo Gemini sia il TTS), e cambiare voce non
+serve l'audio vecchio. La stessa `tts.sintetizza()` servirà alla #21 per
+pre-generare le clip fisse, girando offline invece che a runtime.
+
+Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi che servono a
+dimensionare le clip della #21:
+
+```
+[voce: sintesi 1.34 s, primo suono +0.08 s, 2.1 s di audio]
+```
+
+Sono separati apposta: il primo è l'attesa di rete (si copre con una clip di
+attesa), il secondo è l'avvio di mpv (si cura tenendo un processo pronto).
+Sommati non si distinguerebbero più.
 
 ## Ricerca sul web, radio e volume (issue #20)
 
