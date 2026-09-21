@@ -133,7 +133,14 @@ class LettoreMpv:
         self._comanda("playlist-next", "force")
 
     def in_riproduzione(self) -> bool:
-        risposta = self._comanda("get_property", "playlist-count")
+        """Solo un'interrogazione: se mpv non è acceso, la risposta è "no", non un motivo per accenderlo.
+
+        Con `_comanda()` (che chiama `_accendi()`) bastava chiedere lo stato
+        per far partire un mpv idle dal nulla — capitava ad ogni Ctrl-D e,
+        con la sospensione dell'ascolto durante la radio, sarebbe capitato
+        ad ogni turno di conversazione anche senza radio mai accesa.
+        """
+        risposta = self._invia("get_property", "playlist-count")
         return bool(risposta and risposta.get("error") == "success" and risposta.get("data"))
 
     def spegni(self) -> None:

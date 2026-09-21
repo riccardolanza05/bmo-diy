@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import pytest
@@ -125,6 +126,26 @@ def test_la_faccia_cambia_prima_di_registrare():
     assert facce_al_momento_di_registrare[-1] == STATO_ASCOLTO
 
 
+def test_turno_sospende_l_ascolto_e_lo_riprende_subito_dopo():
+    """La radio va sospesa solo per la registrazione, non per tutto il turno.
+
+    Trovato il 21/9 provando dal vivo: col volume alto, il microfono aperto
+    sente la radio come voce e il VAD non distingue più niente.
+    """
+    macchina, faccia, cervello, dette = _macchina([Risposta(testo="Ciao!")])
+    eventi = []
+
+    @contextmanager
+    def sospensione():
+        eventi.append(("entra", len(cervello.ascolti)))
+        yield
+        eventi.append(("esce", len(cervello.ascolti)))
+
+    macchina.sospendi_ascolto = sospensione
+    macchina.esegui(giri=1)
+    assert eventi == [("entra", 0), ("esce", 1)]
+
+
 def test_in_pausa_non_ascolta_ma_lo_fa_vedere():
     orologio = OrologioFinto()
     macchina, faccia, cervello, _ = _macchina([Risposta(testo="Ciao!")], orologio)
@@ -214,6 +235,21 @@ def test_chiedi_conferma_boh_poi_si_chiede_un_solo_chiarimento():
     assert macchina.chiedi_conferma("Vuoi che lo ricordi?") is True
     assert dette == ["Vuoi che lo ricordi?", "Non ho capito, dimmi solo sì o no."]
     assert len(cervello.ascolti) == 2
+
+
+def test_chiedi_conferma_sospende_l_ascolto():
+    macchina, _, cervello, _ = _macchina([], classificazioni=["si"])
+    eventi = []
+
+    @contextmanager
+    def sospensione():
+        eventi.append("entra")
+        yield
+        eventi.append("esce")
+
+    macchina.sospendi_ascolto = sospensione
+    macchina.chiedi_conferma("Vuoi che lo ricordi?")
+    assert eventi == ["entra", "esce"]
 
 
 def test_chiedi_conferma_ambigua_non_fa_un_loop():

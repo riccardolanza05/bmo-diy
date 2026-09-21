@@ -247,3 +247,36 @@ def test_gli_strumenti_passano_dal_cervello(tmp_path):
     assert len(elenco.risultato["preferite"]) == 1
     [alzato] = cervello.strumenti([types.FunctionCall(name="regola_volume", args={"percentuale": 60})])
     assert alzato.risultato == {"stato": "ok", "percentuale": 60}
+
+
+def test_sospesa_mette_in_pausa_e_riprende_se_sta_suonando(tmp_path):
+    radio, lettore, _ = _radio(tmp_path)
+    radio.riproduci("jazz")
+    lettore.azioni.clear()  # riproduci() non passa da pausa/riprendi
+
+    with radio.sospesa():
+        assert lettore.azioni == ["pausa"]
+
+    assert lettore.azioni == ["pausa", "riprendi"]
+
+
+def test_sospesa_non_fa_nulla_se_la_radio_non_ha_mai_suonato(tmp_path):
+    """Sospendere senza niente in coda non deve accendere un mpv a vuoto."""
+    radio, lettore, _ = _radio(tmp_path)
+
+    with radio.sospesa():
+        assert lettore.azioni == []
+
+    assert lettore.azioni == []
+
+
+def test_sospesa_riprende_anche_se_il_blocco_solleva(tmp_path):
+    radio, lettore, _ = _radio(tmp_path)
+    radio.riproduci("jazz")
+    lettore.azioni.clear()
+
+    with pytest.raises(ValueError):
+        with radio.sospesa():
+            raise ValueError("boom")
+
+    assert lettore.azioni == ["pausa", "riprendi"]
