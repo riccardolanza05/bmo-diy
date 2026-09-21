@@ -16,16 +16,31 @@ d'onda prima di riprodurla regala la sincronia labiale alla #23, dove la
 bocca è pilotata dall'inviluppo RMS. Con uno stream quella sincronia andrebbe
 inseguita.
 
-**Niente cascata di modelli.** `CascataModelli` (#12) ripiega da un modello di
-testo a un altro modello di testo. Per il TTS non c'è nessun fratello su cui
-ripiegare: se la sintesi non riesce, la risposta si dice sul terminale
-(`macchina.voce_sul_terminale`), che è il ripiego previsto dalla #42.
+**Anche il TTS ha la sua cascata** (#12), e questo e' il motivo. Su AI Studio
+il limite di `gemini-3.1-flash-tts-preview` risulta di **3 richieste al
+minuto**, e ogni frase che BMO pronuncia e' una richiesta: una conversazione
+un po' vivace lo esaurisce. Ma i modelli TTS sono tre, ciascuno con il suo
+contatore, quindi ripiegare sul successivo triplica la capacita' invece di
+lasciare BMO muto. (Una versione precedente di questo modulo diceva che per
+il TTS non c'era nessun fratello su cui ripiegare: era sbagliato — i fratelli
+sono gli altri due modelli TTS, non i modelli di testo, verso cui infatti non
+si ripiega.)
 
-**Il modello e la voce non sono verificati.** `gemini-3.1-flash-tts-preview`
-viene dal piano (§2.5), scritto prima di questo SDK; il nome della voce è un
-valore di partenza fra le ~30 disponibili. Entrambi si cambiano senza toccare
-il codice, con `BMO_GEMINI_TTS_MODEL` e `BMO_VOCE`, e la lista vera si chiede
-alla propria chiave:
+La cascata **va tenuta viva fra una frase e l'altra**: e' la memoria di quale
+modello e' a quota che le permette di saltarlo direttamente al giro dopo.
+Ricrearla a ogni sintesi significherebbe sbattere ogni volta contro lo stesso
+429 prima di ripiegare, buttando via una richiesta su tre.
+
+Se falliscono tutti e tre, la risposta si dice sul terminale
+(`macchina.voce_sul_terminale`), che e' il ripiego previsto dalla #42.
+
+**Attenzione alla voce quando si ripiega**: i nomi delle ~30 voci sono
+documentati per tutti e tre i modelli, ma la resa puo' cambiare. Due frasi di
+fila dette da modelli diversi potrebbero non sembrare lo stesso personaggio.
+
+**Modello e voce, verificati il 22/9**: `gemini-3.1-flash-tts-preview` esiste
+con la chiave del progetto e `Kore` parla italiano. La lista si chiede sempre
+cosi':
 
     from google import genai
     print([m.name for m in genai.Client().models.list() if "tts" in m.name])
@@ -47,9 +62,17 @@ from typing import Any
 from google.genai import types
 
 from .config import percorso_dati
+from .modelli import CascataModelli, GeminiNonDisponibile
 
-# Dal piano §2.5, non verificato con una chiave vera: vedi il docstring.
-MODELLO_PREDEFINITO = "gemini-3.1-flash-tts-preview"
+# Verificati il 22/9 con la chiave del progetto. L'ordine e' la cascata: il
+# 3.1 e' il migliore all'ascolto, i 2.5 servono quando il primo e' a quota.
+# Il pro sta per ultimo perche' e' il piu' lento.
+MODELLI_TTS_PREDEFINITI = [
+    "gemini-3.1-flash-tts-preview",
+    "gemini-2.5-flash-preview-tts",
+    "gemini-2.5-pro-preview-tts",
+]
+MODELLO_PREDEFINITO = MODELLI_TTS_PREDEFINITI[0]
 VOCE_PREDEFINITA = "Kore"
 LINGUA_PREDEFINITA = "it-IT"
 
@@ -74,8 +97,40 @@ class TtsNonDisponibile(Exception):
     """
 
 
+def modelli_configurati() -> list[str]:
+    """La cascata TTS, in ordine di preferenza.
+
+    `BMO_GEMINI_TTS_MODELLI` e' un elenco separato da virgole;
+    `BMO_GEMINI_TTS_MODEL` (singolare) forza un modello solo, utile per
+    provarne uno senza ripieghi.
+    """
+    elenco = os.environ.get("BMO_GEMINI_TTS_MODELLI", "")
+    if modelli := [m.strip() for m in elenco.split(",") if m.strip()]:
+        return modelli
+    if singolo := os.environ.get("BMO_GEMINI_TTS_MODEL", "").strip():
+        return [singolo]
+    return list(MODELLI_TTS_PREDEFINITI)
+
+
 def modello_configurato() -> str:
-    return os.environ.get("BMO_GEMINI_TTS_MODEL") or MODELLO_PREDEFINITO
+    """Il primario della cascata."""
+    return modelli_configurati()[0]
+
+
+_cascata: CascataModelli | None = None
+
+
+def cascata_condivisa() -> CascataModelli:
+    """La cascata TTS del processo, creata una volta sola.
+
+    Condivisa di proposito: le sospensioni dopo un 429 devono valere per le
+    frasi successive, altrimenti ogni sintesi ricomincia dal modello che si
+    sa gia' essere a quota.
+    """
+    global _cascata
+    if _cascata is None:
+        _cascata = CascataModelli(modelli_configurati())
+    return _cascata
 
 
 def voce_configurata() -> str:
@@ -166,6 +221,8 @@ def sintetizza(
     client: Any = None,
     cartella: Path | None = None,
     modello: str | None = None,
+    modelli: list[str] | None = None,
+    cascata: CascataModelli | None = None,
     voce: str | None = None,
     lingua: str | None = None,
     usa_cache: bool = True,
@@ -173,8 +230,15 @@ def sintetizza(
     """Sintetizza `testo` e restituisce il percorso del WAV.
 
     Se la frase è già in cache non chiama nessuna rete: è il caso comune per
-    le frasi che BMO ripete. `usa_cache=False` forza la risintesi, che serve
-    quando si sta provando una voce diversa.
+    le frasi che BMO ripete, ed è anche la prima difesa dal limite di 3
+    richieste al minuto. **La cache si cerca per tutti i modelli della
+    cascata**, non solo per il primario: un WAV già su disco dice la stessa
+    frase, e risintetizzarlo per "farlo dire al modello giusto" spenderebbe
+    una richiesta che non abbiamo.
+
+    `modello` forza un modello solo (niente ripiego); `modelli` sostituisce
+    l'elenco della cascata. `usa_cache=False` forza la risintesi, utile per
+    provare una voce diversa o misurare i tempi veri.
 
     Solleva `TtsNonDisponibile` per qualunque guaio. Chi chiama ripiega, non
     decide.
@@ -183,12 +247,22 @@ def sintetizza(
     if not testo:
         raise ValueError("testo non può essere vuoto")
 
-    modello = modello or modello_configurato()
     voce = voce or voce_configurata()
     lingua = lingua or lingua_configurata()
-    percorso = cartella_voce(cartella) / _chiave(testo, modello, voce, lingua)
-    if usa_cache and percorso.exists():
-        return percorso
+    cartella_wav = cartella_voce(cartella)
+
+    if modello:
+        cascata = CascataModelli([modello])
+    elif modelli:
+        cascata = CascataModelli(modelli)
+    elif cascata is None:
+        cascata = cascata_condivisa()
+
+    if usa_cache:
+        for candidato in cascata.modelli:
+            percorso = cartella_wav / _chiave(testo, candidato, voce, lingua)
+            if percorso.exists():
+                return percorso
 
     client = client or crea_client()
     configurazione = types.GenerateContentConfig(
@@ -204,16 +278,25 @@ def sintetizza(
         ),
     )
     try:
-        risposta = client.models.generate_content(model=modello, contents=testo, config=configurazione)
+        risposta, usato = cascata.genera(client, contents=testo, config=configurazione)
     except TtsNonDisponibile:
         raise
+    except GeminiNonDisponibile as errore:
+        raise TtsNonDisponibile(
+            f"nessuno dei modelli TTS ha risposto ({', '.join(cascata.modelli)}): {errore}. "
+            "Con 3 richieste al minuto per modello, parlare troppo in fretta li esaurisce tutti."
+        ) from errore
     except Exception as errore:  # errori dell'SDK, di rete, di quota: per chi chiama sono la stessa cosa
         raise TtsNonDisponibile(
-            f"sintesi fallita con modello={modello!r} voce={voce!r}: {errore}. "
-            "Un 400 o un 404 di solito è il nome del modello (BMO_GEMINI_TTS_MODEL) "
+            f"sintesi fallita con modelli={cascata.modelli} voce={voce!r}: {errore}. "
+            "Un 400 o un 404 di solito è il nome del modello (BMO_GEMINI_TTS_MODELLI) "
             "o della voce (BMO_VOCE); un 401/403 è la chiave (GEMINI_API_KEY)."
         ) from errore
 
+    # La chiave porta il modello che ha davvero prodotto l'audio, non quello
+    # che avremmo voluto: altrimenti la ricerca in cache del giro dopo non lo
+    # troverebbe e lo pagheremmo due volte.
+    percorso = cartella_wav / _chiave(testo, usato, voce, lingua)
     scrivi_wav(percorso, _estrai_pcm(risposta))
     return percorso
 

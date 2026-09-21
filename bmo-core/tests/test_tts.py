@@ -7,15 +7,22 @@ comportamento del ripiego dipende da quale guasto della sintesi.
 import wave
 
 import pytest
+from google.genai import errors
 
 from bmo_core.macchina import VoceTts
+from bmo_core.modelli import CascataModelli
 from bmo_core.tts import (
     FREQUENZA_HZ,
+    MODELLI_TTS_PREDEFINITI,
     TtsNonDisponibile,
+    _chiave,
     cartella_voce,
     durata_s,
+    lingua_configurata,
+    modelli_configurati,
     scrivi_wav,
     sintetizza,
+    voce_configurata,
 )
 
 # Un decimo di secondo di silenzio: campioni interi a 16 bit, mono.
@@ -255,3 +262,95 @@ def test_i_due_tempi_si_stampano_separati(tmp_path, capsys):
     assert "sintesi 1.50 s" in errori
     assert "primo suono +1.50 s" in errori
     assert "0.1 s di audio" in errori
+
+
+# --- la cascata TTS (3 richieste al minuto per modello) ----------------------
+
+
+def _quota_esaurita():
+    return errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "quota"}})
+
+
+def test_se_il_primario_e_a_quota_parla_il_secondo(tmp_path):
+    client = ClientFinto(_quota_esaurita(), RispostaFinta(ParteFinta(dati=PCM)))
+    cascata = CascataModelli(["primo", "secondo"])
+
+    percorso = sintetizza("ciao", client=client, cartella=tmp_path, cascata=cascata)
+
+    assert [r["model"] for r in client.richieste] == ["primo", "secondo"]
+    assert percorso.exists()
+
+
+def test_la_chiave_porta_il_modello_che_ha_davvero_parlato(tmp_path):
+    """Altrimenti il giro dopo non lo ritrova in cache e lo si paga due volte."""
+    client = ClientFinto(_quota_esaurita(), RispostaFinta(ParteFinta(dati=PCM)))
+    cascata = CascataModelli(["primo", "secondo"])
+    percorso = sintetizza("ciao", client=client, cartella=tmp_path, cascata=cascata)
+
+    atteso = tmp_path / _chiave("ciao", "secondo", voce_configurata(), lingua_configurata())
+    assert percorso == atteso
+
+
+def test_la_cache_vale_per_tutti_i_modelli_della_cascata(tmp_path):
+    """Un WAV gia' su disco dice la stessa frase: risintetizzarlo per 'farlo
+    dire al modello giusto' spenderebbe una richiesta che non abbiamo."""
+    client = ClientFinto(_quota_esaurita(), RispostaFinta(ParteFinta(dati=PCM)))
+    cascata = CascataModelli(["primo", "secondo"])
+    primo = sintetizza("ciao", client=client, cartella=tmp_path, cascata=cascata)
+    assert len(client.richieste) == 2
+
+    # Secondo giro, cascata nuova (nessuna memoria di sospensione): il
+    # primario sarebbe disponibile, ma l'audio del secondo e' gia' li'.
+    secondo = sintetizza(
+        "ciao", client=ClientFinto(), cartella=tmp_path, cascata=CascataModelli(["primo", "secondo"])
+    )
+    assert secondo == primo
+
+
+def test_la_cascata_condivisa_ricorda_chi_e_a_quota(tmp_path, monkeypatch):
+    """Ricrearla a ogni frase significherebbe sbattere ogni volta sul 429."""
+    import bmo_core.tts as modulo
+
+    monkeypatch.setattr(modulo, "_cascata", None)
+    monkeypatch.setenv("BMO_GEMINI_TTS_MODELLI", "primo,secondo")
+    client = ClientFinto(
+        _quota_esaurita(),
+        RispostaFinta(ParteFinta(dati=PCM)),
+        RispostaFinta(ParteFinta(dati=PCM)),
+    )
+
+    sintetizza("una", client=client, cartella=tmp_path, usa_cache=False)
+    sintetizza("due", client=client, cartella=tmp_path, usa_cache=False)
+
+    # Alla seconda frase "primo" e' ancora sospeso: non lo si riprova.
+    assert [r["model"] for r in client.richieste] == ["primo", "secondo", "secondo"]
+
+
+def test_se_tutti_i_modelli_sono_a_quota_lo_dice(tmp_path):
+    client = ClientFinto(_quota_esaurita(), _quota_esaurita())
+    cascata = CascataModelli(["primo", "secondo"])
+
+    with pytest.raises(TtsNonDisponibile, match="3 richieste al minuto"):
+        sintetizza("ciao", client=client, cartella=tmp_path, cascata=cascata)
+
+
+def test_modello_singolo_esclude_il_ripiego(tmp_path):
+    """`BMO_GEMINI_TTS_MODEL` serve a provarne uno senza rete di salvataggio."""
+    client = ClientFinto(_quota_esaurita(), RispostaFinta(ParteFinta(dati=PCM)))
+
+    with pytest.raises(TtsNonDisponibile):
+        sintetizza("ciao", client=client, cartella=tmp_path, modello="solo-questo")
+    assert [r["model"] for r in client.richieste] == ["solo-questo"]
+
+
+def test_elenco_dei_modelli_dall_ambiente(monkeypatch):
+    monkeypatch.delenv("BMO_GEMINI_TTS_MODEL", raising=False)
+    monkeypatch.setenv("BMO_GEMINI_TTS_MODELLI", " uno , due ,, tre ")
+    assert modelli_configurati() == ["uno", "due", "tre"]
+
+    monkeypatch.delenv("BMO_GEMINI_TTS_MODELLI")
+    monkeypatch.setenv("BMO_GEMINI_TTS_MODEL", "solo-uno")
+    assert modelli_configurati() == ["solo-uno"]
+
+    monkeypatch.delenv("BMO_GEMINI_TTS_MODEL")
+    assert modelli_configurati() == MODELLI_TTS_PREDEFINITI

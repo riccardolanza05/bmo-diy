@@ -189,9 +189,36 @@ cambiano comunque senza toccare il codice:
 
 | Variabile | Cosa cambia | Default |
 |---|---|---|
-| `BMO_GEMINI_TTS_MODEL` | il modello TTS | `gemini-3.1-flash-tts-preview` |
-| `BMO_VOCE` | il nome della voce | `Kore` |
+| `BMO_GEMINI_TTS_MODELLI` | la cascata TTS, separata da virgole | i tre qui sotto |
+| `BMO_GEMINI_TTS_MODEL` | forza **un solo** modello, senza ripiego | — |
+| `BMO_VOCE` | il nome della voce (30 disponibili) | `Kore` |
 | `BMO_LINGUA_TTS` | il codice lingua | `it-IT` |
+
+### La cascata TTS: 3 richieste al minuto
+
+Su AI Studio il limite di `gemini-3.1-flash-tts-preview` è di **3 richieste
+al minuto**, e ogni frase che BMO pronuncia è una richiesta: una conversazione
+vivace lo esaurisce. I modelli TTS però sono tre, ciascuno col suo contatore,
+quindi si ripiega come già fa il cervello con la #12:
+
+1. `gemini-3.1-flash-tts-preview` — il migliore all'ascolto
+2. `gemini-2.5-flash-preview-tts`
+3. `gemini-2.5-pro-preview-tts` — ultimo perché è il più lento
+
+Tre modelli × 3 al minuto ≈ **9 richieste al minuto** invece di 3. La cascata
+è condivisa nel processo di proposito: ricordarsi quale modello è a quota è
+ciò che le permette di saltarlo direttamente alla frase dopo, invece di
+sbattere ogni volta sullo stesso 429.
+
+Le altre due difese dal limite sono già lì: la **cache su disco** (una frase
+ripetuta non si paga due volte, e si cerca per tutti i modelli della cascata,
+non solo per il primario) e — quando arriveranno — le **clip pre-generate
+della #21**, che a runtime costano zero richieste.
+
+⚠️ Ripiegando **la voce può cambiare**: i nomi delle 30 voci sono documentati
+per tutti e tre i modelli, ma la resa di `Kore` sul 2.5 non è detto sia
+identica a quella sul 3.1. Due frasi di fila da modelli diversi potrebbero non
+sembrare lo stesso personaggio.
 
 La lista vera si chiede alla propria chiave:
 
