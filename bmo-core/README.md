@@ -182,10 +182,10 @@ python -m bmo_core.tts "Ciao" --voce Vega          # prova un'altra voce
 python -m bmo_core.tts "Ciao" --senza-cache        # risintetizza anche se è già su disco
 ```
 
-**Modello e voce non sono ancora verificati con una chiave vera.** Il nome
-`gemini-3.1-flash-tts-preview` viene dal piano (§2.5), scritto prima di
-questo SDK, e `Kore` è solo un punto di partenza fra le ~30 voci. Si cambiano
-senza toccare il codice:
+**Verificati dal vivo il 22/9**: `gemini-3.1-flash-tts-preview` esiste
+davvero con la chiave del progetto (insieme a `gemini-2.5-flash-preview-tts`
+e `gemini-2.5-pro-preview-tts`), e la voce `Kore` funziona in italiano. Si
+cambiano comunque senza toccare il codice:
 
 | Variabile | Cosa cambia | Default |
 |---|---|---|
@@ -207,6 +207,12 @@ comprende testo, modello, voce e lingua: una frase già detta non si paga due
 volte (§2.5 stima che l'80% del costo Gemini sia il TTS), e cambiare voce non
 serve l'audio vecchio. La stessa `tts.sintetizza()` servirà alla #21 per
 pre-generare le clip fisse, girando offline invece che a runtime.
+
+**La latenza è alta.** Nella prova del 22/9 una frase da 4,5 s di audio ha
+richiesto **4,53 s** di sintesi: circa una volta il tempo reale. È il motivo
+per cui le clip di attesa della #21 esistono — e il motivo per cui vale la
+pena confrontare con un TTS locale (Piper `it_IT-riccardo-x_low`: 0,13 s a
+frase, ma 137 MB di RAM).
 
 Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi che servono a
 dimensionare le clip della #21:

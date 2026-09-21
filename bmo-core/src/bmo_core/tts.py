@@ -193,6 +193,11 @@ def sintetizza(
     client = client or crea_client()
     configurazione = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
+        # Senza questo l'SDK stampa a ogni sintesi un avviso sull'automatic
+        # function calling (visto nella prova del 22/9). Qui di strumenti non
+        # ce n'è nessuno — si chiede solo di leggere una frase — e quel
+        # rumore finirebbe sullo stderr a ogni risposta di BMO.
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         speech_config=types.SpeechConfig(
             language_code=lingua,
             voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voce)),
