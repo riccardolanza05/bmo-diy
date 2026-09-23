@@ -12,7 +12,7 @@ from google.genai import errors
 from bmo_core.adapters import catena_filtro, catena_voce, taglia_pause
 from bmo_core.adapters.audio_output import PAUSA_MAX_PREDEFINITA_S
 from bmo_core.adapters.audio_output import MpvAdapter
-from bmo_core.macchina import VoceTts
+from bmo_core.macchina import VoceTts, voce_sul_terminale
 from bmo_core.modelli import CascataModelli
 from bmo_core.tts import (
     FREQUENZA_HZ,
@@ -198,8 +198,8 @@ def test_la_voce_suona_e_aspetta_la_fine_della_frase(tmp_path):
     detto = []
     voce = VoceTts(
         altoparlante=altoparlante,
-        ripiego=detto.append,
-        sintetizza_fn=lambda testo: percorso,
+        ripiego=lambda testo, lingua="it": detto.append(testo),
+        sintetizza_fn=lambda testo, lingua="it": percorso,
         diagnostica=False,
     )
 
@@ -215,10 +215,15 @@ def test_se_la_sintesi_fallisce_la_risposta_si_legge(tmp_path):
     altoparlante = AltoparlanteFinto()
     detto = []
 
-    def esplode(testo):
+    def esplode(testo, lingua="it"):
         raise TtsNonDisponibile("niente rete")
 
-    VoceTts(altoparlante=altoparlante, ripiego=detto.append, sintetizza_fn=esplode, diagnostica=False)("ciao")
+    VoceTts(
+        altoparlante=altoparlante,
+        ripiego=lambda testo, lingua="it": detto.append(testo),
+        sintetizza_fn=esplode,
+        diagnostica=False,
+    )("ciao")
 
     assert detto == ["ciao"]  # una risposta letta è meglio di una risposta persa
     assert altoparlante.eventi == []
@@ -230,8 +235,8 @@ def test_se_mpv_manca_la_risposta_si_legge(tmp_path):
     detto = []
     voce = VoceTts(
         altoparlante=AltoparlanteFinto(errore_alla_riproduzione=FileNotFoundError("mpv")),
-        ripiego=detto.append,
-        sintetizza_fn=lambda testo: percorso,
+        ripiego=lambda testo, lingua="it": detto.append(testo),
+        sintetizza_fn=lambda testo, lingua="it": percorso,
         diagnostica=False,
     )
 
@@ -259,7 +264,7 @@ def test_i_due_tempi_si_stampano_separati(tmp_path, capsys):
 
     VoceTts(
         altoparlante=AltoparlanteFinto(),
-        sintetizza_fn=lambda testo: percorso,
+        sintetizza_fn=lambda testo, lingua="it": percorso,
         cronometro=Cronometro(),
     )("ciao")
 
@@ -525,7 +530,7 @@ def test_la_voce_passa_il_suo_filtro_alla_riproduzione(tmp_path, monkeypatch):
             pass
 
     monkeypatch.setenv("BMO_VOCE_FILTRO", "console")
-    VoceTts(altoparlante=Altoparlante(), sintetizza_fn=lambda t: percorso, diagnostica=False)("ciao")
+    VoceTts(altoparlante=Altoparlante(), sintetizza_fn=lambda t, lingua="it": percorso, diagnostica=False)("ciao")
 
     assert ricevuti and ricevuti[0] and "acrusher" in ricevuti[0]
 
@@ -537,3 +542,57 @@ def test_la_voce_predefinita_e_radiolina_con_le_pause_corte(monkeypatch):
     filtro = VoceTts(altoparlante=AltoparlanteFinto(), diagnostica=False).filtro
     assert filtro == catena_voce("radiolina")
     assert "silenceremove" in filtro and "highpass=f=300" in filtro
+
+
+# --- bilingue: la lingua la dichiara il modello, il codice sceglie la voce ---
+
+
+def test_in_italiano_parla_diego_nelle_altre_una_multilingua(monkeypatch):
+    """Non una voce per lingua: una per l'italiano e una sola per tutto il resto,
+    cosi' aggiungere una lingua non richiede nessuna riga e BMO non diventa un coro."""
+    for nome in ("BMO_VOCE", "BMO_VOCE_IT", "BMO_VOCE_EN", "BMO_VOCE_FR"):
+        monkeypatch.delenv(nome, raising=False)
+    assert voce_configurata("edge", "it") == "it-IT-DiegoNeural"
+    altre = voce_configurata("edge", "en")
+    assert "Multilingual" in altre
+    assert voce_configurata("edge", "fr") == altre
+    assert voce_configurata("edge", "de") == altre
+
+
+def test_la_lingua_si_accetta_anche_come_locale(monkeypatch):
+    monkeypatch.delenv("BMO_VOCE", raising=False)
+    assert voce_configurata("edge", "it-IT") == voce_configurata("edge", "it")
+    assert voce_configurata("edge", "en-US") == voce_configurata("edge", "en")
+
+
+def test_una_voce_si_puo_forzare_per_lingua(monkeypatch):
+    monkeypatch.delenv("BMO_VOCE", raising=False)
+    monkeypatch.setenv("BMO_VOCE_EN", "en-GB-RyanNeural")
+    assert voce_configurata("edge", "en") == "en-GB-RyanNeural"
+    assert voce_configurata("edge", "it") == "it-IT-DiegoNeural"  # l'italiano non cambia
+
+
+def test_la_lingua_sceglie_la_voce_in_sintesi(tmp_path, monkeypatch):
+    viste = []
+
+    def finto(percorso, testo, voce, velocita):
+        viste.append(voce)
+        percorso.parent.mkdir(parents=True, exist_ok=True)
+        percorso.write_bytes(b"finto-mp3")
+
+    monkeypatch.setattr("bmo_core.tts._sintetizza_edge", finto)
+    monkeypatch.delenv("BMO_VOCE", raising=False)
+    it = sintetizza("ciao", cartella=tmp_path, motore="edge", lingua="it")
+    en = sintetizza("hello", cartella=tmp_path, motore="edge", lingua="en")
+
+    assert viste[0] == "it-IT-DiegoNeural"
+    assert "Multilingual" in viste[1]
+    assert it != en
+
+
+def test_il_terminale_segnala_solo_le_lingue_diverse(capsys):
+    voce_sul_terminale("Ciao")
+    voce_sul_terminale("Hello", "en")
+    uscita = capsys.readouterr().out
+    assert "BMO: Ciao" in uscita
+    assert "BMO [en]: Hello" in uscita

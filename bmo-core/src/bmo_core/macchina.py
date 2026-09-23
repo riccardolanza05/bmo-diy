@@ -114,7 +114,7 @@ def richiamo_da_tastiera() -> bool:
         return False
 
 
-def voce_sul_terminale(testo: str) -> None:
+def voce_sul_terminale(testo: str, lingua: str = "it") -> None:
     """La voce di ripiego: BMO scrive quello che direbbe.
 
     Era la voce provvisoria in attesa del TTS (#42). Adesso che il TTS c'è
@@ -122,7 +122,10 @@ def voce_sul_terminale(testo: str) -> None:
     voce sbagliato la risposta si legge invece di perdersi — e come voce
     predefinita finché `VoceTts` non viene chiesta esplicitamente.
     """
-    print(f"BMO: {testo}", flush=True)
+    # La lingua si stampa solo quando non e' quella di casa: serve a vedere a
+    # colpo d'occhio se il modello l'ha dichiarata come doveva.
+    marca = "" if lingua == "it" else f" [{lingua}]"
+    print(f"BMO{marca}: {testo}", flush=True)
 
 
 def _pausa_da_ambiente() -> float | None:
@@ -139,6 +142,12 @@ def _pausa_da_ambiente() -> float | None:
     except ValueError:
         print(f"[voce: BMO_VOCE_PAUSA={grezzo!r} non e' un numero, uso il predefinito]", file=sys.stderr)
         return None
+
+
+def _sintetizza_nella_lingua(testo: str, lingua: str = "it") -> Any:
+    """Adattatore fra la voce e `tts.sintetizza`, che prende la lingua come
+    argomento con nome. Esiste solo per tenere `VoceTts` ignara della firma."""
+    return sintetizza(testo, lingua=lingua)
 
 
 class VoceTts:
@@ -163,8 +172,8 @@ class VoceTts:
     def __init__(
         self,
         altoparlante: AudioOutputAdapter | None = None,
-        ripiego: Callable[[str], None] = voce_sul_terminale,
-        sintetizza_fn: Callable[[str], Any] = sintetizza,
+        ripiego: Callable[..., None] = voce_sul_terminale,
+        sintetizza_fn: Callable[..., Any] = _sintetizza_nella_lingua,
         filtro: str | None = None,
         pausa_max_s: float | None = None,
         diagnostica: bool = True,
@@ -183,20 +192,20 @@ class VoceTts:
         self.diagnostica = diagnostica
         self.cronometro = cronometro
 
-    def __call__(self, testo: str) -> None:
+    def __call__(self, testo: str, lingua: str = "it") -> None:
         inizio = self.cronometro()
         try:
-            percorso = self.sintetizza_fn(testo)
+            percorso = self.sintetizza_fn(testo, lingua)
         except (TtsNonDisponibile, ValueError) as errore:
             print(f"[voce: sintesi non riuscita, leggo il testo — {errore}]", file=sys.stderr)
-            self.ripiego(testo)
+            self.ripiego(testo, lingua)
             return
         sintesi = self.cronometro()
         try:
             self.altoparlante.riproduci(percorso, filtro=self.filtro)
         except OSError as errore:  # mpv non installato, dispositivo audio occupato
             print(f"[voce: riproduzione non riuscita, leggo il testo — {errore}]", file=sys.stderr)
-            self.ripiego(testo)
+            self.ripiego(testo, lingua)
             return
         partenza = self.cronometro()
         if self.diagnostica:
@@ -231,7 +240,7 @@ class Macchina:
         cervello: Cervello,
         faccia: FacciaAdapter | None = None,
         richiamo: Callable[[], bool] = richiamo_da_tastiera,
-        voce: Callable[[str], None] = voce_sul_terminale,
+        voce: Callable[..., None] = voce_sul_terminale,
         durata_ascolto_s: float = DURATA_ASCOLTO_S,
         cap_ascolto_s: float = CAP_ASCOLTO_S,
         cap_conferma_s: float = CAP_CONFERMA_S,
@@ -410,7 +419,9 @@ class Macchina:
             return
         self.stato = Stato.PARLATO
         if risposta.testo:
-            self.voce(risposta.testo)
+            # La lingua la dichiara il modello nella risposta (#42): decide
+            # quale voce parla, non la si indovina dal testo.
+            self.voce(risposta.testo, risposta.lingua)
         else:
             # Il riepilogo non ha prodotto niente (#18): meglio dirlo che tacere.
             self.faccia.mostra(STATO_ERRORE)

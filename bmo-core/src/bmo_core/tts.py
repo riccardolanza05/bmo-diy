@@ -106,20 +106,40 @@ MODELLI_TTS_PREDEFINITI = [
     "gemini-2.5-pro-preview-tts",
 ]
 MODELLO_PREDEFINITO = MODELLI_TTS_PREDEFINITI[0]
-LINGUA_PREDEFINITA = "it-IT"
+# Codice di lingua breve, non una locale: e' lo stesso che il modello
+# dichiara nella risposta (`brain.LINGUE`). La locale per Gemini si ricava
+# da `LOCALI`.
+LINGUA_PREDEFINITA = "it"
 
 MOTORE_PREDEFINITO = "edge"
+
+# La voce si sceglie dal campo `lingua` che il modello dichiara nella risposta
+# (`brain.separa_etichette`): dichiararla e' piu' affidabile che farla
+# indovinare al sintetizzatore, e si vede nei log quando sbaglia.
+#
+# In italiano parla Diego, che e' la voce scelta all'ascolto. Per **tutte le
+# altre lingue** parla una voce multilingua sola, non una per lingua: cosi'
+# aggiungere una lingua non richiede nessuna riga qui, e BMO non diventa un
+# coro di voci diverse.
+VOCI_EDGE = {"it": "it-IT-DiegoNeural"}
+VOCE_EDGE_ALTRE_LINGUE = "en-US-AndrewMultilingualNeural"
+
+VOCI_GEMINI: dict[str, str] = {}
+VOCE_GEMINI_ALTRE_LINGUE = "Kore"  # Gemini usa la stessa voce per tutte
+# Il `language_code` che l'API di Gemini vuole, che e' una locale e non un
+# codice di lingua.
+LOCALI = {"it": "it-IT", "en": "en-US"}
 
 # La voce di BMO, scelta all'ascolto il 23/9 fra le quattro italiane e le
 # multilingua di edge-tts. La velocita' fa parte dell'identita' quanto la
 # voce: al naturale i modelli neurali risultano troppo compassati per BMO.
-VOCE_EDGE_PREDEFINITA = "it-IT-DiegoNeural"
+VOCE_EDGE_PREDEFINITA = VOCI_EDGE["it"]
 # +35%: il centro della forchetta indicata da Riccardo il 23/9 dopo l'ascolto
 # ("fra il 30 e il 40"). Il +20% di partenza risultava ancora compassato.
 VELOCITA_PREDEFINITA = "+35%"
 
 # La voce del motore Gemini, che e' un'altra cosa: nomi di voce diversi.
-VOCE_GEMINI_PREDEFINITA = "Kore"
+VOCE_GEMINI_PREDEFINITA = VOCE_GEMINI_ALTRE_LINGUE
 
 # Il formato che l'API restituisce: PCM 16 bit, mono, 24 kHz (§2.5). Non è
 # un WAV: manca l'header, e mpv non lo suona così com'è.
@@ -183,22 +203,34 @@ def motore_configurato() -> str:
     return (os.environ.get("BMO_TTS_MOTORE") or MOTORE_PREDEFINITO).strip().lower()
 
 
-def voce_configurata(motore: str | None = None) -> str:
-    """Il nome della voce, che dipende dal motore.
+def voce_configurata(motore: str | None = None, lingua: str | None = None) -> str:
+    """Il nome della voce, che dipende dal motore e dalla lingua.
 
     I due motori hanno cataloghi diversi e incompatibili: `it-IT-DiegoNeural`
-    non esiste su Gemini e `Kore` non esiste su edge-tts. `BMO_VOCE` ha
-    comunque la precedenza, perché chi la imposta sa quale motore sta usando.
+    non esiste su Gemini e `Kore` non esiste su edge-tts.
+
+    Si guarda prima `BMO_VOCE_<LINGUA>` (`BMO_VOCE_EN`, `BMO_VOCE_IT`), poi
+    `BMO_VOCE` che vale per tutte le lingue — utile per provare una voce
+    sola — e infine la mappa predefinita.
     """
+    lingua = codice_lingua(lingua)
+    if specifica := os.environ.get(f"BMO_VOCE_{lingua.upper()}"):
+        return specifica
     if impostata := os.environ.get("BMO_VOCE"):
         return impostata
-    motore = motore or motore_configurato()
-    return VOCE_GEMINI_PREDEFINITA if motore == "gemini" else VOCE_EDGE_PREDEFINITA
+    if (motore or motore_configurato()) == "gemini":
+        return VOCI_GEMINI.get(lingua, VOCE_GEMINI_ALTRE_LINGUE)
+    return VOCI_EDGE.get(lingua, VOCE_EDGE_ALTRE_LINGUE)
 
 
 def velocita_configurata() -> str:
     """Quanto piu' svelto del naturale parla BMO, in formato SSML (`+20%`)."""
     return os.environ.get("BMO_VOCE_VELOCITA") or VELOCITA_PREDEFINITA
+
+
+def codice_lingua(lingua: str | None = None) -> str:
+    """Normalizza a codice breve: accetta sia "it" sia "it-IT"."""
+    return (lingua or lingua_configurata()).strip().lower().split("-")[0]
 
 
 def lingua_configurata() -> str:
@@ -352,7 +384,10 @@ def sintetizza(
     frase, e risintetizzarlo per "farlo dire al modello giusto" spenderebbe
     una richiesta che non abbiamo.
 
-    `motore` sceglie fra `edge` e `gemini` (predefinito da `BMO_TTS_MOTORE`).
+    `lingua` e' il codice breve che il modello dichiara nella risposta ("it",
+    "en"): decide **quale voce** parla, che e' il punto di tutto il
+    meccanismo bilingue. `motore` sceglie fra `edge` e `gemini` (predefinito
+    da `BMO_TTS_MOTORE`).
     `modello`, `modelli` e `cascata` riguardano solo Gemini e vengono ignorati
     da edge-tts. `usa_cache=False` forza la risintesi, utile per provare una
     voce diversa o misurare i tempi veri.
@@ -365,8 +400,8 @@ def sintetizza(
         raise ValueError("testo non può essere vuoto")
 
     motore = (motore or motore_configurato()).strip().lower()
-    voce = voce or voce_configurata(motore)
-    lingua = lingua or lingua_configurata()
+    lingua = codice_lingua(lingua)
+    voce = voce or voce_configurata(motore, lingua)
     cartella_wav = cartella_voce(cartella)
 
     if motore != "gemini":
@@ -401,7 +436,9 @@ def sintetizza(
         # rumore finirebbe sullo stderr a ogni risposta di BMO.
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         speech_config=types.SpeechConfig(
-            language_code=lingua,
+            # Gemini vuole una locale ("it-IT"), non il codice breve che il
+            # modello dichiara nella risposta ("it").
+            language_code=LOCALI.get(lingua, lingua),
             voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voce)),
         ),
     )

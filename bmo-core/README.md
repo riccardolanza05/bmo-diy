@@ -179,6 +179,34 @@ python -m bmo_core.tts "Ciao" --velocita +0%      # alla velocità naturale
 python -m bmo_core.tts "Ciao" --motore gemini     # l'altro motore
 ```
 
+### Bilingue: la lingua la dichiara il modello
+
+Se gli parli in inglese, BMO risponde in inglese. Il meccanismo non indovina
+niente: **il modello dichiara la lingua** in un'etichetta iniziale, accanto a
+quella dell'espressione che c'era già.
+
+```
+[it][felice] Sette per otto fa cinquantasei.
+[en][sorpreso] Wow, I did not expect that!
+```
+
+`brain.separa_etichette()` le toglie — il sintetizzatore non deve mai leggere
+una parentesi quadra — e riempie `Risposta.lingua`, che `Macchina.turno()`
+passa alla voce. Le etichette e i nomi degli strumenti **restano sempre in
+italiano**, anche quando la risposta è in inglese: sono un codice, non parole
+di BMO. Si scrive `[en][sorpreso]`, mai `[en][surprised]`.
+
+Le voci sono due, non una per lingua:
+
+| lingua | voce |
+|---|---|
+| italiano | `it-IT-DiegoNeural` |
+| **tutte le altre** | una sola voce multilingua |
+
+Così aggiungere una lingua è una riga in `brain.LINGUE` e nel prompt, e BMO
+non diventa un coro di voci diverse. `BMO_VOCE_EN`, `BMO_VOCE_FR`… forzano la
+voce di una lingua specifica; `BMO_VOCE` le forza tutte.
+
 ### Una voce sola, sempre la stessa
 
 BMO è un personaggio: una pausa è un difetto minore, **una voce diversa a metà
