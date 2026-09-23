@@ -23,6 +23,7 @@ from bmo_core.tts import (
     lingua_configurata,
     modelli_configurati,
     motore_configurato,
+    velocita_configurata,
     scrivi_wav,
     sintetizza,
     voce_configurata,
@@ -393,7 +394,9 @@ def test_edge_scrive_un_mp3_e_non_chiama_gemini(tmp_path, monkeypatch):
     percorso = sintetizza("ciao", client=client, cartella=tmp_path, motore="edge")
 
     assert percorso.suffix == ".mp3"
-    assert chiamate == [("ciao", "it-IT-DiegoNeural", "+20%")]
+    # Legato al valore configurato, non a una costante scritta a mano: la
+    # velocita' e' stata gia' regolata una volta all'ascolto e lo sara' ancora.
+    assert chiamate == [("ciao", "it-IT-DiegoNeural", velocita_configurata())]
     assert client.richieste == []
 
 

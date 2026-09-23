@@ -167,7 +167,7 @@ Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 
 ## La voce di BMO (issue #42)
 
-BMO parla con **`it-IT-DiegoNeural`** al **+20%** di velocità, sintetizzata da
+BMO parla con **`it-IT-DiegoNeural`** al **+35%** di velocità, sintetizzata da
 **edge-tts**. Di default la macchina a stati scrive ancora sul terminale
 (`voce_sul_terminale`): la voce si chiede con `--voce-tts`.
 
@@ -225,9 +225,16 @@ picco di memoria di mpv è 74,2–74,9 MB con o senza filtro, cioè rumore.
 
 Si sceglie con `BMO_VOCE_FILTRO`, predefinito `naturale` (nessun filtro):
 
+Sono in ordine, dal più leggero al più marcato. La prova d'ascolto del 23/9 ha
+detto che i trattamenti forti rendono BMO **troppo robotico**: la strada giusta
+è suggerire un piccolo altoparlante, non simulare un robot.
+
 | preset | cosa fa |
 |---|---|
 | `naturale` | la voce come esce dal motore |
+| `appena` | toglie solo gli estremi: si sente a malapena, ed è voluto |
+| `radiolina` | si capisce che il suono esce da qualcosa di piccolo, ma la voce resta naturale |
+| `digitale` | come `radiolina` più un velo digitale a 10 bit |
 | `altoparlante` | passa-banda 350–3400 Hz: l'altoparlantino da 40 mm che BMO avrà davvero |
 | `console` | passa-banda + 6 bit: sapore da console portatile |
 | `anello` | modulazione d'ampiezza a 55 Hz: il robot più marcato, il meno intelligibile |
@@ -244,7 +251,7 @@ robotico solo perché la voce lo è.
 |---|---|---|
 | `BMO_TTS_MOTORE` | `edge` o `gemini` | `edge` |
 | `BMO_VOCE` | il nome della voce | `it-IT-DiegoNeural` (`Kore` su Gemini) |
-| `BMO_VOCE_VELOCITA` | la velocità SSML | `+20%` |
+| `BMO_VOCE_VELOCITA` | la velocità SSML | `+35%` |
 | `BMO_VOCE_FILTRO` | il trattamento robotico | `naturale` |
 | `BMO_GEMINI_TTS_MODELLI` | la cascata, solo per il motore Gemini | i tre modelli TTS |
 

@@ -13,10 +13,22 @@ from pathlib import Path
 # (fra -15 e -30 dB) e senza normalizzare BMO cambierebbe volume a seconda
 # del filtro scelto.
 _NORM = "loudnorm=I=-16:TP=-1.5:LRA=11"
+# In ordine, dal piu' leggero al piu' marcato. I primi sono nati dopo la prova
+# d'ascolto del 23/9: i trattamenti forti rendono BMO "troppo robotico", e la
+# strada giusta e' suggerire un piccolo altoparlante, non simulare un robot.
 FILTRI_VOCE = {
     # Nessun trattamento: la voce come esce dal motore.
     "naturale": None,
-    # Passa-banda: simula l'altoparlante da 40 mm che BMO avra' davvero.
+    # Un accenno: toglie solo gli estremi, che un altoparlante da 40 mm non
+    # riprodurrebbe comunque. Si sente a malapena, ed e' voluto.
+    "appena": f"highpass=f=200,lowpass=f=5500,acompressor=ratio=2,{_NORM}",
+    # Una radiolina: si capisce che il suono esce da qualcosa di piccolo,
+    # ma la voce resta naturale.
+    "radiolina": f"highpass=f=300,lowpass=f=4200,acompressor=ratio=3,{_NORM}",
+    # Come "radiolina" piu' un velo digitale: 10 bit si notano appena, molto
+    # meno dei 6 di "console".
+    "digitale": f"highpass=f=250,lowpass=f=4800,acrusher=bits=10:mode=log:aa=1,{_NORM}",
+    # Passa-banda stretto: simula l'altoparlante da 40 mm che BMO avra' davvero.
     "altoparlante": f"highpass=f=350,lowpass=f=3400,acompressor=ratio=4,{_NORM}",
     # Riduzione di bit: sapore da console portatile.
     "console": f"highpass=f=350,lowpass=f=3400,acrusher=bits=6:mode=log:aa=1,{_NORM}",

@@ -114,7 +114,9 @@ MOTORE_PREDEFINITO = "edge"
 # multilingua di edge-tts. La velocita' fa parte dell'identita' quanto la
 # voce: al naturale i modelli neurali risultano troppo compassati per BMO.
 VOCE_EDGE_PREDEFINITA = "it-IT-DiegoNeural"
-VELOCITA_PREDEFINITA = "+20%"
+# +35%: il centro della forchetta indicata da Riccardo il 23/9 dopo l'ascolto
+# ("fra il 30 e il 40"). Il +20% di partenza risultava ancora compassato.
+VELOCITA_PREDEFINITA = "+35%"
 
 # La voce del motore Gemini, che e' un'altra cosa: nomi di voce diversi.
 VOCE_GEMINI_PREDEFINITA = "Kore"
