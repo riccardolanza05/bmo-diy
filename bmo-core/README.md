@@ -81,13 +81,21 @@ python -m bmo_core.brain --testo "Metti un timer di dieci minuti"
 python -m bmo_core.brain                       # parli per 3 secondi al microfono
 python -m bmo_core.brain --senza-ora --testo "Che ore sono?"   # esperimento fase 0.3
 python -m bmo_core.brain --max-giri 1 --testo "Che tempo farà domani sera?"  # forza il riepilogo
-python -m bmo_core.prova_frasi                 # le 40 frasi di prova, come testo
-python -m bmo_core.prova_frasi --voce          # le 40 frasi lette al microfono
+python -m bmo_core.prova_frasi                 # il banco storico (43 frasi italiane)
+python -m bmo_core.prova_frasi --voce          # le stesse, lette al microfono
 python -m bmo_core.prova_frasi --categoria web # solo una categoria
+python -m bmo_core.prova_frasi --categoria inglese  # il bilingue (#42), fuori dal conteggio
 python -m bmo_core.prova_frasi --prompt nuovo.txt   # prova un prompt fisso diverso
 ```
 
 Criterio di uscita della #19: almeno il 90% di frasi corrette (36 su 40).
+
+La categoria `inglese` (#42) sta **fuori dal conteggio** e si chiede con
+`--categoria inglese`: verifica che BMO risponda in inglese a chi gli parla in
+inglese *e* che gli strumenti restino in italiano, più una frase di ritorno
+all'italiano per accertarsi che non si "incolli" alla lingua sbagliata. È a
+parte perché mescolarla al banco storico cambierebbe il numero di riferimento
+della #19 e non sarebbe più confrontabile con le misure precedenti.
 
 L'espressione della faccia non è uno strumento: BMO la mette all'inizio della
 risposta tra parentesi quadre (`[felice] Fatto!`), il codice la toglie prima
