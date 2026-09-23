@@ -40,6 +40,12 @@ from .timer import ArchivioTimer, Timer
 
 SOGLIA = 0.9
 
+# Categorie escluse dalla corsa completa, da chiedere con --categoria. La
+# prova storica della #19 e' sulle frasi italiane: mescolarci quelle inglesi
+# cambierebbe il numero di riferimento e non sarebbe piu' confrontabile con
+# le misure precedenti.
+CATEGORIE_A_PARTE = ("inglese",)
+
 
 @dataclass(frozen=True)
 class Atteso:
@@ -61,10 +67,20 @@ class Frase:
     testo: str
     attesi: tuple[Atteso, ...]
     timer_attivi: tuple[tuple[str, int], ...] = ()  # (etichetta, secondi rimanenti) prima della frase
+    # Lingua che la risposta deve dichiarare (#42). `None` = non si controlla:
+    # le 40 frasi storiche restano giudicate solo sugli strumenti, cosi' il
+    # 40/40 di riferimento della #19 continua a voler dire la stessa cosa.
+    lingua: str | None = None
 
 
-def _f(categoria: str, testo: str, *attesi: Atteso, timer: tuple[tuple[str, int], ...] = ()) -> Frase:
-    return Frase(categoria, testo, attesi, timer)
+def _f(
+    categoria: str,
+    testo: str,
+    *attesi: Atteso,
+    timer: tuple[tuple[str, int], ...] = (),
+    lingua: str | None = None,
+) -> Frase:
+    return Frase(categoria, testo, attesi, timer, lingua)
 
 
 FRASI = [
@@ -120,6 +136,22 @@ FRASI = [
     _f("conversazione", "Che giorno è oggi?", nessuno()),
     _f("conversazione", "Dammi un consiglio per cucinare la pasta al dente", nessuno()),
     _f("conversazione", "Grazie BMO, sei stato bravissimo", nessuno()),
+    # Inglese (#42): BMO risponde nella lingua in cui gli hanno parlato, ma
+    # gli strumenti e i loro argomenti restano in italiano — sono un codice,
+    # non parole sue. Queste frasi controllano tutt'e due le cose insieme, e
+    # stanno in una categoria a parte perche' il 40/40 della #19 e' sulle
+    # frasi italiane e deve restare confrontabile.
+    _f("inglese", "Set a timer for ten minutes", usa("imposta_timer", durata=600), lingua="en"),
+    _f("inglese", "Wake me up in half an hour", usa("imposta_timer", durata=1800), lingua="en"),
+    _f("inglese", "Cancel the pasta timer", usa("annulla_timer", etichetta="pasta"),
+       timer=(("pasta", 300),), lingua="en"),
+    _f("inglese", "Play some jazz", usa("riproduci_musica", query="jazz"), lingua="en"),
+    _f("inglese", "What do you see in front of you?", usa("scatta_foto"), lingua="en"),
+    _f("inglese", "What time is it?", nessuno(), lingua="en"),
+    _f("inglese", "Thanks BMO, you are the best", nessuno(), lingua="en"),
+    # Il ritorno all'italiano: una conversazione in inglese non deve
+    # "incollarsi" alla lingua sbagliata per le volte dopo.
+    _f("inglese", "Adesso torniamo all'italiano: che ore sono?", nessuno(), lingua="it"),
 ]
 
 
@@ -146,6 +178,10 @@ def _argomenti_ok(attesi: dict[str, Any], ricevuti: dict[str, Any]) -> bool:
 
 
 def valuta(frase: Frase, risposta: Risposta) -> bool:
+    # La lingua sbagliata e' un fallimento anche se lo strumento e' giusto:
+    # una risposta corretta detta dalla voce sbagliata resta un difetto.
+    if frase.lingua is not None and risposta.lingua != frase.lingua:
+        return False
     chiamate = [c for c in risposta.chiamate if "errore" not in c.risultato]
     for atteso in frase.attesi:
         if atteso.strumento is None:
@@ -180,12 +216,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--voce", action="store_true", help="leggi ogni frase al microfono")
     parser.add_argument("--durata", type=float, default=4.0, help="secondi di ascolto per frase (--voce)")
-    parser.add_argument("--categoria", help="prova solo questa categoria")
+    parser.add_argument(
+        "--categoria",
+        help=f"prova solo questa categoria (le categorie {', '.join(CATEGORIE_A_PARTE)} si provano solo cosi')",
+    )
     parser.add_argument("--prompt", type=Path, help="file di testo da usare come prompt fisso")
     parser.add_argument("--pausa", type=float, default=4.0, help="secondi fra una frase e l'altra (limiti al minuto)")
     argomenti = parser.parse_args()
 
-    frasi = [f for f in FRASI if not argomenti.categoria or f.categoria == argomenti.categoria]
+    if argomenti.categoria:
+        frasi = [f for f in FRASI if f.categoria == argomenti.categoria]
+    else:
+        frasi = [f for f in FRASI if f.categoria not in CATEGORIE_A_PARTE]
+        print(
+            f"(escluse dal conteggio: {', '.join(CATEGORIE_A_PARTE)} — "
+            f"si provano con --categoria {CATEGORIE_A_PARTE[0]})",
+            flush=True,
+        )
     if not frasi:
         categorie = ", ".join(sorted({f.categoria for f in FRASI}))
         raise SystemExit(f"categoria sconosciuta; disponibili: {categorie}")
@@ -243,7 +290,13 @@ def main() -> None:
                 f"     {chiamate} · {faccia}{testo}"
             )
             if not esito:
-                print(f"     atteso: {_descrivi_attesi(frase)}")
+                atteso = _descrivi_attesi(frase)
+                # La lingua si mostra solo quando la frase la richiede: cosi'
+                # un fallimento di lingua si distingue a colpo d'occhio da uno
+                # di strumento, che e' la prima cosa da sapere per capirlo.
+                if frase.lingua is not None:
+                    atteso += f", in lingua {frase.lingua} (ha dichiarato {risposta.lingua})"
+                print(f"     atteso: {atteso}")
         if numero < len(frasi):
             time.sleep(argomenti.pausa)
 

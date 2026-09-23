@@ -81,13 +81,21 @@ python -m bmo_core.brain --testo "Metti un timer di dieci minuti"
 python -m bmo_core.brain                       # parli per 3 secondi al microfono
 python -m bmo_core.brain --senza-ora --testo "Che ore sono?"   # esperimento fase 0.3
 python -m bmo_core.brain --max-giri 1 --testo "Che tempo farà domani sera?"  # forza il riepilogo
-python -m bmo_core.prova_frasi                 # le 40 frasi di prova, come testo
-python -m bmo_core.prova_frasi --voce          # le 40 frasi lette al microfono
+python -m bmo_core.prova_frasi                 # il banco storico (43 frasi italiane)
+python -m bmo_core.prova_frasi --voce          # le stesse, lette al microfono
 python -m bmo_core.prova_frasi --categoria web # solo una categoria
+python -m bmo_core.prova_frasi --categoria inglese  # il bilingue (#42), fuori dal conteggio
 python -m bmo_core.prova_frasi --prompt nuovo.txt   # prova un prompt fisso diverso
 ```
 
 Criterio di uscita della #19: almeno il 90% di frasi corrette (36 su 40).
+
+La categoria `inglese` (#42) sta **fuori dal conteggio** e si chiede con
+`--categoria inglese`: verifica che BMO risponda in inglese a chi gli parla in
+inglese *e* che gli strumenti restino in italiano, più una frase di ritorno
+all'italiano per accertarsi che non si "incolli" alla lingua sbagliata. È a
+parte perché mescolarla al banco storico cambierebbe il numero di riferimento
+della #19 e non sarebbe più confrontabile con le misure precedenti.
 
 L'espressione della faccia non è uno strumento: BMO la mette all'inizio della
 risposta tra parentesi quadre (`[felice] Fatto!`), il codice la toglie prima
@@ -133,6 +141,7 @@ python -m bmo_core.macchina --silenzio-ms 500      # si ferma prima, dopo mezzo 
 python -m bmo_core.macchina --aggressivita 3       # VAD più aggressivo (utile con la TV accesa)
 python -m bmo_core.macchina --senza-vad --durata 5 # torna all'ascolto a durata fissa (5 s)
 python -m bmo_core.macchina --senza-timer          # senza la sveglia dei timer
+python -m bmo_core.macchina --voce-tts             # BMO parla davvero invece di scrivere (#42)
 ```
 
 **L'ascolto si ferma da solo quando rileva silenzio**, non dopo una durata
@@ -163,6 +172,158 @@ alla macchina, non al cervello, e si collega con `registra_strumento`.
 Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
 **voce** stampa il testo (il TTS e le clip sono la #21).
+
+## La voce di BMO (issue #42)
+
+BMO parla con **`it-IT-DiegoNeural`** al **+35%** di velocità, sintetizzata da
+**edge-tts**. Di default la macchina a stati scrive ancora sul terminale
+(`voce_sul_terminale`): la voce si chiede con `--voce-tts`.
+
+```bash
+python -m bmo_core.macchina --voce-tts            # il giro completo, parlato
+python -m bmo_core.tts "Ciao, sono BMO"           # solo la sintesi
+python -m bmo_core.tts "Ciao" --zitto             # scrive il file e basta
+python -m bmo_core.tts "Ciao" --velocita +0%      # alla velocità naturale
+python -m bmo_core.tts "Ciao" --motore gemini     # l'altro motore
+```
+
+### Bilingue: la lingua la dichiara il modello
+
+Se gli parli in inglese, BMO risponde in inglese. Il meccanismo non indovina
+niente: **il modello dichiara la lingua** in un'etichetta iniziale, accanto a
+quella dell'espressione che c'era già.
+
+```
+[it][felice] Sette per otto fa cinquantasei.
+[en][sorpreso] Wow, I did not expect that!
+```
+
+`brain.separa_etichette()` le toglie — il sintetizzatore non deve mai leggere
+una parentesi quadra — e riempie `Risposta.lingua`, che `Macchina.turno()`
+passa alla voce. Le etichette e i nomi degli strumenti **restano sempre in
+italiano**, anche quando la risposta è in inglese: sono un codice, non parole
+di BMO. Si scrive `[en][sorpreso]`, mai `[en][surprised]`.
+
+Le voci sono due, non una per lingua:
+
+| lingua | voce |
+|---|---|
+| italiano | `it-IT-DiegoNeural` |
+| **tutte le altre** | una sola voce multilingua |
+
+Così aggiungere una lingua è una riga in `brain.LINGUE` e nel prompt, e BMO
+non diventa un coro di voci diverse. `BMO_VOCE_EN`, `BMO_VOCE_FR`… forzano la
+voce di una lingua specifica; `BMO_VOCE` le forza tutte.
+
+### Una voce sola, sempre la stessa
+
+BMO è un personaggio: una pausa è un difetto minore, **una voce diversa a metà
+conversazione è un difetto peggiore**. Da cui due regole che sembrano dettagli
+e non lo sono:
+
+1. Le **clip fisse pre-generate della #21 vanno generate con questo stesso
+   motore e questa stessa voce**. La #21 dice «col TTS di Gemini» perché è
+   stata scritta prima di questa decisione: generarle con Gemini mentre BMO
+   risponde con Diego gli darebbe due voci.
+2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o una clip
+   già registrata nella voce giusta.
+
+### ⚠️ edge-tts non è ufficiale
+
+È un client non ufficiale dell'endpoint di lettura di Microsoft Edge: nessuna
+quota documentata, nessun permesso d'uso da terze parti, e **si è già rotto in
+passato**. Se un giorno BMO ammutolisce, è il primo sospetto.
+
+La cura è **Azure Speech F0**, che serve la **stessa identica voce**
+`it-IT-DiegoNeural` ufficialmente e gratis fino a 500.000 caratteri al mese
+(20 richieste ogni 60 secondi, regione Italy North). Migrare non cambia come
+suona BMO, quindi non viola la regola della voce unica: per questo si può
+rimandare senza costi.
+
+### Perché non Gemini
+
+Misurato il 22–23/9 sul PC di sviluppo:
+
+| | sintesi (frase breve) | richieste/minuto |
+|---|---|---|
+| edge-tts | **~0,6 s** | ~102 misurate, nessun rallentamento |
+| Gemini TTS | ~2,6 s (1,2 s fissi + 0,5 s per secondo di audio) | 3 per modello, ~9 con la cascata |
+
+Per confronto, il modello di **testo** risponde in ~0,67 s: con Gemini la voce
+era l'88% dell'attesa di un turno. Il motore Gemini resta disponibile con
+`--motore gemini` o `BMO_TTS_MOTORE=gemini`, con la sua cascata di tre modelli.
+
+### Voce robotica, a costo zero
+
+mpv applica i filtri **in riproduzione** (`--af`), quindi il trattamento non
+costa né un passaggio ffmpeg, né un file intermedio, né latenza. Misurato: il
+picco di memoria di mpv è 74,2–74,9 MB con o senza filtro, cioè rumore.
+
+Si sceglie con `BMO_VOCE_FILTRO`, predefinito **`radiolina`**:
+
+Sono in ordine, dal più leggero al più marcato. La prova d'ascolto del 23/9 ha
+detto che i trattamenti forti rendono BMO **troppo robotico**: la strada giusta
+è suggerire un piccolo altoparlante, non simulare un robot.
+
+| preset | cosa fa |
+|---|---|
+| `naturale` | la voce come esce dal motore |
+| `appena` | toglie solo gli estremi: si sente a malapena, ed è voluto |
+| `radiolina` | si capisce che il suono esce da qualcosa di piccolo, ma la voce resta naturale |
+| `digitale` | come `radiolina` più un velo digitale a 10 bit |
+| `altoparlante` | passa-banda 350–3400 Hz: l'altoparlantino da 40 mm che BMO avrà davvero |
+| `console` | passa-banda + 6 bit: sapore da console portatile |
+| `anello` | modulazione d'ampiezza a 55 Hz: il robot più marcato, il meno intelligibile |
+| `metallico` | flanger: come se parlasse dentro una scatola |
+| `bmo` | passa-banda + 8 bit + flanger leggero: il compromesso |
+
+Il filtro è un argomento della **singola riproduzione**, non dell'adapter: lo
+stesso `MpvAdapter` suona anche il tono della sveglia, che non deve diventare
+robotico solo perché la voce lo è.
+
+### Le pause a fine frase
+
+I modelli neurali prendono fiato a ogni punto con la lunghezza di una lettura
+ad alta voce: in una conversazione sembra esitazione. `silenceremove` accorcia
+i silenzi oltre 0,25 s lasciandone `BMO_VOCE_PAUSA` (predefinito **0,15 s**),
+e sta nella stessa catena `--af`, quindi anche questo **non costa niente**.
+
+Misurato su una risposta di quattro frasi: da **7,9 s a 6,3 s**, un quinto in
+meno, tolto solo dai silenzi.
+
+Taglia anche il silenzio **iniziale**, e quello non è un vezzo: è tempo fra il
+momento in cui BMO dovrebbe cominciare a parlare e la prima sillaba, cioè
+latenza percepita in meno gratis.
+
+`BMO_VOCE_PAUSA=0` disattiva il taglio; un valore illeggibile non zittisce BMO,
+si torna al predefinito con un avviso sullo stderr.
+
+### Configurazione
+
+| Variabile | Cosa cambia | Default |
+|---|---|---|
+| `BMO_TTS_MOTORE` | `edge` o `gemini` | `edge` |
+| `BMO_VOCE` | il nome della voce | `it-IT-DiegoNeural` (`Kore` su Gemini) |
+| `BMO_VOCE_VELOCITA` | la velocità SSML | `+35%` |
+| `BMO_VOCE_FILTRO` | il timbro | `radiolina` |
+| `BMO_VOCE_PAUSA` | quanto silenzio lasciare a fine frase, in secondi (`0` disattiva) | `0.15` |
+| `BMO_GEMINI_TTS_MODELLI` | la cascata, solo per il motore Gemini | i tre modelli TTS |
+
+I file sintetizzati finiscono in `<cartella dati>/voce/`, con una chiave che
+comprende testo, motore, voce e velocità: una frase già detta non si paga due
+volte, e cambiare voce o velocità non serve l'audio vecchio. edge-tts produce
+mp3 (non offre alternative), Gemini produce WAV.
+
+Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi che servono a
+dimensionare le clip della #21:
+
+```
+[voce: sintesi 0.58 s, primo suono +0.01 s]
+```
+
+Sono separati apposta: il primo è l'attesa di rete (si copre con una clip di
+attesa), il secondo è l'avvio di mpv (si cura tenendo un processo pronto).
+Sommati non si distinguerebbero più.
 
 ## Ricerca sul web, radio e volume (issue #20)
 

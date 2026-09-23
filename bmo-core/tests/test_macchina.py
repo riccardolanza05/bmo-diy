@@ -95,7 +95,7 @@ def _macchina(risposte, orologio=None, richiami=1, classificazioni=None, diagnos
         cervello=cervello,
         faccia=faccia,
         richiamo=lambda: True,
-        voce=dette.append,
+        voce=lambda testo, lingua="it": dette.append(testo),
         orologio=orologio or OrologioFinto(),
         # Il VAD (aggiunto il 20/9) vive nel microfono vero: CervelloFinto non
         # lo implementa, perché questi test riguardano gli stati e il
@@ -202,7 +202,7 @@ def test_risposta_vuota_non_lascia_bmo_muto():
 def test_si_spegne_quando_il_richiamo_finisce():
     faccia = FacciaFinta()
     cervello = CervelloFinto([], faccia)
-    macchina = Macchina(cervello=cervello, faccia=faccia, richiamo=lambda: False, voce=lambda t: None)
+    macchina = Macchina(cervello=cervello, faccia=faccia, richiamo=lambda: False, voce=lambda t, lingua="it": None)
     macchina.esegui()  # senza giri: esce perché il richiamo dice di smettere
     assert cervello.ascolti == []
 
@@ -394,7 +394,7 @@ def test_esegui_resta_acceso_finche_la_radio_non_finisce_da_sola():
         cervello=cervello,
         faccia=faccia,
         richiamo=lambda: False,  # Ctrl-D subito
-        voce=dette.append,
+        voce=lambda testo, lingua="it": dette.append(testo),
         qualcosa_attivo=lambda: next(stato_radio),
         dormi=dormite.append,
     )
@@ -411,7 +411,7 @@ def test_esegui_esce_subito_se_niente_e_attivo():
         cervello=cervello,
         faccia=faccia,
         richiamo=lambda: False,
-        voce=lambda t: None,
+        voce=lambda t, lingua="it": None,
         qualcosa_attivo=lambda: False,
         dormi=dormite.append,
     )

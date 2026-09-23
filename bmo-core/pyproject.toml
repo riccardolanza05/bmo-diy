@@ -12,7 +12,14 @@ requires-python = ">=3.11"
 # che lo sta rimuovendo (rotto qui con setuptools 84). È comunque
 # un'estensione C: si compila da sorgente su Python 3.14 (verificato), ma sul
 # Pi servirà una toolchain di compilazione, come già per onnxruntime (§2.6).
-dependencies = ["google-genai", "ddgs", "webrtcvad-wheels"]
+# edge-tts: la voce di BMO (#42). È un client **non ufficiale** dell'endpoint
+# di lettura di Microsoft Edge: nessuna quota documentata, nessun permesso
+# d'uso da terze parti, e si è già rotto in passato. Scelto perché sintetizza
+# in ~0,6 s contro i ~2,6 s di Gemini e non ha il limite di 3 richieste al
+# minuto. Se un giorno BMO ammutolisce, è il primo sospetto: il ripiego
+# previsto è Azure Speech, che serve **la stessa voce** `it-IT-DiegoNeural`
+# ufficialmente.
+dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

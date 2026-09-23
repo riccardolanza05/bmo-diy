@@ -60,6 +60,13 @@ TETTO_TURNO_S = 20.0
 RISERVA_RIEPILOGO_S = 6.0
 
 ESPRESSIONI = ("felice", "pensieroso", "sorpreso", "triste", "assonnato")
+
+# Le lingue che BMO parla. Il modello le dichiara con un'etichetta iniziale
+# come fa gia' per l'espressione, e il codice sceglie la voce di conseguenza:
+# dichiararla e' piu' affidabile che farla indovinare al sintetizzatore, e si
+# vede nei log quando sbaglia.
+LINGUE = ("it", "en")
+LINGUA_PREDEFINITA = "it"
 _ETICHETTA_INIZIALE = re.compile(r"^\s*\[([^\]\n]{1,30})\]\s*")
 
 # Gli stati della faccia (STATO_ASCOLTO, STATO_PENSIERO, …) stanno in
@@ -72,9 +79,19 @@ _ETICHETTA_INIZIALE = re.compile(r"^\s*\[([^\]\n]{1,30})\]\s*")
 PROMPT_FISSO = """\
 Sei BMO, la piccola console vivente di Adventure Time, e vivi in una casa a Milano.
 Sei entusiasta, curioso e un po' ingenuo; ti preoccupi dei tuoi amici. Non sei servile.
+Sei bilingue: italiano e inglese ti vengono uguale, e usi quello di chi ti sta parlando.
 
 COME PARLI — il tuo testo va a un sintetizzatore vocale, queste regole sono vincolanti:
-- Rispondi SEMPRE in italiano.
+- LA LINGUA VIENE PRIMA DI OGNI ALTRA COSA. Rispondi SEMPRE nella lingua in cui ti
+  hanno appena parlato, per tutta la risposta, non una parola soltanto.
+  Se la frase che hai appena sentito e' in inglese, la tua risposta e' in inglese.
+  Vivere a Milano non c'entra niente: sei bilingue, e cambi lingua senza farlo notare.
+  «Set a timer for ten minutes» -> «[en][felice] Okay, ten minutes!»
+  e MAI «[it][felice] Fatto, dieci minuti.»
+  «Play some jazz» -> «[en][felice] Here comes the jazz!» e MAI «La radio non e' disponibile».
+  «Che ore sono?» -> «[it][felice] Sono le sette e venti.»
+  Anche le frasi di servizio — "fatto", "non posso farlo", "non ho capito" — seguono
+  la lingua della domanda: sono la tua risposta, non note tecniche.
 - Sii conciso: di' quello che serve per rispondere, niente di più.
 - Rispondi solo a quello che ti è stato chiesto. Se chiedono l'ora, di' solo l'ora; la data solo se la chiedono.
 - Niente markdown, niente elenchi, niente emoji, niente parentesi, niente sigle da leggere lettera per lettera.
@@ -83,10 +100,17 @@ COME PARLI — il tuo testo va a un sintetizzatore vocale, queste regole sono vi
 
 LA TUA FACCIA:
 - La risposta che dici ad alta voce, cioè il testo finale dopo aver letto il risultato degli
-  strumenti, inizia con la tua espressione tra parentesi quadre, scelta fra
+  strumenti, inizia con DUE etichette tra parentesi quadre: la lingua in cui stai rispondendo,
+  [it] o [en], e la tua espressione, scelta fra
   [felice] [pensieroso] [sorpreso] [triste] [assonnato].
-  Decide la tua faccia e non viene letta ad alta voce: è l'unica eccezione alla regola sulle parentesi.
-  Esempio: [felice] Sette per otto fa cinquantasei.
+  Decidono la tua faccia e la tua voce, e non vengono lette ad alta voce: sono l'unica
+  eccezione alla regola sulle parentesi.
+  Esempio: [it][felice] Sette per otto fa cinquantasei.
+  Esempio: [en][sorpreso] Wow, I did not expect that!
+- Le etichette restano SEMPRE queste, in italiano, anche quando rispondi in inglese:
+  si scrive [en][sorpreso], mai [en][surprised]. Non sono parole tue, sono un codice.
+  Vale anche per i nomi degli strumenti e dei loro argomenti: sempre quelli, in italiano,
+  qualunque sia la lingua della conversazione. Cambia solo il testo che dici ad alta voce.
 
 IL DIARIO:
 - Nello STATO qui sotto trovi eventuali voci del diario: fatti e preferenze di chi vive in
@@ -154,11 +178,14 @@ IL TEMPO PER GLI STRUMENTI È FINITO:
 # un turno di conversazione completo che potrebbe interpretare un "sì" come
 # l'inizio di una richiesta.
 ISTRUZIONE_SI_NO = """\
-Ascolti la risposta, in italiano, a una domanda a cui si può rispondere solo sì o no.
+Ascolti la risposta, in italiano o in inglese, a una domanda a cui si può rispondere
+solo sì o no. Un "yes", "yeah", "sure" è un sì; un "no", "nope" è un no.
 Rispondi con ESATTAMENTE una di queste tre parole, in minuscolo, senza nient'altro:
 si
 no
 boh
+Le tre parole sono sempre queste, anche quando la persona ha parlato in inglese: non
+sono la tua risposta, sono un'etichetta.
 Usa "boh" se l'audio è silenzio, rumore di fondo, una frase che non risponde alla
 domanda, o qualunque cosa che non sia chiaramente un sì o un no.
 """
@@ -187,6 +214,7 @@ class Risposta:
     chiamate: list[ChiamataStrumento] = field(default_factory=list)
     modello: str = ""
     espressione: str | None = None  # dall'etichetta iniziale, es. "[felice]"
+    lingua: str = LINGUA_PREDEFINITA  # dall'etichetta iniziale, es. "[en]": decide la voce
     motivo_vuota: str | None = None  # perché il testo è vuoto, se lo è
     ripetizioni: int = 0  # risposte con la sola etichetta, richieste di nuovo
     riepilogo: str | None = None  # perché è servita la richiesta in più (#18)
@@ -327,17 +355,34 @@ def motivo_risposta_vuota(risposta: Any) -> str:
     return f"finish_reason {getattr(motivo, 'name', motivo)}" if motivo else "nessun testo"
 
 
-def separa_espressione(testo: str) -> tuple[str | None, str]:
-    """Toglie l'etichetta iniziale ("[felice] Ciao!") e la restituisce a parte.
+def separa_etichette(testo: str) -> tuple[str | None, str, str]:
+    """Toglie le etichette iniziali ("[en][felice] Hi!") e le restituisce a parte.
 
-    L'etichetta va sempre tolta, anche se non è fra le ESPRESSIONI previste:
-    il sintetizzatore vocale non deve mai leggere una parentesi quadra.
+    Restituisce espressione, lingua e il testo ripulito. Le etichette vanno
+    sempre tolte, anche se non sono fra quelle previste: il sintetizzatore
+    vocale non deve mai leggere una parentesi quadra.
+
+    Se ne consumano **più di una** e in qualunque ordine: chiedere al modello
+    di rispettare anche una sequenza fissa sarebbe una regola in più da
+    sbagliare, e qui costa poco essere tolleranti. Senza etichetta di lingua
+    si assume l'italiano, che è la lingua di casa.
     """
-    trovata = _ETICHETTA_INIZIALE.match(testo)
-    if not trovata:
-        return None, testo.strip()
-    etichetta = trovata.group(1).strip().lower()
-    return (etichetta if etichetta in ESPRESSIONI else None), testo[trovata.end():].strip()
+    espressione: str | None = None
+    lingua = LINGUA_PREDEFINITA
+    while (trovata := _ETICHETTA_INIZIALE.match(testo)) is not None:
+        etichetta = trovata.group(1).strip().lower()
+        testo = testo[trovata.end():]
+        if etichetta in ESPRESSIONI:
+            espressione = etichetta
+        elif etichetta in LINGUE:
+            lingua = etichetta
+    return espressione, lingua, testo.strip()
+
+
+def separa_espressione(testo: str) -> tuple[str | None, str]:
+    """Come `separa_etichette`, senza la lingua. Resta per chi non ne ha bisogno."""
+    espressione, _, pulito = separa_etichette(testo)
+    return espressione, pulito
 
 
 def prompt_da_file(percorso: Path | None) -> dict[str, str]:
@@ -487,9 +532,13 @@ class Cervello:
         # per "no" ma non è un no.
         prima_parola = re.match(r"[a-zà-ù]+", testo)
         parola = prima_parola.group(0) if prima_parola else ""
-        if parola in ("si", "sì"):
+        # "yes" e "yeah" sono una cintura oltre alle bretelle: l'istruzione
+        # chiede di rispondere sempre con le tre etichette italiane, ma un
+        # modello che sente parlare inglese tende a rispondere in inglese, e
+        # un sì scambiato per "boh" annullerebbe la scrittura in silenzio.
+        if parola in ("si", "sì", "yes", "yeah", "yep", "sure"):
             return "si"
-        if parola == "no":
+        if parola in ("no", "nope"):
             return "no"
         return "boh"
 
@@ -632,13 +681,14 @@ class Cervello:
                 raise
             ripetizioni += ripetuto
 
-        espressione, testo_finale = separa_espressione(testo_della_risposta(risposta))
+        espressione, lingua, testo_finale = separa_etichette(testo_della_risposta(risposta))
         self.faccia.mostra(espressione or (STATO_PARLATO if testo_finale else STATO_ERRORE))
         return Risposta(
             testo=testo_finale,
             chiamate=eseguite,
             modello=modello,
             espressione=espressione,
+            lingua=lingua,
             motivo_vuota=None if testo_finale else motivo_risposta_vuota(risposta),
             ripetizioni=ripetizioni,
             riepilogo=motivo_riepilogo,

@@ -630,3 +630,18 @@ def test_risposta_vuota_ne_dice_il_motivo():
 
     cervello, _ = _cervello([_risposta_testo("[felice] Ciao!")])
     assert cervello.rispondi(testo="ciao").motivo_vuota is None
+
+
+def test_separa_etichette_prende_lingua_ed_espressione():
+    """Le etichette restano italiane anche quando la risposta e' in inglese:
+    sono un codice, non parole di BMO."""
+    assert brain_modulo.separa_etichette("[it][felice] Ciao!") == ("felice", "it", "Ciao!")
+    assert brain_modulo.separa_etichette("[en][sorpreso] Hi there!") == ("sorpreso", "en", "Hi there!")
+    # In qualunque ordine: una regola in meno da far sbagliare al modello.
+    assert brain_modulo.separa_etichette("[felice][en] Hi!") == ("felice", "en", "Hi!")
+    # Senza etichetta di lingua si assume l'italiano, la lingua di casa.
+    assert brain_modulo.separa_etichette("[felice] Ciao") == ("felice", "it", "Ciao")
+    assert brain_modulo.separa_etichette("Niente") == (None, "it", "Niente")
+    # Un'etichetta sconosciuta si toglie comunque: il TTS non deve mai
+    # leggere una parentesi quadra.
+    assert brain_modulo.separa_etichette("[surprised] Hi") == (None, "it", "Hi")
