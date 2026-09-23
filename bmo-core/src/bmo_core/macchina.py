@@ -70,7 +70,7 @@ from .adapters import (
     STATO_PENSIERO,
     AudioOutputAdapter,
     FacciaAdapter,
-    catena_filtro,
+    catena_voce,
     crea_audio_output,
     crea_faccia,
 )
@@ -125,6 +125,22 @@ def voce_sul_terminale(testo: str) -> None:
     print(f"BMO: {testo}", flush=True)
 
 
+def _pausa_da_ambiente() -> float | None:
+    """`BMO_VOCE_PAUSA` in secondi, o `None` per il valore predefinito.
+
+    Un valore illeggibile non deve lasciare BMO muto: si ignora e si usa il
+    predefinito, come per un nome di filtro sbagliato.
+    """
+    grezzo = os.environ.get("BMO_VOCE_PAUSA")
+    if not grezzo:
+        return None
+    try:
+        return float(grezzo.replace(",", "."))
+    except ValueError:
+        print(f"[voce: BMO_VOCE_PAUSA={grezzo!r} non e' un numero, uso il predefinito]", file=sys.stderr)
+        return None
+
+
 class VoceTts:
     """La voce vera (#42): sintetizza la risposta e la fa sentire.
 
@@ -150,16 +166,20 @@ class VoceTts:
         ripiego: Callable[[str], None] = voce_sul_terminale,
         sintetizza_fn: Callable[[str], Any] = sintetizza,
         filtro: str | None = None,
+        pausa_max_s: float | None = None,
         diagnostica: bool = True,
         cronometro: Callable[[], float] = time.monotonic,
     ) -> None:
         self.altoparlante = altoparlante or crea_audio_output()
         self.ripiego = ripiego
         self.sintetizza_fn = sintetizza_fn
-        # Il preset del trattamento robotico (#42), da `BMO_VOCE_FILTRO`.
-        # Predefinito "naturale", cioe' nessun filtro: il timbro di BMO e' una
-        # scelta di Riccardo, non un valore che il codice decide da solo.
-        self.filtro = catena_filtro(filtro if filtro is not None else os.environ.get("BMO_VOCE_FILTRO"))
+        # La catena della voce (#42): timbro da `BMO_VOCE_FILTRO` (predefinito
+        # "radiolina", scelto all'ascolto) e accorciamento delle pause da
+        # `BMO_VOCE_PAUSA`, in secondi — "0" lo disattiva.
+        self.filtro = catena_voce(
+            filtro if filtro is not None else os.environ.get("BMO_VOCE_FILTRO"),
+            pausa_max_s if pausa_max_s is not None else _pausa_da_ambiente(),
+        )
         self.diagnostica = diagnostica
         self.cronometro = cronometro
 

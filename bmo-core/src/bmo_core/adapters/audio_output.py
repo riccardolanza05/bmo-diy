@@ -47,13 +47,60 @@ FILTRI_VOCE = {
 }
 
 
+# Il timbro scelto all'ascolto il 24/9: si capisce che il suono esce da
+# qualcosa di piccolo, ma la voce resta naturale. I trattamenti piu' marcati
+# risultavano "troppo robotici".
+FILTRO_PREDEFINITO = "radiolina"
+
+# Quanto silenzio lasciare dove il TTS mette una pausa. I modelli neurali
+# prendono fiato a ogni punto con una lunghezza da lettura ad alta voce, che
+# in una conversazione sembra esitazione. Un'incollatura secca (0) farebbe
+# correre le frasi una sull'altra; 0,15 s tiene lo stacco e toglie l'attesa.
+PAUSA_MAX_PREDEFINITA_S = 0.15
+
+# Sotto questa soglia il silenzio non viene toccato: e' una pausa naturale
+# dentro la frase, non un fine periodo.
+_PAUSA_MINIMA_DA_TAGLIARE_S = 0.25
+_SOGLIA_SILENZIO = "-45dB"
+
+
 def catena_filtro(nome: str | None) -> str | None:
-    """La catena di un preset, o `None` se non c'e' niente da applicare.
+    """La catena di timbro di un preset, o `None` se non c'e' niente da applicare.
 
     Un nome sconosciuto non solleva: BMO deve parlare anche con una variabile
     d'ambiente scritta male, semmai senza effetto.
     """
-    return FILTRI_VOCE.get((nome or "naturale").strip().lower())
+    return FILTRI_VOCE.get((nome or FILTRO_PREDEFINITO).strip().lower())
+
+
+def taglia_pause(massimo_s: float | None = None) -> str | None:
+    """Accorcia i silenzi lunghi, compreso quello iniziale.
+
+    `silenceremove` lavora in riproduzione come il resto, quindi non costa
+    nulla. Taglia anche il silenzio in testa (`start_periods=1`), che non e'
+    un vezzo: e' tempo fra il momento in cui BMO dovrebbe cominciare a
+    parlare e la prima sillaba, cioe' latenza percepita in meno gratis.
+
+    `massimo_s` a zero o negativo disattiva il taglio.
+    """
+    massimo_s = PAUSA_MAX_PREDEFINITA_S if massimo_s is None else massimo_s
+    if massimo_s <= 0:
+        return None
+    return (
+        f"silenceremove=start_periods=1:start_duration=0:start_threshold={_SOGLIA_SILENZIO}"
+        f":stop_periods=-1:stop_duration={_PAUSA_MINIMA_DA_TAGLIARE_S}"
+        f":stop_threshold={_SOGLIA_SILENZIO}:stop_silence={massimo_s}"
+    )
+
+
+def catena_voce(filtro: str | None = None, pausa_max_s: float | None = None) -> str | None:
+    """La catena completa della voce: prima le pause, poi il timbro.
+
+    L'ordine conta: i preset finiscono con `loudnorm`, che deve vedere
+    l'audio gia' accorciato.
+    """
+    pezzi = [pezzo for pezzo in (taglia_pause(pausa_max_s), catena_filtro(filtro)) if pezzo]
+    return ",".join(pezzi) or None
 
 
 class MpvAdapter:

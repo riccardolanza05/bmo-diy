@@ -223,7 +223,7 @@ mpv applica i filtri **in riproduzione** (`--af`), quindi il trattamento non
 costa né un passaggio ffmpeg, né un file intermedio, né latenza. Misurato: il
 picco di memoria di mpv è 74,2–74,9 MB con o senza filtro, cioè rumore.
 
-Si sceglie con `BMO_VOCE_FILTRO`, predefinito `naturale` (nessun filtro):
+Si sceglie con `BMO_VOCE_FILTRO`, predefinito **`radiolina`**:
 
 Sono in ordine, dal più leggero al più marcato. La prova d'ascolto del 23/9 ha
 detto che i trattamenti forti rendono BMO **troppo robotico**: la strada giusta
@@ -245,6 +245,23 @@ Il filtro è un argomento della **singola riproduzione**, non dell'adapter: lo
 stesso `MpvAdapter` suona anche il tono della sveglia, che non deve diventare
 robotico solo perché la voce lo è.
 
+### Le pause a fine frase
+
+I modelli neurali prendono fiato a ogni punto con la lunghezza di una lettura
+ad alta voce: in una conversazione sembra esitazione. `silenceremove` accorcia
+i silenzi oltre 0,25 s lasciandone `BMO_VOCE_PAUSA` (predefinito **0,15 s**),
+e sta nella stessa catena `--af`, quindi anche questo **non costa niente**.
+
+Misurato su una risposta di quattro frasi: da **7,9 s a 6,3 s**, un quinto in
+meno, tolto solo dai silenzi.
+
+Taglia anche il silenzio **iniziale**, e quello non è un vezzo: è tempo fra il
+momento in cui BMO dovrebbe cominciare a parlare e la prima sillaba, cioè
+latenza percepita in meno gratis.
+
+`BMO_VOCE_PAUSA=0` disattiva il taglio; un valore illeggibile non zittisce BMO,
+si torna al predefinito con un avviso sullo stderr.
+
 ### Configurazione
 
 | Variabile | Cosa cambia | Default |
@@ -252,7 +269,8 @@ robotico solo perché la voce lo è.
 | `BMO_TTS_MOTORE` | `edge` o `gemini` | `edge` |
 | `BMO_VOCE` | il nome della voce | `it-IT-DiegoNeural` (`Kore` su Gemini) |
 | `BMO_VOCE_VELOCITA` | la velocità SSML | `+35%` |
-| `BMO_VOCE_FILTRO` | il trattamento robotico | `naturale` |
+| `BMO_VOCE_FILTRO` | il timbro | `radiolina` |
+| `BMO_VOCE_PAUSA` | quanto silenzio lasciare a fine frase, in secondi (`0` disattiva) | `0.15` |
 | `BMO_GEMINI_TTS_MODELLI` | la cascata, solo per il motore Gemini | i tre modelli TTS |
 
 I file sintetizzati finiscono in `<cartella dati>/voce/`, con una chiave che

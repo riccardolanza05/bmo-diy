@@ -9,7 +9,8 @@ import wave
 import pytest
 from google.genai import errors
 
-from bmo_core.adapters import catena_filtro
+from bmo_core.adapters import catena_filtro, catena_voce, taglia_pause
+from bmo_core.adapters.audio_output import PAUSA_MAX_PREDEFINITA_S
 from bmo_core.adapters.audio_output import MpvAdapter
 from bmo_core.macchina import VoceTts
 from bmo_core.modelli import CascataModelli
@@ -442,11 +443,43 @@ def test_durata_non_si_legge_dagli_mp3(tmp_path):
 
 def test_i_preset_dei_filtri(monkeypatch):
     assert catena_filtro("naturale") is None
-    assert catena_filtro(None) is None
     assert catena_filtro("nome-inventato") is None  # BMO parla lo stesso
-    for nome in ("altoparlante", "console", "anello", "metallico", "bmo"):
+    # Senza nome si usa il timbro scelto all'ascolto, non "nessun filtro".
+    assert catena_filtro(None) == catena_filtro("radiolina")
+    for nome in ("appena", "radiolina", "digitale", "altoparlante", "console", "anello", "metallico", "bmo"):
         catena = catena_filtro(nome)
         assert catena and "loudnorm" in catena  # senza, BMO cambierebbe volume col filtro
+
+
+def test_le_pause_si_accorciano_e_il_silenzio_iniziale_sparisce():
+    catena = taglia_pause()
+    assert catena and "silenceremove" in catena
+    # Anche in testa: e' latenza percepita in meno, gratis.
+    assert "start_periods=1" in catena
+    assert f"stop_silence={PAUSA_MAX_PREDEFINITA_S}" in catena
+
+    assert taglia_pause(0) is None
+    assert taglia_pause(-1) is None
+
+
+def test_la_catena_mette_le_pause_prima_del_timbro():
+    """I preset finiscono con loudnorm, che deve vedere l'audio gia' accorciato."""
+    catena = catena_voce("radiolina")
+    assert catena.index("silenceremove") < catena.index("highpass")
+    assert catena.index("highpass") < catena.index("loudnorm")
+
+
+def test_la_catena_regge_le_combinazioni_estreme():
+    assert "silenceremove" in catena_voce("naturale")          # solo pause
+    assert "silenceremove" not in catena_voce("radiolina", 0)  # solo timbro
+    assert catena_voce("naturale", 0) is None                  # niente del tutto
+
+
+def test_una_pausa_illeggibile_non_zittisce_bmo(monkeypatch, capsys):
+    monkeypatch.setenv("BMO_VOCE_PAUSA", "mezzo secondo")
+    voce = VoceTts(altoparlante=AltoparlanteFinto(), diagnostica=False)
+    assert "silenceremove" in voce.filtro  # ha usato il predefinito
+    assert "non e' un numero" in capsys.readouterr().err
 
 
 def test_il_filtro_diventa_un_argomento_di_mpv(monkeypatch):
@@ -497,7 +530,10 @@ def test_la_voce_passa_il_suo_filtro_alla_riproduzione(tmp_path, monkeypatch):
     assert ricevuti and ricevuti[0] and "acrusher" in ricevuti[0]
 
 
-def test_senza_configurazione_nessun_filtro(tmp_path, monkeypatch):
-    """Il timbro di BMO e' una scelta di Riccardo, non un valore predefinito."""
+def test_la_voce_predefinita_e_radiolina_con_le_pause_corte(monkeypatch):
+    """I due valori scelti all'ascolto del 24/9, che sono l'identita' di BMO."""
     monkeypatch.delenv("BMO_VOCE_FILTRO", raising=False)
-    assert VoceTts(altoparlante=AltoparlanteFinto(), diagnostica=False).filtro is None
+    monkeypatch.delenv("BMO_VOCE_PAUSA", raising=False)
+    filtro = VoceTts(altoparlante=AltoparlanteFinto(), diagnostica=False).filtro
+    assert filtro == catena_voce("radiolina")
+    assert "silenceremove" in filtro and "highpass=f=300" in filtro
