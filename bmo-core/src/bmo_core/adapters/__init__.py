@@ -14,6 +14,7 @@ from .base import (
     LettoreAdapter,
     VolumeAdapter,
 )
+from .audio_output import FILTRI_VOCE, catena_filtro
 from .factory import (
     crea_audio_input,
     crea_audio_output,
@@ -34,6 +35,8 @@ __all__ = [
     "STATO_TIMER",
     "AudioInputAdapter",
     "AudioOutputAdapter",
+    "FILTRI_VOCE",
+    "catena_filtro",
     "CameraAdapter",
     "FacciaAdapter",
     "LettoreAdapter",

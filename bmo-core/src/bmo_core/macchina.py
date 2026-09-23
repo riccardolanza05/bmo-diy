@@ -51,6 +51,7 @@ dell'ascolto e la riprendono subito dopo, non a fine turno.
 """
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -69,6 +70,7 @@ from .adapters import (
     STATO_PENSIERO,
     AudioOutputAdapter,
     FacciaAdapter,
+    catena_filtro,
     crea_audio_output,
     crea_faccia,
 )
@@ -77,7 +79,7 @@ from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
 from .radio import Radio
 from .sveglia import Sveglia
-from .tts import TtsNonDisponibile, durata_s, sintetizza
+from .tts import TtsNonDisponibile, sintetizza
 from .vad import AGGRESSIVITA_PREDEFINITA, SILENZIO_MS_PREDEFINITO, Diagnostica
 
 MAX_PAUSA_MINUTI = 8 * 60  # otto ore: oltre, BMO resterebbe sordo per sbaglio
@@ -147,12 +149,17 @@ class VoceTts:
         altoparlante: AudioOutputAdapter | None = None,
         ripiego: Callable[[str], None] = voce_sul_terminale,
         sintetizza_fn: Callable[[str], Any] = sintetizza,
+        filtro: str | None = None,
         diagnostica: bool = True,
         cronometro: Callable[[], float] = time.monotonic,
     ) -> None:
         self.altoparlante = altoparlante or crea_audio_output()
         self.ripiego = ripiego
         self.sintetizza_fn = sintetizza_fn
+        # Il preset del trattamento robotico (#42), da `BMO_VOCE_FILTRO`.
+        # Predefinito "naturale", cioe' nessun filtro: il timbro di BMO e' una
+        # scelta di Riccardo, non un valore che il codice decide da solo.
+        self.filtro = catena_filtro(filtro if filtro is not None else os.environ.get("BMO_VOCE_FILTRO"))
         self.diagnostica = diagnostica
         self.cronometro = cronometro
 
@@ -166,17 +173,17 @@ class VoceTts:
             return
         sintesi = self.cronometro()
         try:
-            self.altoparlante.riproduci(percorso)
+            self.altoparlante.riproduci(percorso, filtro=self.filtro)
         except OSError as errore:  # mpv non installato, dispositivo audio occupato
             print(f"[voce: riproduzione non riuscita, leggo il testo — {errore}]", file=sys.stderr)
             self.ripiego(testo)
             return
         partenza = self.cronometro()
         if self.diagnostica:
-            self._stampa_tempi(percorso, sintesi - inizio, partenza - sintesi)
+            self._stampa_tempi(sintesi - inizio, partenza - sintesi)
         self.altoparlante.attendi()
 
-    def _stampa_tempi(self, percorso: Any, sintesi_s: float, avvio_s: float) -> None:
+    def _stampa_tempi(self, sintesi_s: float, avvio_s: float) -> None:
         """I due tempi separati, non la somma (criterio di uscita della #42).
 
         Il primo è l'attesa di rete, il secondo è il tempo di far partire
@@ -184,13 +191,14 @@ class VoceTts:
         (#21), il secondo tenendo un processo già pronto — e sommati non si
         distinguono piu'. Sullo stderr come la diagnostica del VAD, per non
         sporcare lo stdout dei comandi di prova.
+
+        **Niente durata dell'audio**: leggerla da un mp3 vorrebbe dire
+        decodificarlo o lanciare `ffprobe` a ogni singola risposta, ed e'
+        proprio il costo per frase che i filtri di mpv ci hanno permesso di
+        evitare. Il criterio della #42 chiede questi due numeri, non quello.
         """
-        try:
-            durata = f"{durata_s(percorso):.1f} s di audio"
-        except Exception:  # un WAV illeggibile non deve far saltare una risposta già detta
-            durata = "durata ignota"
         print(
-            f"[voce: sintesi {sintesi_s:.2f} s, primo suono +{avvio_s:.2f} s, {durata}]",
+            f"[voce: sintesi {sintesi_s:.2f} s, primo suono +{avvio_s:.2f} s]",
             file=sys.stderr,
         )
 

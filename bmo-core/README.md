@@ -165,87 +165,99 @@ Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
 **voce** stampa il testo (il TTS e le clip sono la #21).
 
-## La voce: TTS di Gemini (issue #42)
+## La voce di BMO (issue #42)
 
-Di default BMO **scrive** la risposta sul terminale (`voce_sul_terminale`).
-Con `--voce-tts` la sintetizza col TTS di Gemini e la suona con `MpvAdapter`.
-È opt-in di proposito: il terminale non ha bisogno di rete, di una chiave né
-di un nome di voce valido, e resta il ripiego automatico se la sintesi non
-riesce — una risposta letta è meglio di una risposta persa.
-
-La sintesi da sola si prova senza tirare in ballo BMO intero:
+BMO parla con **`it-IT-DiegoNeural`** al **+20%** di velocità, sintetizzata da
+**edge-tts**. Di default la macchina a stati scrive ancora sul terminale
+(`voce_sul_terminale`): la voce si chiede con `--voce-tts`.
 
 ```bash
-python -m bmo_core.tts "Ciao, sono BMO"            # sintetizza e riproduce
-python -m bmo_core.tts "Ciao" --zitto              # scrive solo il WAV
-python -m bmo_core.tts "Ciao" --voce Vega          # prova un'altra voce
-python -m bmo_core.tts "Ciao" --senza-cache        # risintetizza anche se è già su disco
+python -m bmo_core.macchina --voce-tts            # il giro completo, parlato
+python -m bmo_core.tts "Ciao, sono BMO"           # solo la sintesi
+python -m bmo_core.tts "Ciao" --zitto             # scrive il file e basta
+python -m bmo_core.tts "Ciao" --velocita +0%      # alla velocità naturale
+python -m bmo_core.tts "Ciao" --motore gemini     # l'altro motore
 ```
 
-**Verificati dal vivo il 22/9**: `gemini-3.1-flash-tts-preview` esiste
-davvero con la chiave del progetto (insieme a `gemini-2.5-flash-preview-tts`
-e `gemini-2.5-pro-preview-tts`), e la voce `Kore` funziona in italiano. Si
-cambiano comunque senza toccare il codice:
+### Una voce sola, sempre la stessa
+
+BMO è un personaggio: una pausa è un difetto minore, **una voce diversa a metà
+conversazione è un difetto peggiore**. Da cui due regole che sembrano dettagli
+e non lo sono:
+
+1. Le **clip fisse pre-generate della #21 vanno generate con questo stesso
+   motore e questa stessa voce**. La #21 dice «col TTS di Gemini» perché è
+   stata scritta prima di questa decisione: generarle con Gemini mentre BMO
+   risponde con Diego gli darebbe due voci.
+2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o una clip
+   già registrata nella voce giusta.
+
+### ⚠️ edge-tts non è ufficiale
+
+È un client non ufficiale dell'endpoint di lettura di Microsoft Edge: nessuna
+quota documentata, nessun permesso d'uso da terze parti, e **si è già rotto in
+passato**. Se un giorno BMO ammutolisce, è il primo sospetto.
+
+La cura è **Azure Speech F0**, che serve la **stessa identica voce**
+`it-IT-DiegoNeural` ufficialmente e gratis fino a 500.000 caratteri al mese
+(20 richieste ogni 60 secondi, regione Italy North). Migrare non cambia come
+suona BMO, quindi non viola la regola della voce unica: per questo si può
+rimandare senza costi.
+
+### Perché non Gemini
+
+Misurato il 22–23/9 sul PC di sviluppo:
+
+| | sintesi (frase breve) | richieste/minuto |
+|---|---|---|
+| edge-tts | **~0,6 s** | ~102 misurate, nessun rallentamento |
+| Gemini TTS | ~2,6 s (1,2 s fissi + 0,5 s per secondo di audio) | 3 per modello, ~9 con la cascata |
+
+Per confronto, il modello di **testo** risponde in ~0,67 s: con Gemini la voce
+era l'88% dell'attesa di un turno. Il motore Gemini resta disponibile con
+`--motore gemini` o `BMO_TTS_MOTORE=gemini`, con la sua cascata di tre modelli.
+
+### Voce robotica, a costo zero
+
+mpv applica i filtri **in riproduzione** (`--af`), quindi il trattamento non
+costa né un passaggio ffmpeg, né un file intermedio, né latenza. Misurato: il
+picco di memoria di mpv è 74,2–74,9 MB con o senza filtro, cioè rumore.
+
+Si sceglie con `BMO_VOCE_FILTRO`, predefinito `naturale` (nessun filtro):
+
+| preset | cosa fa |
+|---|---|
+| `naturale` | la voce come esce dal motore |
+| `altoparlante` | passa-banda 350–3400 Hz: l'altoparlantino da 40 mm che BMO avrà davvero |
+| `console` | passa-banda + 6 bit: sapore da console portatile |
+| `anello` | modulazione d'ampiezza a 55 Hz: il robot più marcato, il meno intelligibile |
+| `metallico` | flanger: come se parlasse dentro una scatola |
+| `bmo` | passa-banda + 8 bit + flanger leggero: il compromesso |
+
+Il filtro è un argomento della **singola riproduzione**, non dell'adapter: lo
+stesso `MpvAdapter` suona anche il tono della sveglia, che non deve diventare
+robotico solo perché la voce lo è.
+
+### Configurazione
 
 | Variabile | Cosa cambia | Default |
 |---|---|---|
-| `BMO_GEMINI_TTS_MODELLI` | la cascata TTS, separata da virgole | i tre qui sotto |
-| `BMO_GEMINI_TTS_MODEL` | forza **un solo** modello, senza ripiego | — |
-| `BMO_VOCE` | il nome della voce (30 disponibili) | `Kore` |
-| `BMO_LINGUA_TTS` | il codice lingua | `it-IT` |
+| `BMO_TTS_MOTORE` | `edge` o `gemini` | `edge` |
+| `BMO_VOCE` | il nome della voce | `it-IT-DiegoNeural` (`Kore` su Gemini) |
+| `BMO_VOCE_VELOCITA` | la velocità SSML | `+20%` |
+| `BMO_VOCE_FILTRO` | il trattamento robotico | `naturale` |
+| `BMO_GEMINI_TTS_MODELLI` | la cascata, solo per il motore Gemini | i tre modelli TTS |
 
-### La cascata TTS: 3 richieste al minuto
-
-Su AI Studio il limite di `gemini-3.1-flash-tts-preview` è di **3 richieste
-al minuto**, e ogni frase che BMO pronuncia è una richiesta: una conversazione
-vivace lo esaurisce. I modelli TTS però sono tre, ciascuno col suo contatore,
-quindi si ripiega come già fa il cervello con la #12:
-
-1. `gemini-3.1-flash-tts-preview` — il migliore all'ascolto
-2. `gemini-2.5-flash-preview-tts`
-3. `gemini-2.5-pro-preview-tts` — ultimo perché è il più lento
-
-Tre modelli × 3 al minuto ≈ **9 richieste al minuto** invece di 3. La cascata
-è condivisa nel processo di proposito: ricordarsi quale modello è a quota è
-ciò che le permette di saltarlo direttamente alla frase dopo, invece di
-sbattere ogni volta sullo stesso 429.
-
-Le altre due difese dal limite sono già lì: la **cache su disco** (una frase
-ripetuta non si paga due volte, e si cerca per tutti i modelli della cascata,
-non solo per il primario) e — quando arriveranno — le **clip pre-generate
-della #21**, che a runtime costano zero richieste.
-
-⚠️ Ripiegando **la voce può cambiare**: i nomi delle 30 voci sono documentati
-per tutti e tre i modelli, ma la resa di `Kore` sul 2.5 non è detto sia
-identica a quella sul 3.1. Due frasi di fila da modelli diversi potrebbero non
-sembrare lo stesso personaggio.
-
-La lista vera si chiede alla propria chiave:
-
-```bash
-python -c "from google import genai; print([m.name for m in genai.Client().models.list() if 'tts' in m.name])"
-```
-
-Un 400 o un 404 in sintesi è quasi sempre uno di quei due nomi; un 401/403 è
-`GEMINI_API_KEY`. Il messaggio d'errore lo dice.
-
-I WAV sintetizzati finiscono in `<cartella dati>/voce/`, con una chiave che
-comprende testo, modello, voce e lingua: una frase già detta non si paga due
-volte (§2.5 stima che l'80% del costo Gemini sia il TTS), e cambiare voce non
-serve l'audio vecchio. La stessa `tts.sintetizza()` servirà alla #21 per
-pre-generare le clip fisse, girando offline invece che a runtime.
-
-**La latenza è alta.** Nella prova del 22/9 una frase da 4,5 s di audio ha
-richiesto **4,53 s** di sintesi: circa una volta il tempo reale. È il motivo
-per cui le clip di attesa della #21 esistono — e il motivo per cui vale la
-pena confrontare con un TTS locale (Piper `it_IT-riccardo-x_low`: 0,13 s a
-frase, ma 137 MB di RAM).
+I file sintetizzati finiscono in `<cartella dati>/voce/`, con una chiave che
+comprende testo, motore, voce e velocità: una frase già detta non si paga due
+volte, e cambiare voce o velocità non serve l'audio vecchio. edge-tts produce
+mp3 (non offre alternative), Gemini produce WAV.
 
 Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi che servono a
 dimensionare le clip della #21:
 
 ```
-[voce: sintesi 1.34 s, primo suono +0.08 s, 2.1 s di audio]
+[voce: sintesi 0.58 s, primo suono +0.01 s]
 ```
 
 Sono separati apposta: il primo è l'attesa di rete (si copre con una clip di
