@@ -122,7 +122,9 @@ MOTORE_PREDEFINITO = "edge"
 # aggiungere una lingua non richiede nessuna riga qui, e BMO non diventa un
 # coro di voci diverse.
 VOCI_EDGE = {"it": "it-IT-DiegoNeural"}
-VOCE_EDGE_ALTRE_LINGUE = "en-US-AndrewMultilingualNeural"
+# Giuseppe e' la multilingua piu' vicina a Diego: stessa lingua madre, quindi
+# BMO non cambia carattere passando all'inglese, solo lingua.
+VOCE_EDGE_ALTRE_LINGUE = "it-IT-GiuseppeMultilingualNeural"
 
 VOCI_GEMINI: dict[str, str] = {}
 VOCE_GEMINI_ALTRE_LINGUE = "Kore"  # Gemini usa la stessa voce per tutte
