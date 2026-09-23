@@ -290,7 +290,13 @@ def main() -> None:
                 f"     {chiamate} · {faccia}{testo}"
             )
             if not esito:
-                print(f"     atteso: {_descrivi_attesi(frase)}")
+                atteso = _descrivi_attesi(frase)
+                # La lingua si mostra solo quando la frase la richiede: cosi'
+                # un fallimento di lingua si distingue a colpo d'occhio da uno
+                # di strumento, che e' la prima cosa da sapere per capirlo.
+                if frase.lingua is not None:
+                    atteso += f", in lingua {frase.lingua} (ha dichiarato {risposta.lingua})"
+                print(f"     atteso: {atteso}")
         if numero < len(frasi):
             time.sleep(argomenti.pausa)
 
