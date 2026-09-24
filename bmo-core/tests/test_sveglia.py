@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 
 from bmo_core.adapters import STATO_TIMER
 from bmo_core.config import FUSO_ORARIO
-from bmo_core.clip import VERSIONE
 from bmo_core.sveglia import TONO_GENERATO, Sveglia, tono_predefinito
 from bmo_core.timer import ArchivioTimer
 
@@ -96,9 +95,8 @@ def test_il_suono_del_timer_si_sceglie_mettendo_un_file(tmp_path, monkeypatch):
     """Il suono sta fuori dal repository: basta metterlo nella cartella dei dati."""
     monkeypatch.setenv("BMO_DATI", str(tmp_path))
     monkeypatch.delenv("BMO_TONO", raising=False)
-    # Senza file suona la clip sintetizzata della #21, scritta al primo uso.
-    assert tono_predefinito() == str(tmp_path / "clip" / f"timer-v{VERSIONE}.wav")
-    assert (tmp_path / "clip" / f"timer-v{VERSIONE}.wav").exists()
+    # Senza file BMO suona lo stesso, col tono generato da mpv.
+    assert tono_predefinito() == TONO_GENERATO
 
     suoni = tmp_path / "suoni"
     suoni.mkdir()
@@ -116,15 +114,3 @@ def test_esegui_si_ferma_dopo_i_giri_chiesti(tmp_path):
     orologio.avanza(1)
     sveglia.esegui(intervallo_s=0, giri=2)
     assert len(altoparlante.riprodotti) == 1
-
-
-def test_se_la_clip_non_si_scrive_suona_il_tono_di_mpv(tmp_path, monkeypatch):
-    """Una cartella dei dati non scrivibile non deve lasciare muto un timer."""
-    monkeypatch.setenv("BMO_DATI", str(tmp_path))
-    monkeypatch.delenv("BMO_TONO", raising=False)
-
-    def non_scrivibile(nome):
-        raise PermissionError("sola lettura")
-
-    monkeypatch.setattr("bmo_core.sveglia.percorso_clip", non_scrivibile)
-    assert tono_predefinito() == TONO_GENERATO

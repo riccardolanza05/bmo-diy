@@ -221,11 +221,10 @@ BMO è un personaggio: una pausa è un difetto minore, **una voce diversa a met�
 conversazione è un difetto peggiore**. Da cui due regole che sembrano dettagli
 e non lo sono:
 
-1. Le **clip della #21 sono senza parole**: suoni, non frasi. Una clip parlata
-   sarebbe per forza in una lingua sola, e generata con un altro motore darebbe
-   a BMO una seconda voce.
-2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o una clip
-   senza parole.
+1. **I suoni della #21 sono senza parole**: una frase registrata sarebbe in
+   una lingua sola, e con un altro motore darebbe a BMO una seconda voce.
+2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o un
+   suono senza parole.
 
 ### ⚠️ edge-tts non è ufficiale
 
@@ -319,49 +318,31 @@ Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi della voce:
 [voce: sintesi 0.58 s, primo suono +0.01 s]
 ```
 
-Sono separati apposta: il primo è l'attesa di rete (la copre la clip di
-attesa), il secondo è l'avvio di mpv.
+Sono separati apposta: il primo è l'attesa di rete, il secondo è l'avvio di
+mpv (si cura tenendo un processo pronto). Sommati non si distinguerebbero più.
 
-## Le clip: suoni senza parole (issue #21)
+## I suoni: errore e timer (issue #21)
 
-Tre suoni sintetizzati in stile chiptune da `clip.py`, con la sola libreria
-standard e scritti al primo uso in `<cartella dati>/clip/`. Il nome porta una
-versione (`attesa-v1.wav`), così un cambio di disegno li rigenera da solo.
+Due suoni senza parole, trovati per nome da `suoni.py`, nell'ordine:
+`BMO_SUONO_<NOME>`, un file `<nome>.{opus,mp3,ogg,wav}` in
+`<cartella dati>/suoni/`, un file incluso nel pacchetto (solo CC0), un tono
+generato da mpv.
 
-| clip | quando | durata |
-|---|---|---|
-| `attesa` | BMO tace da più di 0,3 s dopo l'ascolto; in loop | 1,28 s |
-| `errore` | la rete non risponde, prima della frase | 0,93 s |
-| `timer` | un timer scade (sostituisce il tono di mpv) | 2,07 s |
+- **errore**: suona per intero, prima di «Non ci arrivo», quando la rete non
+  risponde. Nel pacchetto c'è `error_008` di Kenney (*Interface Sounds*, CC0,
+  0,14 s): vedi `src/bmo_core/audio/LICENZE.md`.
+- **timer**: il file in `suoni/timer.opus` (sul PC, John Pork); `BMO_TONO`
+  resta il nome storico della variabile.
 
-**Senza parole** per scelta: BMO è bilingue e una clip parlata sarebbe in una
-lingua sola. Non dipendono né dalla rete né da edge-tts, e restano l'unica cosa
-che BMO riesce a far sentire quando la rete è giù.
+Voce e suoni passano per lo stesso `MpvAdapter`: non ci sono mai due mpv che
+si parlano sopra. `--senza-suoni` spegne l'errore.
 
-**La corsa fra la risposta e la clip** è la parte delicata:
-
-- l'attesa parte solo dopo 0,3 s di silenzio: con una frase già in cache la
-  voce arriva prima e non suona niente;
-- `Clip.zitto()` e la partenza ritardata si escludono con un lock: una clip in
-  ritardo non parte mai dopo che la voce ha preso la parola;
-- voce e clip usano **lo stesso** `MpvAdapter`, quindi la voce interrompe la
-  clip invece di sovrapporsi;
-- `VoceTts` zittisce la clip *dopo* la sintesi, non prima: anche la sintesi
-  (~0,6 s) è silenzio da coprire.
-
-Fermare la clip a metà nota fa un piccolo bip mozzato. `BMO_CLIP_FINE_NOTA=1`
-fa aspettare la fine della nota, ma costa fino a ~0,14 s su **ogni** risposta
-(il «primo suono» della voce non è più +0,00 s): spento di default, da
-decidere all'ascolto.
-
-Con edge-tts la sintesi da sola supera la soglia, quindi in pratica l'attesa
-suona quasi a ogni risposta nuova. `--senza-clip` la spegne.
+Non c'è un suono di attesa: provato e scartato all'ascolto il 25/9, perché un
+suono prima di ogni risposta non aveva senso.
 
 ```bash
-python -m bmo_core.clip                  # genera le clip e ne stampa le durate
-python -m bmo_core.clip --ascolta        # le fa sentire una dopo l'altra
-python -m bmo_core.clip --rigenera       # le riscrive
-python -m bmo_core.clip --prova-attesa   # turni finti con voce vera (serve la rete)
+python -m bmo_core.suoni                # fa sentire errore e timer, e dice da dove vengono
+python -m bmo_core.suoni --solo-elenco  # solo da dove vengono
 ```
 
 ## Ricerca sul web, radio e volume (issue #20)
@@ -431,12 +412,13 @@ BMO_DATI=/tmp/prova python -m bmo_core.sveglia   # timer usa e getta, per le pro
 
 **Il suono del timer** si sceglie mettendo un file in `<cartella dati>/suoni/`
 (`timer.opus`, `.mp3`, `.ogg` o `.wav`), cioè `~/.local/state/bmo/suoni/` sul PC.
-Se non c'è, BMO suona la clip `timer` della #21, e se nemmeno quella si può
-scrivere un tono generato da `mpv`. `BMO_TONO` ha la precedenza, e `--tono` su tutto.
+Se non c'è, BMO suona un tono generato da `mpv`, così funziona anche su una
+macchina appena installata. `BMO_TONO` ha la precedenza, e `--tono` su tutto.
+La ricerca è quella di `suoni.py` (#21), comune a tutti i suoni.
 
 I file audio stanno **fuori dal repository**, che è pubblico: sono roba di terzi
-e non vanno ridistribuiti. Le clip di BMO sono sintetizzate dal codice e non
-hanno questo problema.
+e non vanno ridistribuiti. Fanno eccezione i suoni CC0, che stanno nel pacchetto
+(`src/bmo_core/audio/`).
 
 La prova che conta (criterio di uscita della #20): far partire un timer, uccidere
 il processo, riavviarlo e verificare che suoni all'ora giusta.

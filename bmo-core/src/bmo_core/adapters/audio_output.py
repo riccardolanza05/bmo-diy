@@ -113,12 +113,8 @@ class MpvAdapter:
     def __init__(self) -> None:
         self._processo: subprocess.Popen | None = None
 
-    def riproduci(self, sorgente: Path | str, *, filtro: str | None = None, ripeti: bool = False) -> None:
+    def riproduci(self, sorgente: Path | str, *, filtro: str | None = None) -> None:
         """Suona `sorgente`, eventualmente attraverso una catena di filtri.
-
-        `ripeti` la fa suonare in loop finche' qualcuno non chiama `ferma()`
-        o non suona altro: serve alla clip di attesa (#21), che deve coprire
-        un silenzio di cui non si sa in anticipo la durata.
 
         `filtro` e' una catena per `--af` (vedi `FILTRI_VOCE`), ed e' un
         argomento della singola riproduzione e non dell'adapter di proposito:
@@ -129,8 +125,6 @@ class MpvAdapter:
         comando = ["mpv", "--no-video", "--really-quiet"]
         if filtro:
             comando.append(f"--af=lavfi=[{filtro}]")
-        if ripeti:
-            comando.append("--loop-file=inf")
         comando.append(str(sorgente))
         self._processo = subprocess.Popen(comando)
 

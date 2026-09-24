@@ -6,9 +6,9 @@ la promessa del piano — un timer messo prima di un riavvio suona lo stesso —
 e che permette la prova che conta: metti un timer, ammazza il processo,
 rialzalo, e deve suonare all'ora giusta.
 
-Il suono e' la clip "timer" della #21: un richiamo senza parole, sintetizzato
-in `clip.py` e scritto nella cartella dei dati al primo uso. Il tono che mpv
-genera da solo resta come ultimo ripiego, se quel file non si puo' scrivere.
+Il suono e' un file in `<cartella dati>/suoni/` (sul PC di sviluppo, il
+timer di John Pork), trovato da `suoni.trova_suono` come gli altri suoni di
+BMO (#21); se non c'e', un tono generato da mpv.
 """
 from __future__ import annotations
 
@@ -23,17 +23,12 @@ from .adapters import (
     crea_audio_output,
     crea_faccia,
 )
-from .clip import percorso_clip
-from .config import percorso_dati
+from .suoni import trova_suono
 from .timer import ArchivioTimer, Timer
 
-# Ultimo ripiego: mpv genera il tono da solo, senza bisogno di nessun file.
-# Suona solo se la clip "timer" (#21) non si riesce a scrivere su disco.
+# Ripiego sempre disponibile: mpv genera il tono da solo, senza bisogno di
+# nessun file. È quello che suona su una macchina appena installata.
 TONO_GENERATO = "av://lavfi:sine=frequency=880:duration=1.2"
-
-# I suoni veri stanno fuori dal repository, accanto ai timer: sono file di
-# terzi e il repository è pubblico. Il primo che esiste vince.
-NOMI_SUONO_TIMER = ("timer.opus", "timer.mp3", "timer.ogg", "timer.wav")
 
 INTERVALLO_S = 0.5
 
@@ -41,22 +36,12 @@ INTERVALLO_S = 0.5
 def tono_predefinito() -> str:
     """Cosa suona quando un timer scade.
 
-    Ordine: `BMO_TONO`, poi un file in `<cartella dati>/suoni/`, poi la
-    clip "timer" sintetizzata (#21), altrimenti il tono generato da mpv.
-    Così chi vuole un suono suo lo mette in una cartella e non tocca il
-    codice, e BMO suona lo stesso anche dove quel file non c'è.
+    Ordine: `BMO_TONO`, poi un file in `<cartella dati>/suoni/`, altrimenti
+    il tono generato. Così chi vuole un suono suo lo mette in una cartella e
+    non tocca il codice, e BMO suona lo stesso anche dove quel file non c'è.
     """
-    forzato = os.environ.get("BMO_TONO")
-    if forzato:
-        return forzato
-    cartella = percorso_dati() / "suoni"
-    for nome in NOMI_SUONO_TIMER:
-        if (cartella / nome).exists():
-            return str(cartella / nome)
-    try:
-        return str(percorso_clip("timer"))
-    except OSError:  # cartella dei dati non scrivibile
-        return TONO_GENERATO
+    # BMO_TONO e' il nome storico, e vince anche su BMO_SUONO_TIMER.
+    return os.environ.get("BMO_TONO") or trova_suono("timer", TONO_GENERATO)
 
 
 def stampa_subito(messaggio: str) -> None:
