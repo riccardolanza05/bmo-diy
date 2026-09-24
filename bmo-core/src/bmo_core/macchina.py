@@ -23,10 +23,12 @@ diverse — uno e' provvisorio, l'altro e' una scelta:
 - il **richiamo** e' Invio sulla tastiera; la wake word «Hey BMO» e' la #22 e
   prendera' il posto di `richiamo_da_tastiera` senza toccare il resto;
 - la **voce** stampa il testo di default (`voce_sul_terminale`); `VoceTts`
-  (#42) la sintetizza col TTS di Gemini e la suona, e si chiede con
+  (#42) la sintetizza con edge-tts e la suona, e si chiede con
   `--voce-tts`. Resta opt-in finché non è stata sentita funzionare dal vivo:
-  il terminale non ha bisogno di rete, di una chiave e di un nome di voce
-  giusto. Le clip fisse pre-generate sono un'altra cosa ancora (#21).
+  il terminale non ha bisogno di rete e di un nome di voce giusto.
+
+Quando la rete non risponde, prima della frase suona un breve suono
+d'errore (#21, `suoni.py`), sullo stesso altoparlante della voce.
 
 **L'ascolto, una volta iniziato, non e' piu' provvisorio**: si ferma da solo
 quando rileva silenzio dopo la voce (VAD, `vad.py`), non dopo una durata
@@ -78,6 +80,7 @@ from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, des
 from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
 from .radio import Radio
+from .suoni import Suoni, SuoniMuti
 from .sveglia import Sveglia
 from .tts import TtsNonDisponibile, sintetizza
 from .vad import AGGRESSIVITA_PREDEFINITA, SILENZIO_MS_PREDEFINITO, Diagnostica
@@ -216,9 +219,8 @@ class VoceTts:
         """I due tempi separati, non la somma (criterio di uscita della #42).
 
         Il primo è l'attesa di rete, il secondo è il tempo di far partire
-        mpv: si curano in modi diversi — il primo con una clip di attesa
-        (#21), il secondo tenendo un processo già pronto — e sommati non si
-        distinguono piu'. Sullo stderr come la diagnostica del VAD, per non
+        mpv: si curerebbero in modi diversi, e sommati non si distinguono
+        piu'. Sullo stderr come la diagnostica del VAD, per non
         sporcare lo stdout dei comandi di prova.
 
         **Niente durata dell'audio**: leggerla da un mp3 vorrebbe dire
@@ -252,8 +254,11 @@ class Macchina:
         attesa_spegnimento_s: float = ATTESA_SPEGNIMENTO_S,
         dormi: Callable[[float], None] = time.sleep,
         sospendi_ascolto: Callable[[], AbstractContextManager[None]] | None = None,
+        suoni: Suoni | SuoniMuti | None = None,
     ) -> None:
         self.cervello = cervello
+        # Muti se non collegati: i test e prova_frasi non lanciano mpv.
+        self.suoni = suoni or SuoniMuti()
         self.faccia = faccia or crea_faccia()
         self.richiamo = richiamo
         self.voce = voce
@@ -415,6 +420,9 @@ class Macchina:
         except ERRORI_GEMINI as errore:
             self.stato = Stato.ERRORE
             self.faccia.mostra(STATO_ERRORE)
+            # Prima il suono, per intero: senza rete la frase che segue
+            # finisce sul terminale, e il suono è tutto quello che si sente.
+            self.suoni.errore()
             self.voce(f"Non ci arrivo: {descrivi_errore(errore)}")
             return
         self.stato = Stato.PARLATO
@@ -481,8 +489,9 @@ def main() -> None:
     parser.add_argument("--senza-radio", action="store_true", help="non collegare radio e volume")
     parser.add_argument(
         "--voce-tts", action="store_true",
-        help="parla col TTS di Gemini (#42) invece di scrivere sul terminale; serve GEMINI_API_KEY",
+        help="parla con edge-tts (#42) invece di scrivere sul terminale; serve la rete",
     )
+    parser.add_argument("--senza-suoni", action="store_true", help="niente suono d'errore (#21)")
     argomenti = parser.parse_args()
 
     faccia = crea_faccia(sul_terminale=True)
@@ -495,7 +504,10 @@ def main() -> None:
     # Opt-in: il terminale resta la voce predefinita finché il TTS non è
     # stato sentito funzionare dal vivo. Così prova_frasi e i test non
     # cominciano di colpo a dipendere da una chiamata di rete.
-    voce = VoceTts() if argomenti.voce_tts else voce_sul_terminale
+    # Un altoparlante solo per voce e suoni: `riproduci` ferma quello che sta
+    # suonando, quindi non ci sono mai due mpv che si parlano sopra.
+    altoparlante = crea_audio_output()
+    voce = VoceTts(altoparlante=altoparlante) if argomenti.voce_tts else voce_sul_terminale
     macchina = Macchina(
         cervello=cervello,
         faccia=faccia,
@@ -515,6 +527,7 @@ def main() -> None:
         # si sospende per la durata dell'ascolto e la si riprende subito
         # dopo. Radio.sospesa() non fa nulla se non sta suonando.
         sospendi_ascolto=radio.sospesa if radio is not None else None,
+        suoni=None if argomenti.senza_suoni else Suoni(altoparlante),
     )
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche

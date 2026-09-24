@@ -120,8 +120,8 @@ Il tetto è un limite vero, non un'intenzione: il tempo che resta diventa il
 timeout della singola richiesta, quindi un modello lento non lo sfonda. I giri
 con gli strumenti si fermano sei secondi prima della scadenza, tenuti da parte
 per il riepilogo. Se anche il riepilogo non produce testo, `Risposta.testo` resta
-vuota e `Risposta.motivo_vuota` ne dice la ragione: sul dispositivo sarà il punto
-in cui parte la clip di errore (issue #21).
+vuota e `Risposta.motivo_vuota` ne dice la ragione, e BMO dice «Non sono riuscito
+a rispondere».
 
 `Risposta.riepilogo` dice se la richiesta in più c'è stata e perché
 (`tetto di 4 giri`, `tempo finito`, `modello non disponibile`); `--max-giri 1`
@@ -171,7 +171,7 @@ alla macchina, non al cervello, e si collega con `registra_strumento`.
 
 Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
-**voce** stampa il testo (il TTS e le clip sono la #21).
+**voce** stampa il testo se non si passa `--voce-tts` (#42).
 
 ## La voce di BMO (issue #42)
 
@@ -221,12 +221,10 @@ BMO è un personaggio: una pausa è un difetto minore, **una voce diversa a met�
 conversazione è un difetto peggiore**. Da cui due regole che sembrano dettagli
 e non lo sono:
 
-1. Le **clip fisse pre-generate della #21 vanno generate con questo stesso
-   motore e questa stessa voce**. La #21 dice «col TTS di Gemini» perché è
-   stata scritta prima di questa decisione: generarle con Gemini mentre BMO
-   risponde con Diego gli darebbe due voci.
-2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o una clip
-   già registrata nella voce giusta.
+1. **I suoni della #21 sono senza parole**: una frase registrata sarebbe in
+   una lingua sola, e con un altro motore darebbe a BMO una seconda voce.
+2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o un
+   suono senza parole.
 
 ### ⚠️ edge-tts non è ufficiale
 
@@ -314,16 +312,38 @@ comprende testo, motore, voce e velocità: una frase già detta non si paga due
 volte, e cambiare voce o velocità non serve l'audio vecchio. edge-tts produce
 mp3 (non offre alternative), Gemini produce WAV.
 
-Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi che servono a
-dimensionare le clip della #21:
+Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi della voce:
 
 ```
 [voce: sintesi 0.58 s, primo suono +0.01 s]
 ```
 
-Sono separati apposta: il primo è l'attesa di rete (si copre con una clip di
-attesa), il secondo è l'avvio di mpv (si cura tenendo un processo pronto).
-Sommati non si distinguerebbero più.
+Sono separati apposta: il primo è l'attesa di rete, il secondo è l'avvio di
+mpv (si cura tenendo un processo pronto). Sommati non si distinguerebbero più.
+
+## I suoni: errore e timer (issue #21)
+
+Due suoni senza parole, trovati per nome da `suoni.py`, nell'ordine:
+`BMO_SUONO_<NOME>`, un file `<nome>.{opus,mp3,ogg,wav}` in
+`<cartella dati>/suoni/`, un file incluso nel pacchetto (solo CC0), un tono
+generato da mpv.
+
+- **errore**: suona per intero, prima di «Non ci arrivo», quando la rete non
+  risponde. Nel pacchetto c'è `error_008` di Kenney (*Interface Sounds*, CC0,
+  0,14 s): vedi `src/bmo_core/audio/LICENZE.md`.
+- **timer**: il file in `suoni/timer.opus` (sul PC, John Pork); `BMO_TONO`
+  resta il nome storico della variabile.
+
+Voce e suoni passano per lo stesso `MpvAdapter`: non ci sono mai due mpv che
+si parlano sopra. `--senza-suoni` spegne l'errore.
+
+Non c'è un suono di attesa: provato e scartato all'ascolto il 25/9, perché un
+suono prima di ogni risposta non aveva senso.
+
+```bash
+python -m bmo_core.suoni                # fa sentire errore e timer, e dice da dove vengono
+python -m bmo_core.suoni --solo-elenco  # solo da dove vengono
+```
 
 ## Ricerca sul web, radio e volume (issue #20)
 
@@ -394,10 +414,11 @@ BMO_DATI=/tmp/prova python -m bmo_core.sveglia   # timer usa e getta, per le pro
 (`timer.opus`, `.mp3`, `.ogg` o `.wav`), cioè `~/.local/state/bmo/suoni/` sul PC.
 Se non c'è, BMO suona un tono generato da `mpv`, così funziona anche su una
 macchina appena installata. `BMO_TONO` ha la precedenza, e `--tono` su tutto.
+La ricerca è quella di `suoni.py` (#21), comune a tutti i suoni.
 
 I file audio stanno **fuori dal repository**, che è pubblico: sono roba di terzi
-e non vanno ridistribuiti. Le clip di BMO registrate col TTS di Gemini sono
-l'issue #21 e useranno la stessa cartella.
+e non vanno ridistribuiti. Fanno eccezione i suoni CC0, che stanno nel pacchetto
+(`src/bmo_core/audio/`).
 
 La prova che conta (criterio di uscita della #20): far partire un timer, uccidere
 il processo, riavviarlo e verificare che suoni all'ora giusta.

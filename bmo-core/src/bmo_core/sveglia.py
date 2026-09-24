@@ -6,9 +6,9 @@ la promessa del piano — un timer messo prima di un riavvio suona lo stesso —
 e che permette la prova che conta: metti un timer, ammazza il processo,
 rialzalo, e deve suonare all'ora giusta.
 
-Il suono e' un tono generato da mpv: le clip vere, registrate col TTS di
-Gemini, sono l'issue #21 e prenderanno il posto di `TONO` senza toccare
-altro.
+Il suono e' un file in `<cartella dati>/suoni/` (sul PC di sviluppo, il
+timer di John Pork), trovato da `suoni.trova_suono` come gli altri suoni di
+BMO (#21); se non c'e', un tono generato da mpv.
 """
 from __future__ import annotations
 
@@ -23,16 +23,12 @@ from .adapters import (
     crea_audio_output,
     crea_faccia,
 )
-from .config import percorso_dati
+from .suoni import trova_suono
 from .timer import ArchivioTimer, Timer
 
 # Ripiego sempre disponibile: mpv genera il tono da solo, senza bisogno di
 # nessun file. È quello che suona su una macchina appena installata.
 TONO_GENERATO = "av://lavfi:sine=frequency=880:duration=1.2"
-
-# I suoni veri stanno fuori dal repository, accanto ai timer: sono file di
-# terzi e il repository è pubblico. Il primo che esiste vince.
-NOMI_SUONO_TIMER = ("timer.opus", "timer.mp3", "timer.ogg", "timer.wav")
 
 INTERVALLO_S = 0.5
 
@@ -44,14 +40,8 @@ def tono_predefinito() -> str:
     il tono generato. Così chi vuole un suono suo lo mette in una cartella e
     non tocca il codice, e BMO suona lo stesso anche dove quel file non c'è.
     """
-    forzato = os.environ.get("BMO_TONO")
-    if forzato:
-        return forzato
-    cartella = percorso_dati() / "suoni"
-    for nome in NOMI_SUONO_TIMER:
-        if (cartella / nome).exists():
-            return str(cartella / nome)
-    return TONO_GENERATO
+    # BMO_TONO e' il nome storico, e vince anche su BMO_SUONO_TIMER.
+    return os.environ.get("BMO_TONO") or trova_suono("timer", TONO_GENERATO)
 
 
 def stampa_subito(messaggio: str) -> None:

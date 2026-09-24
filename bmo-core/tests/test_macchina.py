@@ -417,3 +417,70 @@ def test_esegui_esce_subito_se_niente_e_attivo():
     )
     macchina.esegui()
     assert dormite == []
+
+
+# --- il suono d'errore (#21) --------------------------------------------------
+
+
+class SuoniFinti:
+    def __init__(self, dette):
+        self.dette = dette
+        self.errori = []
+
+    def errore(self):
+        self.errori.append(len(self.dette))  # quante frasi erano già state dette
+
+
+def test_rete_giu_il_suono_d_errore_suona_prima_della_frase():
+    dette = []
+    suoni = SuoniFinti(dette)
+    macchina, _, _, _ = _macchina([GeminiNonDisponibile("rete", {})], suoni=suoni)
+    macchina.voce = lambda testo, lingua="it": dette.append(testo)
+    macchina.esegui(giri=1)
+    assert suoni.errori == [0]
+    assert dette[0].startswith("Non ci arrivo")
+
+
+def test_una_risposta_normale_non_suona_niente():
+    dette = []
+    suoni = SuoniFinti(dette)
+    macchina, _, _, _ = _macchina([Risposta(testo="Ciao!")], suoni=suoni)
+    macchina.esegui(giri=1)
+    assert suoni.errori == []
+
+
+def test_senza_suoni_collegati_la_macchina_e_muta():
+    from bmo_core.suoni import SuoniMuti
+
+    macchina, _, _, _ = _macchina([Risposta(testo="Ciao!")])
+    assert isinstance(macchina.suoni, SuoniMuti)
+
+
+def test_main_usa_un_solo_altoparlante_per_voce_e_suoni(monkeypatch):
+    """Due adapter vorrebbero dire due mpv che si parlano sopra."""
+    import bmo_core.macchina as modulo
+
+    creati = []
+
+    class Altoparlante:
+        def __init__(self):
+            creati.append(self)
+
+    catturate = {}
+
+    class MacchinaFinta:
+        def __init__(self, **argomenti):
+            catturate.update(argomenti)
+
+        def esegui(self):
+            pass
+
+    monkeypatch.setattr(modulo, "crea_audio_output", Altoparlante)
+    monkeypatch.setattr(modulo, "Macchina", MacchinaFinta)
+    monkeypatch.setattr(modulo, "Cervello", lambda faccia: CervelloFinto([], faccia))
+    monkeypatch.setattr("sys.argv", ["bmo", "--voce-tts", "--senza-radio", "--senza-timer"])
+    modulo.main()
+
+    assert len(creati) == 1
+    assert catturate["suoni"].altoparlante is creati[0]
+    assert catturate["voce"].altoparlante is creati[0]
