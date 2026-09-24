@@ -200,7 +200,7 @@ def test_zitto_aspetta_la_fine_della_nota_in_corso(tmp_path):
     dormite = []
     clip = Clip(
         AltoparlanteFinto(), cartella=tmp_path, crea_timer=TimerManuale,
-        cronometro=lambda: adesso[0], dormi=dormite.append,
+        cronometro=lambda: adesso[0], dormi=dormite.append, fine_nota=True,
     )
     clip.attesa()
     TimerManuale.creati[-1].scatta()
@@ -214,10 +214,32 @@ def test_zitto_in_una_pausa_ferma_subito(tmp_path):
     dormite = []
     clip = Clip(
         AltoparlanteFinto(), cartella=tmp_path, crea_timer=TimerManuale,
-        cronometro=lambda: adesso[0], dormi=dormite.append,
+        cronometro=lambda: adesso[0], dormi=dormite.append, fine_nota=True,
     )
     clip.attesa()
     TimerManuale.creati[-1].scatta()
     adesso[0] = 0.32 + 0.2  # fra una nota e l'altra
     clip.zitto()
     assert dormite == [0.0]
+
+
+def test_senza_fine_nota_zitto_ferma_subito(tmp_path, monkeypatch):
+    """Il predefinito: nessun ritardo sulla voce (#42, «primo suono +0,00 s»)."""
+    monkeypatch.delenv("BMO_CLIP_FINE_NOTA", raising=False)
+    dormite = []
+    clip = Clip(AltoparlanteFinto(), cartella=tmp_path, crea_timer=TimerManuale,
+                cronometro=lambda: 0.05, dormi=dormite.append)
+    clip.attesa()
+    TimerManuale.creati[-1].scatta()
+    clip.zitto()
+    assert dormite == []
+
+
+def test_fine_nota_si_accende_dall_ambiente(tmp_path, monkeypatch):
+    monkeypatch.setenv("BMO_CLIP_FINE_NOTA", "1")
+    assert Clip(AltoparlanteFinto(), cartella=tmp_path).fine_nota
+
+
+def test_le_clip_si_generano_alla_costruzione(tmp_path):
+    Clip(AltoparlanteFinto(), cartella=tmp_path)
+    assert {p.name for p in tmp_path.glob("*.wav")} == {f"{n}-v{VERSIONE}.wav" for n in SUONI}

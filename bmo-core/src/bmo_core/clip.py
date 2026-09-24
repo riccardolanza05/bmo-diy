@@ -30,6 +30,7 @@ che BMO ascolta resta la faccia.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import threading
 import time
@@ -158,8 +159,9 @@ def scrivi_wav(percorso: Path, campioni: list[float]) -> None:
 def percorso_clip(nome: str, cartella: Path | None = None) -> Path:
     """Il file di una clip, generato adesso se non c'è ancora.
 
-    Generarle costa qualche decina di millisecondi in tutto e succede una
-    volta sola per versione: non vale la pena di un passo d'installazione.
+    Generarle costa 7–18 ms l'una sul PC di sviluppo (misurato il 25/9; sul
+    Pi sarà qualche volta tanto) e succede una volta sola per versione: non
+    vale la pena di un passo d'installazione.
     """
     if nome not in SUONI:
         raise KeyError(f"clip sconosciuta: {nome!r} (disponibili: {', '.join(SUONI)})")
@@ -206,6 +208,14 @@ class Clip:
     risposta del cervello è pronta: in mezzo c'è la sintesi (~0,6 s), che
     senza clip sarebbe di nuovo silenzio. Per questo `VoceTts` la riceve
     come `prima_di_suonare`.
+
+    **Nota troncata o voce in ritardo**: fermare la clip a metà nota fa un
+    piccolo bip mozzato; aspettare la fine della nota (`fine_nota=True`)
+    lo evita ma costa fino a ~0,14 s su *ogni* risposta, sul thread della
+    voce — proprio il «primo suono +0,00 s» ottenuto con la #42. Non si può
+    aspettare altrove: la voce, partendo, ferma comunque mpv sull'adapter
+    condiviso. Predefinito spento; `BMO_CLIP_FINE_NOTA=1` lo accende, per
+    decidere all'ascolto.
     """
 
     def __init__(
@@ -216,9 +226,21 @@ class Clip:
         crea_timer: Callable[[float, Callable[[], None]], threading.Timer] = threading.Timer,
         cronometro: Callable[[], float] = time.monotonic,
         dormi: Callable[[float], None] = time.sleep,
+        fine_nota: bool | None = None,
     ) -> None:
         self.altoparlante = altoparlante or crea_audio_output()
         self.cartella = cartella
+        if fine_nota is None:
+            fine_nota = os.environ.get("BMO_CLIP_FINE_NOTA", "").strip() in ("1", "si", "sì", "true")
+        self.fine_nota = fine_nota
+        # Generate adesso, non al primo turno: altrimenti la prima volta la
+        # sintesi dei campioni avverrebbe sul thread del timer, col lock
+        # preso, e un `zitto()` concorrente la aspetterebbe.
+        for nome in SUONI:
+            try:
+                percorso_clip(nome, cartella)
+            except OSError as errore:
+                print(f"[clip: {nome} non scritta — {errore}]", file=sys.stderr)
         self.cronometro = cronometro
         self.dormi = dormi
         self._partita_a = 0.0
@@ -273,9 +295,9 @@ class Clip:
         return _NOTA_ATTESA_S - dentro + 0.02
 
     def zitto(self) -> None:
-        """Ferma l'attesa, partita o no, alla fine della nota in corso.
+        """Ferma l'attesa, partita o no. Si può chiamare quante volte si vuole.
 
-        Si può chiamare quante volte si vuole.
+        Con `fine_nota` aspetta prima la fine della nota in corso.
         """
         with self._lock:
             self._attiva = False
@@ -284,7 +306,8 @@ class Clip:
                 self._timer = None
             if self._suona:
                 self._suona = False
-                self.dormi(self._fine_della_nota_s())
+                if self.fine_nota:
+                    self.dormi(self._fine_della_nota_s())
                 self.altoparlante.ferma()
 
     def errore(self) -> None:

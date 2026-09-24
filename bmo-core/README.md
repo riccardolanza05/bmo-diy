@@ -320,8 +320,7 @@ Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi della voce:
 ```
 
 Sono separati apposta: il primo è l'attesa di rete (la copre la clip di
-attesa), il secondo è l'avvio di mpv. Con la clip accesa il secondo include
-anche l'attesa della fine della nota in corso, al più ~0,14 s.
+attesa), il secondo è l'avvio di mpv.
 
 ## Le clip: suoni senza parole (issue #21)
 
@@ -348,8 +347,12 @@ che BMO riesce a far sentire quando la rete è giù.
 - voce e clip usano **lo stesso** `MpvAdapter`, quindi la voce interrompe la
   clip invece di sovrapporsi;
 - `VoceTts` zittisce la clip *dopo* la sintesi, non prima: anche la sintesi
-  (~0,6 s) è silenzio da coprire. `zitto()` aspetta la fine della nota in
-  corso, così non si sente un bip troncato.
+  (~0,6 s) è silenzio da coprire.
+
+Fermare la clip a metà nota fa un piccolo bip mozzato. `BMO_CLIP_FINE_NOTA=1`
+fa aspettare la fine della nota, ma costa fino a ~0,14 s su **ogni** risposta
+(il «primo suono» della voce non è più +0,00 s): spento di default, da
+decidere all'ascolto.
 
 Con edge-tts la sintesi da sola supera la soglia, quindi in pratica l'attesa
 suona quasi a ogni risposta nuova. `--senza-clip` la spegne.
