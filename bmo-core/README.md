@@ -120,8 +120,8 @@ Il tetto è un limite vero, non un'intenzione: il tempo che resta diventa il
 timeout della singola richiesta, quindi un modello lento non lo sfonda. I giri
 con gli strumenti si fermano sei secondi prima della scadenza, tenuti da parte
 per il riepilogo. Se anche il riepilogo non produce testo, `Risposta.testo` resta
-vuota e `Risposta.motivo_vuota` ne dice la ragione: sul dispositivo sarà il punto
-in cui parte la clip di errore (issue #21).
+vuota e `Risposta.motivo_vuota` ne dice la ragione, e BMO dice «Non sono riuscito
+a rispondere».
 
 `Risposta.riepilogo` dice se la richiesta in più c'è stata e perché
 (`tetto di 4 giri`, `tempo finito`, `modello non disponibile`); `--max-giri 1`
@@ -171,7 +171,7 @@ alla macchina, non al cervello, e si collega con `registra_strumento`.
 
 Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
-**voce** stampa il testo (il TTS e le clip sono la #21).
+**voce** stampa il testo se non si passa `--voce-tts` (#42).
 
 ## La voce di BMO (issue #42)
 
@@ -221,12 +221,11 @@ BMO è un personaggio: una pausa è un difetto minore, **una voce diversa a met�
 conversazione è un difetto peggiore**. Da cui due regole che sembrano dettagli
 e non lo sono:
 
-1. Le **clip fisse pre-generate della #21 vanno generate con questo stesso
-   motore e questa stessa voce**. La #21 dice «col TTS di Gemini» perché è
-   stata scritta prima di questa decisione: generarle con Gemini mentre BMO
-   risponde con Diego gli darebbe due voci.
+1. Le **clip della #21 sono senza parole**: suoni, non frasi. Una clip parlata
+   sarebbe per forza in una lingua sola, e generata con un altro motore darebbe
+   a BMO una seconda voce.
 2. **Il ripiego non è un'altra voce**: è il terminale, il silenzio, o una clip
-   già registrata nella voce giusta.
+   senza parole.
 
 ### ⚠️ edge-tts non è ufficiale
 
@@ -314,16 +313,53 @@ comprende testo, motore, voce e velocità: una frase già detta non si paga due
 volte, e cambiare voce o velocità non serve l'audio vecchio. edge-tts produce
 mp3 (non offre alternative), Gemini produce WAV.
 
-Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi che servono a
-dimensionare le clip della #21:
+Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi della voce:
 
 ```
 [voce: sintesi 0.58 s, primo suono +0.01 s]
 ```
 
-Sono separati apposta: il primo è l'attesa di rete (si copre con una clip di
-attesa), il secondo è l'avvio di mpv (si cura tenendo un processo pronto).
-Sommati non si distinguerebbero più.
+Sono separati apposta: il primo è l'attesa di rete (la copre la clip di
+attesa), il secondo è l'avvio di mpv. Con la clip accesa il secondo include
+anche l'attesa della fine della nota in corso, al più ~0,14 s.
+
+## Le clip: suoni senza parole (issue #21)
+
+Tre suoni sintetizzati in stile chiptune da `clip.py`, con la sola libreria
+standard e scritti al primo uso in `<cartella dati>/clip/`. Il nome porta una
+versione (`attesa-v1.wav`), così un cambio di disegno li rigenera da solo.
+
+| clip | quando | durata |
+|---|---|---|
+| `attesa` | BMO tace da più di 0,3 s dopo l'ascolto; in loop | 1,28 s |
+| `errore` | la rete non risponde, prima della frase | 0,93 s |
+| `timer` | un timer scade (sostituisce il tono di mpv) | 2,07 s |
+
+**Senza parole** per scelta: BMO è bilingue e una clip parlata sarebbe in una
+lingua sola. Non dipendono né dalla rete né da edge-tts, e restano l'unica cosa
+che BMO riesce a far sentire quando la rete è giù.
+
+**La corsa fra la risposta e la clip** è la parte delicata:
+
+- l'attesa parte solo dopo 0,3 s di silenzio: con una frase già in cache la
+  voce arriva prima e non suona niente;
+- `Clip.zitto()` e la partenza ritardata si escludono con un lock: una clip in
+  ritardo non parte mai dopo che la voce ha preso la parola;
+- voce e clip usano **lo stesso** `MpvAdapter`, quindi la voce interrompe la
+  clip invece di sovrapporsi;
+- `VoceTts` zittisce la clip *dopo* la sintesi, non prima: anche la sintesi
+  (~0,6 s) è silenzio da coprire. `zitto()` aspetta la fine della nota in
+  corso, così non si sente un bip troncato.
+
+Con edge-tts la sintesi da sola supera la soglia, quindi in pratica l'attesa
+suona quasi a ogni risposta nuova. `--senza-clip` la spegne.
+
+```bash
+python -m bmo_core.clip                  # genera le clip e ne stampa le durate
+python -m bmo_core.clip --ascolta        # le fa sentire una dopo l'altra
+python -m bmo_core.clip --rigenera       # le riscrive
+python -m bmo_core.clip --prova-attesa   # turni finti con voce vera (serve la rete)
+```
 
 ## Ricerca sul web, radio e volume (issue #20)
 
@@ -392,12 +428,12 @@ BMO_DATI=/tmp/prova python -m bmo_core.sveglia   # timer usa e getta, per le pro
 
 **Il suono del timer** si sceglie mettendo un file in `<cartella dati>/suoni/`
 (`timer.opus`, `.mp3`, `.ogg` o `.wav`), cioè `~/.local/state/bmo/suoni/` sul PC.
-Se non c'è, BMO suona un tono generato da `mpv`, così funziona anche su una
-macchina appena installata. `BMO_TONO` ha la precedenza, e `--tono` su tutto.
+Se non c'è, BMO suona la clip `timer` della #21, e se nemmeno quella si può
+scrivere un tono generato da `mpv`. `BMO_TONO` ha la precedenza, e `--tono` su tutto.
 
 I file audio stanno **fuori dal repository**, che è pubblico: sono roba di terzi
-e non vanno ridistribuiti. Le clip di BMO registrate col TTS di Gemini sono
-l'issue #21 e useranno la stessa cartella.
+e non vanno ridistribuiti. Le clip di BMO sono sintetizzate dal codice e non
+hanno questo problema.
 
 La prova che conta (criterio di uscita della #20): far partire un timer, uccidere
 il processo, riavviarlo e verificare che suoni all'ora giusta.

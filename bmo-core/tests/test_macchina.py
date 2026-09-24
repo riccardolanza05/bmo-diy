@@ -417,3 +417,103 @@ def test_esegui_esce_subito_se_niente_e_attivo():
     )
     macchina.esegui()
     assert dormite == []
+
+
+# --- le clip (#21) -----------------------------------------------------------
+
+
+class ClipFinta:
+    """Registra quando la macchina chiede attesa, silenzio ed errore, e cosa
+    ha già detto la voce in quel momento: è l'ordine che conta."""
+
+    def __init__(self, dette):
+        self.dette = dette
+        self.eventi = []
+
+    def attesa(self):
+        self.eventi.append(("attesa", len(self.dette)))
+
+    def zitto(self):
+        self.eventi.append(("zitto", len(self.dette)))
+
+    def errore(self):
+        self.eventi.append(("errore", len(self.dette)))
+
+
+def _macchina_con_clip(risposte, **opzioni):
+    dette = []
+    clip = ClipFinta(dette)
+    macchina, faccia, cervello, _ = _macchina(risposte, clip=clip, **opzioni)
+    macchina.voce = lambda testo, lingua="it": dette.append(testo)
+    return macchina, clip, dette
+
+
+def test_turno_l_attesa_parte_dopo_l_ascolto_e_finisce_col_turno():
+    macchina, clip, dette = _macchina_con_clip([Risposta(testo="Ciao!")])
+    macchina.esegui(giri=1)
+    assert dette == ["Ciao!"]
+    assert clip.eventi[0] == ("attesa", 0)
+    # Sempre fermata alla fine, anche se la voce (qui il terminale) non l'ha fatto.
+    assert clip.eventi[-1] == ("zitto", 1)
+
+
+def test_rete_giu_il_suono_d_errore_suona_prima_della_frase():
+    macchina, clip, dette = _macchina_con_clip([GeminiNonDisponibile("rete", {})])
+    macchina.esegui(giri=1)
+    assert ("errore", 0) in clip.eventi
+    assert dette and dette[0].startswith("Non ci arrivo")
+    assert clip.eventi[-1][0] == "zitto"
+
+
+def test_eccezione_imprevista_non_lascia_la_clip_in_loop():
+    macchina, clip, _ = _macchina_con_clip([RuntimeError("imprevisto")])
+    with pytest.raises(RuntimeError):
+        macchina.turno()
+    assert clip.eventi[-1][0] == "zitto"
+
+
+def test_conferma_zittisce_prima_di_ascoltare_e_poi_riprende_l_attesa():
+    """La clip non deve finire nel microfono, e dopo il sì si torna a pensare."""
+    macchina, clip, _ = _macchina_con_clip([], classificazioni=["si"])
+    assert macchina.chiedi_conferma("Confermi?") is True
+    nomi = [e[0] for e in clip.eventi]
+    assert nomi == ["zitto", "attesa"]
+
+
+def test_senza_clip_collegata_la_macchina_non_suona_niente():
+    """Il predefinito è muto: i test e prova_frasi non lanciano mpv."""
+    from bmo_core.clip import ClipMute
+
+    macchina, _, _, _ = _macchina([Risposta(testo="Ciao!")])
+    assert isinstance(macchina.clip, ClipMute)
+
+
+def test_main_usa_un_solo_altoparlante_per_voce_e_clip(monkeypatch):
+    """Due adapter vorrebbero dire due mpv: la clip parlerebbe sopra la risposta."""
+    import bmo_core.macchina as modulo
+
+    creati = []
+
+    class Altoparlante:
+        def __init__(self):
+            creati.append(self)
+
+    catturate = {}
+
+    class MacchinaFinta:
+        def __init__(self, **argomenti):
+            catturate.update(argomenti)
+
+        def esegui(self):
+            pass
+
+    monkeypatch.setattr(modulo, "crea_audio_output", Altoparlante)
+    monkeypatch.setattr(modulo, "Macchina", MacchinaFinta)
+    monkeypatch.setattr(modulo, "Cervello", lambda faccia: CervelloFinto([], faccia))
+    monkeypatch.setattr("sys.argv", ["bmo", "--voce-tts", "--senza-radio", "--senza-timer"])
+    modulo.main()
+
+    assert len(creati) == 1
+    assert catturate["clip"].altoparlante is creati[0]
+    assert catturate["voce"].altoparlante is creati[0]
+    assert catturate["voce"].prima_di_suonare == catturate["clip"].zitto

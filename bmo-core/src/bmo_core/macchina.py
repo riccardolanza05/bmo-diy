@@ -23,10 +23,15 @@ diverse — uno e' provvisorio, l'altro e' una scelta:
 - il **richiamo** e' Invio sulla tastiera; la wake word «Hey BMO» e' la #22 e
   prendera' il posto di `richiamo_da_tastiera` senza toccare il resto;
 - la **voce** stampa il testo di default (`voce_sul_terminale`); `VoceTts`
-  (#42) la sintetizza col TTS di Gemini e la suona, e si chiede con
+  (#42) la sintetizza con edge-tts e la suona, e si chiede con
   `--voce-tts`. Resta opt-in finché non è stata sentita funzionare dal vivo:
-  il terminale non ha bisogno di rete, di una chiave e di un nome di voce
-  giusto. Le clip fisse pre-generate sono un'altra cosa ancora (#21).
+  il terminale non ha bisogno di rete e di un nome di voce giusto.
+
+**Le clip** (#21, `clip.py`) sono suoni senza parole che coprono i silenzi:
+l'attesa parte se BMO tace per più di 0,3 s dopo l'ascolto e si ferma
+quando la voce è pronta a suonare; l'errore suona quando la rete non
+risponde. Passano per lo stesso altoparlante della voce, così la voce
+interrompe la clip e non ci si sovrappone mai.
 
 **L'ascolto, una volta iniziato, non e' piu' provvisorio**: si ferma da solo
 quando rileva silenzio dopo la voce (VAD, `vad.py`), non dopo una durata
@@ -74,6 +79,7 @@ from .adapters import (
     crea_audio_output,
     crea_faccia,
 )
+from .clip import Clip, ClipMute
 from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
@@ -178,8 +184,14 @@ class VoceTts:
         pausa_max_s: float | None = None,
         diagnostica: bool = True,
         cronometro: Callable[[], float] = time.monotonic,
+        prima_di_suonare: Callable[[], None] = lambda: None,
     ) -> None:
         self.altoparlante = altoparlante or crea_audio_output()
+        # Di solito `Clip.zitto` (#21): la clip di attesa deve continuare
+        # durante la sintesi, che è ancora silenzio, e fermarsi solo adesso.
+        # Anche nel ripiego sul terminale, che altrimenti la lascerebbe
+        # suonare in loop sopra una risposta già data.
+        self.prima_di_suonare = prima_di_suonare
         self.ripiego = ripiego
         self.sintetizza_fn = sintetizza_fn
         # La catena della voce (#42): timbro da `BMO_VOCE_FILTRO` (predefinito
@@ -197,10 +209,12 @@ class VoceTts:
         try:
             percorso = self.sintetizza_fn(testo, lingua)
         except (TtsNonDisponibile, ValueError) as errore:
+            self.prima_di_suonare()
             print(f"[voce: sintesi non riuscita, leggo il testo — {errore}]", file=sys.stderr)
             self.ripiego(testo, lingua)
             return
         sintesi = self.cronometro()
+        self.prima_di_suonare()
         try:
             self.altoparlante.riproduci(percorso, filtro=self.filtro)
         except OSError as errore:  # mpv non installato, dispositivo audio occupato
@@ -215,10 +229,9 @@ class VoceTts:
     def _stampa_tempi(self, sintesi_s: float, avvio_s: float) -> None:
         """I due tempi separati, non la somma (criterio di uscita della #42).
 
-        Il primo è l'attesa di rete, il secondo è il tempo di far partire
-        mpv: si curano in modi diversi — il primo con una clip di attesa
-        (#21), il secondo tenendo un processo già pronto — e sommati non si
-        distinguono piu'. Sullo stderr come la diagnostica del VAD, per non
+        Il primo è l'attesa di rete, coperta dalla clip di attesa (#21); il
+        secondo è il tempo di far partire mpv, che si curerebbe tenendo un
+        processo già pronto. Sommati non si distinguono piu'. Sullo stderr come la diagnostica del VAD, per non
         sporcare lo stdout dei comandi di prova.
 
         **Niente durata dell'audio**: leggerla da un mp3 vorrebbe dire
@@ -252,8 +265,11 @@ class Macchina:
         attesa_spegnimento_s: float = ATTESA_SPEGNIMENTO_S,
         dormi: Callable[[float], None] = time.sleep,
         sospendi_ascolto: Callable[[], AbstractContextManager[None]] | None = None,
+        clip: Clip | ClipMute | None = None,
     ) -> None:
         self.cervello = cervello
+        # Muta se non collegata: i test e prova_frasi non lanciano mpv.
+        self.clip = clip or ClipMute()
         self.faccia = faccia or crea_faccia()
         self.richiamo = richiamo
         self.voce = voce
@@ -364,11 +380,16 @@ class Macchina:
             esito = self._ascolta_e_classifica()
         # Si torna a "pensiero": chi ha chiesto la conferma è ancora dentro
         # un turno di Cervello.rispondi(), non è la faccia finale del turno.
+        # E col pensiero torna l'attesa: la domanda l'aveva zittita.
         self._vai(Stato.PENSIERO, STATO_PENSIERO)
+        self.clip.attesa()
         return {"si": True, "no": False}.get(esito)
 
     def _ascolta_e_classifica(self) -> str:
         self._vai(Stato.CONFERMA, STATO_CONFERMA)
+        # Una clip ancora accesa (la voce di ripiego sul terminale non la
+        # ferma prima di tornare) finirebbe nel microfono.
+        self.clip.zitto()
         with self.sospendi_ascolto():
             audio = self._ascolta(self.cap_conferma_s)
         return self.cervello.classifica_risposta(audio)
@@ -408,24 +429,36 @@ class Macchina:
         self._vai(Stato.ASCOLTO, STATO_ASCOLTO)
         with self.sospendi_ascolto():
             audio = self._ascolta(self.cap_ascolto_s if self.usa_vad else self.durata_ascolto_s)
+        # Da qui BMO tace finché la voce non è pronta: se dura più di 0,3 s,
+        # parte la clip di attesa (#21), in loop, strumenti lenti compresi.
+        self.clip.attesa()
         try:
-            # Il cervello mostra da sé "pensiero" e l'espressione finale.
-            self.stato = Stato.PENSIERO
-            risposta = self.cervello.rispondi(audio_wav=audio)
-        except ERRORI_GEMINI as errore:
-            self.stato = Stato.ERRORE
-            self.faccia.mostra(STATO_ERRORE)
-            self.voce(f"Non ci arrivo: {descrivi_errore(errore)}")
-            return
-        self.stato = Stato.PARLATO
-        if risposta.testo:
-            # La lingua la dichiara il modello nella risposta (#42): decide
-            # quale voce parla, non la si indovina dal testo.
-            self.voce(risposta.testo, risposta.lingua)
-        else:
-            # Il riepilogo non ha prodotto niente (#18): meglio dirlo che tacere.
-            self.faccia.mostra(STATO_ERRORE)
-            self.voce("Non sono riuscito a rispondere.")
+            try:
+                # Il cervello mostra da sé "pensiero" e l'espressione finale.
+                self.stato = Stato.PENSIERO
+                risposta = self.cervello.rispondi(audio_wav=audio)
+            except ERRORI_GEMINI as errore:
+                self.stato = Stato.ERRORE
+                self.faccia.mostra(STATO_ERRORE)
+                # Prima il suono, per intero: senza rete la frase che segue
+                # finisce sul terminale, e il suono è tutto quello che si sente.
+                self.clip.errore()
+                self.voce(f"Non ci arrivo: {descrivi_errore(errore)}")
+                return
+            self.stato = Stato.PARLATO
+            if risposta.testo:
+                # La lingua la dichiara il modello nella risposta (#42): decide
+                # quale voce parla, non la si indovina dal testo.
+                self.voce(risposta.testo, risposta.lingua)
+            else:
+                # Il riepilogo non ha prodotto niente (#18): meglio dirlo che tacere.
+                self.faccia.mostra(STATO_ERRORE)
+                self.voce("Non sono riuscito a rispondere.")
+        finally:
+            # `VoceTts` la ferma da sé prima di suonare; qui la si ferma per
+            # tutti gli altri casi — voce sul terminale, eccezioni impreviste —
+            # perché una clip in loop non sopravviva mai al turno.
+            self.clip.zitto()
 
     def esegui(self, giri: int | None = None) -> None:
         """Aspetta di essere chiamato, finché non si esce (`giri` serve ai test).
@@ -481,7 +514,11 @@ def main() -> None:
     parser.add_argument("--senza-radio", action="store_true", help="non collegare radio e volume")
     parser.add_argument(
         "--voce-tts", action="store_true",
-        help="parla col TTS di Gemini (#42) invece di scrivere sul terminale; serve GEMINI_API_KEY",
+        help="parla con edge-tts (#42) invece di scrivere sul terminale; serve la rete",
+    )
+    parser.add_argument(
+        "--senza-clip", action="store_true",
+        help="niente suoni di attesa e di errore (#21)",
     )
     argomenti = parser.parse_args()
 
@@ -495,7 +532,15 @@ def main() -> None:
     # Opt-in: il terminale resta la voce predefinita finché il TTS non è
     # stato sentito funzionare dal vivo. Così prova_frasi e i test non
     # cominciano di colpo a dipendere da una chiamata di rete.
-    voce = VoceTts() if argomenti.voce_tts else voce_sul_terminale
+    # Un altoparlante solo per voce e clip (#21): `riproduci` ferma quello
+    # che sta suonando, quindi la voce interrompe la clip di attesa invece
+    # di parlarci sopra. Con due adapter ci sarebbero due mpv insieme.
+    altoparlante = crea_audio_output()
+    clip = None if argomenti.senza_clip else Clip(altoparlante)
+    if argomenti.voce_tts:
+        voce = VoceTts(altoparlante=altoparlante, prima_di_suonare=clip.zitto if clip else lambda: None)
+    else:
+        voce = voce_sul_terminale
     macchina = Macchina(
         cervello=cervello,
         faccia=faccia,
@@ -515,6 +560,7 @@ def main() -> None:
         # si sospende per la durata dell'ascolto e la si riprende subito
         # dopo. Radio.sospesa() non fa nulla se non sta suonando.
         sospendi_ascolto=radio.sospesa if radio is not None else None,
+        clip=clip,
     )
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche
