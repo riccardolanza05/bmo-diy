@@ -505,8 +505,9 @@ def main() -> None:
         help="richiamo a voce «Hey Jarvis» (#22, soglia provvisoria) invece di Invio; serve un microfono",
     )
     parser.add_argument(
-        "--modello-wake-word", default=MODELLO_PREDEFINITO,
-        help="nome fra i preaddestrati di openWakeWord, o un file .onnx (con --wake-word)",
+        "--modello-wake-word", action="append", default=None,
+        help="nome fra i preaddestrati di openWakeWord, o un file .onnx (con --wake-word); "
+        "ripetibile per caricarne più di uno insieme",
     )
     parser.add_argument(
         "--soglia-wake-word", type=float, default=SOGLIA_PREDEFINITA,
@@ -532,9 +533,10 @@ def main() -> None:
     # la soglia non è stata sentita funzionare dal vivo nella stanza vera
     # (#22, §2.6 — la soglia qui è dichiaratamente provvisoria).
     if argomenti.wake_word:
-        richiamo = RichiamoWakeWord(modello=argomenti.modello_wake_word, soglia=argomenti.soglia_wake_word)
+        modelli_wake_word = argomenti.modello_wake_word or [MODELLO_PREDEFINITO]
+        richiamo = RichiamoWakeWord(modello=modelli_wake_word, soglia=argomenti.soglia_wake_word)
         print(
-            f"Wake word: {argomenti.modello_wake_word!r}, soglia {argomenti.soglia_wake_word} (provvisoria)",
+            f"Wake word: {modelli_wake_word}, soglia {argomenti.soglia_wake_word} (provvisoria)",
             flush=True,
         )
     else:

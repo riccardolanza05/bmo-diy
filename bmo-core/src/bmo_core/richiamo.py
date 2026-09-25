@@ -105,13 +105,22 @@ def _percorso_modello(nome: str) -> str:
         ) from errore
 
 
-def _carica_rilevatore(modello: str) -> RilevatoreWakeWord:
+def _carica_rilevatore(modelli: str | list[str]) -> RilevatoreWakeWord:
+    """Uno o più modelli caricati insieme: basta che uno solo superi la soglia.
+
+    `attendi_wake_word` prende già il massimo fra tutti i punteggi restituiti
+    da `predict()` (dizionario con una chiave per modello caricato): caricare
+    più file qui non richiede nessuna modifica alla logica di rilevamento,
+    solo la lista di percorsi da passare a `Model`.
+    """
     # Importato qui, non in testa al modulo: openwakeword/onnxruntime pesano
     # sull'avvio (§2.8, ~110 MB) e servono solo a chi chiede --wake-word,
     # stesso principio di ddgs ed edge-tts (pyproject.toml).
     from openwakeword.model import Model
 
-    return Model(wakeword_model_paths=[_percorso_modello(modello)])
+    if isinstance(modelli, str):
+        modelli = [modelli]
+    return Model(wakeword_model_paths=[_percorso_modello(m) for m in modelli])
 
 
 class RichiamoWakeWord:
@@ -127,11 +136,13 @@ class RichiamoWakeWord:
     def __init__(
         self,
         microfono: AudioInputAdapter | None = None,
-        modello: str = MODELLO_PREDEFINITO,
+        modello: str | list[str] = MODELLO_PREDEFINITO,
         soglia: float = SOGLIA_PREDEFINITA,
         rilevatore: RilevatoreWakeWord | None = None,
     ) -> None:
         self.microfono = microfono or crea_audio_input()
+        # Uno o più nomi/percorsi .onnx: chiunque superi la soglia fa scattare
+        # il richiamo, non importa quale (vedi _carica_rilevatore).
         self.modello = modello
         self.soglia = soglia
         # Iniettabile per i test (vedi tests/test_richiamo.py): senza,
@@ -172,16 +183,18 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Ascolta in continuo e segnala quando sente la wake word.")
     parser.add_argument(
-        "--modello", default=MODELLO_PREDEFINITO,
-        help="nome fra i preaddestrati di openWakeWord (hey_jarvis, alexa, hey_mycroft, ...) o un file .onnx",
+        "--modello", action="append", default=None,
+        help="nome fra i preaddestrati di openWakeWord (hey_jarvis, alexa, hey_mycroft, ...) o un file .onnx; "
+        "ripetibile per caricarne più di uno insieme (basta che uno solo superi la soglia)",
     )
     parser.add_argument("--soglia", type=float, default=SOGLIA_PREDEFINITA)
     parser.add_argument("--volte", type=int, default=5, help="quanti rilevamenti aspettare prima di uscire")
     argomenti = parser.parse_args()
+    modelli = argomenti.modello or [MODELLO_PREDEFINITO]
 
-    richiamo = RichiamoWakeWord(modello=argomenti.modello, soglia=argomenti.soglia)
+    richiamo = RichiamoWakeWord(modello=modelli, soglia=argomenti.soglia)
     print(
-        f"In ascolto di {argomenti.modello!r} (soglia {argomenti.soglia}), {argomenti.volte} volte. Ctrl-C per uscire.",
+        f"In ascolto di {modelli} (soglia {argomenti.soglia}), {argomenti.volte} volte. Ctrl-C per uscire.",
         flush=True,
     )
     for i in range(argomenti.volte):

@@ -82,6 +82,28 @@ def test_richiamo_wake_word_non_rilevata_restituisce_false():
     assert richiamo() is False
 
 
+def test_carica_rilevatore_normalizza_una_stringa_in_lista(monkeypatch):
+    """Più file possono essere caricati insieme: basta che uno solo superi la soglia."""
+    import openwakeword.model as modulo_model
+
+    import bmo_core.richiamo as modulo
+
+    catturato = {}
+
+    class ModelFinto:
+        def __init__(self, wakeword_model_paths):
+            catturato["paths"] = wakeword_model_paths
+
+    monkeypatch.setattr(modulo_model, "Model", ModelFinto)
+    monkeypatch.setattr(modulo, "_percorso_modello", lambda nome: f"/finto/{nome}.onnx")
+
+    modulo._carica_rilevatore("hey_jarvis")
+    assert catturato["paths"] == ["/finto/hey_jarvis.onnx"]
+
+    modulo._carica_rilevatore(["hey_jarvis", "alexa"])
+    assert catturato["paths"] == ["/finto/hey_jarvis.onnx", "/finto/alexa.onnx"]
+
+
 def test_richiamo_wake_word_carica_il_rilevatore_una_sola_volta(monkeypatch):
     """Il rilevatore iniettato non deve mai passare da `_carica_rilevatore`."""
     import bmo_core.richiamo as modulo
