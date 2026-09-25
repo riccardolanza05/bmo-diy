@@ -529,6 +529,9 @@ def main() -> None:
     # suonando, quindi non ci sono mai due mpv che si parlano sopra.
     altoparlante = crea_audio_output()
     voce = VoceTts(altoparlante=altoparlante) if argomenti.voce_tts else voce_sul_terminale
+    # Uno solo, condiviso col richiamo qui sotto: stesso altoparlante di voce
+    # ed errore, così due mpv non suonano mai uno sopra l'altro.
+    suoni_bmo = None if argomenti.senza_suoni else Suoni(altoparlante)
     # Opt-in come la voce sopra: Invio resta il richiamo predefinito finché
     # la soglia non è stata sentita funzionare dal vivo nella stanza vera
     # (#22, §2.6 — la soglia qui è dichiaratamente provvisoria).
@@ -540,10 +543,15 @@ def main() -> None:
             # Segnale esplicito dello scatto, distinto dal generico
             # "[faccia: ascolto]" che segue subito dopo (uguale per Invio):
             # utile per una prova dal vivo, per vedere a colpo d'occhio che
-            # è stata la wake word e non un richiamo da tastiera.
+            # è stata la wake word e non un richiamo da tastiera. Il suono
+            # (stile Google Home/Alexa, ancora il tono di ripiego: non è
+            # stato scelto un file vero come per errore/timer, #21) suona
+            # per intero prima di continuare, come errore().
             rilevata = rilevatore_vocale()
             if rilevata:
                 print("(bmo ascolta)", flush=True)
+                if suoni_bmo is not None:
+                    suoni_bmo.ascolto()
             return rilevata
 
         print(
@@ -572,7 +580,7 @@ def main() -> None:
         # si sospende per la durata dell'ascolto e la si riprende subito
         # dopo. Radio.sospesa() non fa nulla se non sta suonando.
         sospendi_ascolto=radio.sospesa if radio is not None else None,
-        suoni=None if argomenti.senza_suoni else Suoni(altoparlante),
+        suoni=suoni_bmo,
     )
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche
