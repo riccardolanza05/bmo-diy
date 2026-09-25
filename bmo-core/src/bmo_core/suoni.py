@@ -35,6 +35,13 @@ BIP_ERRORE = "av://lavfi:sine=frequency=330:duration=0.12"
 # L'errore dura poco (0,14 s); il tetto serve solo se mpv si pianta.
 ATTESA_MAX_ERRORE_S = 2.0
 
+# L'ultimo ripiego per la conferma d'ascolto: un bip acuto e breve, in stile
+# Google Home/Alexa. Non è (ancora) un suono scelto all'ascolto come errore
+# e timer (#21): è solo il tono che mpv genera da solo, finché non c'è un
+# file vero da mettere al suo posto con lo stesso meccanismo di trova_suono.
+BIP_ASCOLTO = "av://lavfi:sine=frequency=880:duration=0.1"
+ATTESA_MAX_ASCOLTO_S = 1.0
+
 
 def cartella_suoni() -> Path:
     return percorso_dati() / "suoni"
@@ -73,11 +80,29 @@ class Suoni:
             return
         self.altoparlante.attendi(timeout_s=ATTESA_MAX_ERRORE_S)
 
+    def ascolto(self) -> None:
+        """Conferma che il richiamo è stato sentito (#22), stile Google Home/Alexa.
+
+        Suona per intero prima di continuare, come `errore()`: dura pochissimo
+        (0,1 s di default) apposta per non aggiungere una latenza percepibile
+        fra il richiamo e l'inizio vero dell'ascolto (§2.1: la transizione
+        deve vedersi/sentirsi entro 150 ms).
+        """
+        try:
+            self.altoparlante.riproduci(trova_suono("ascolto", BIP_ASCOLTO))
+        except OSError as errore:  # mpv assente: meglio muto che fermo
+            print(f"[suoni: ascolto non riprodotto — {errore}]", file=sys.stderr)
+            return
+        self.altoparlante.attendi(timeout_s=ATTESA_MAX_ASCOLTO_S)
+
 
 class SuoniMuti:
     """Il predefinito di `Macchina`: i test e `prova_frasi` non lanciano mpv."""
 
     def errore(self) -> None:
+        pass
+
+    def ascolto(self) -> None:
         pass
 
 
@@ -90,7 +115,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ascolta i suoni di BMO.")
     parser.add_argument("--solo-elenco", action="store_true", help="dice quali file userebbe, senza suonarli")
     argomenti = parser.parse_args()
-    scelti = {"errore": trova_suono("errore", BIP_ERRORE), "timer": tono_predefinito()}
+    scelti = {
+        "errore": trova_suono("errore", BIP_ERRORE),
+        "ascolto": trova_suono("ascolto", BIP_ASCOLTO),
+        "timer": tono_predefinito(),
+    }
     altoparlante = None if argomenti.solo_elenco else crea_audio_output()
     for nome, sorgente in scelti.items():
         print(f"{nome}: {sorgente}", flush=True)
