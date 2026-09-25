@@ -534,7 +534,18 @@ def main() -> None:
     # (#22, §2.6 — la soglia qui è dichiaratamente provvisoria).
     if argomenti.wake_word:
         modelli_wake_word = argomenti.modello_wake_word or [MODELLO_PREDEFINITO]
-        richiamo = RichiamoWakeWord(modello=modelli_wake_word, soglia=argomenti.soglia_wake_word)
+        rilevatore_vocale = RichiamoWakeWord(modello=modelli_wake_word, soglia=argomenti.soglia_wake_word)
+
+        def richiamo() -> bool:
+            # Segnale esplicito dello scatto, distinto dal generico
+            # "[faccia: ascolto]" che segue subito dopo (uguale per Invio):
+            # utile per una prova dal vivo, per vedere a colpo d'occhio che
+            # è stata la wake word e non un richiamo da tastiera.
+            rilevata = rilevatore_vocale()
+            if rilevata:
+                print("(bmo ascolta)", flush=True)
+            return rilevata
+
         print(
             f"Wake word: {modelli_wake_word}, soglia {argomenti.soglia_wake_word} (provvisoria)",
             flush=True,
@@ -570,8 +581,10 @@ def main() -> None:
         threading.Thread(target=sveglia.esegui, daemon=True).start()
     if argomenti.wake_word:
         # Niente Invio da premere, quindi niente Ctrl-D per uscire: con la
-        # tastiera fuori dal giro l'unica uscita resta Ctrl-C.
-        print("BMO è sveglio. Di' «Hey Jarvis» per parlargli; Ctrl-C per spegnerlo.", flush=True)
+        # tastiera fuori dal giro l'unica uscita resta Ctrl-C. Il testo non
+        # presume più "Hey Jarvis": con --modello-wake-word personalizzati
+        # sarebbe stato fuorviante durante una prova dal vivo.
+        print(f"BMO è sveglio. Di' una delle wake word configurate ({modelli_wake_word}); Ctrl-C per spegnerlo.", flush=True)
     else:
         print(
             "BMO è sveglio. Premi Invio e parla; Ctrl-D per spegnerlo "
