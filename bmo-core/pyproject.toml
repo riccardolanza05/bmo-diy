@@ -19,7 +19,15 @@ requires-python = ">=3.11"
 # minuto. Se un giorno BMO ammutolisce, è il primo sospetto: il ripiego
 # previsto è Azure Speech, che serve **la stessa voce** `it-IT-DiegoNeural`
 # ufficialmente.
-dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts"]
+# openwakeword + onnxruntime: la wake word «Hey Jarvis» provvisoria (#22, §2.6).
+# Gira interamente in locale via ONNX Runtime — nessun account, nessuna
+# chiave, nessuna rete — ed è l'unica scelta del piano che *deve* restare
+# locale (§2.5): l'alternativa sarebbe streammare il microfono 24/7 verso
+# Internet. I modelli preaddestrati (hey_jarvis incluso) sono dentro il
+# pacchetto pip, non servono download separati. onnxruntime pubblica ruote
+# arm64 ufficiali (non armv7l): è per questo che il Pi dovrà girare a 64 bit
+# (decisione già chiusa nel piano, non da riaprire).
+dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts", "openwakeword", "onnxruntime", "numpy"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
