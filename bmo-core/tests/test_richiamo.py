@@ -1,6 +1,14 @@
+from pathlib import Path
+
 import pytest
 
-from bmo_core.richiamo import BYTE_PER_FRAME, RichiamoWakeWord, attendi_wake_word
+from bmo_core.richiamo import (
+    BYTE_PER_FRAME,
+    MODELLI_PREDEFINITI,
+    RichiamoWakeWord,
+    _carica_rilevatore,
+    attendi_wake_word,
+)
 
 
 class RilevatoreFinto:
@@ -116,3 +124,21 @@ def test_richiamo_wake_word_carica_il_rilevatore_una_sola_volta(monkeypatch):
     microfono = MicrofonoFinto(_frame(1))
     richiamo = RichiamoWakeWord(microfono=microfono, rilevatore=rilevatore)
     assert richiamo() is True
+
+
+def test_modelli_predefiniti_sono_i_due_file_bmo():
+    """Deciso il 26/9: non più `hey_jarvis`, due file veri nel repo invece
+    di un nome di modello preaddestrato. Solo due, non tre: il terzo (bmo3)
+    resta deliberatamente fuori dal repo, sul BMO personale di Riccardo."""
+    assert len(MODELLI_PREDEFINITI) == 2
+    for percorso in MODELLI_PREDEFINITI:
+        assert Path(percorso).is_file(), f"modello mancante: {percorso}"
+        assert Path(percorso).suffix == ".onnx"
+        assert Path(percorso).stem in ("bmo1", "bmo2")
+
+
+def test_modelli_predefiniti_si_caricano_davvero():
+    """Pesi veri, non un `RilevatoreFinto`: un file .onnx rotto o un nome
+    sbagliato si scoprirebbe solo qui."""
+    rilevatore = _carica_rilevatore(MODELLI_PREDEFINITI)
+    assert set(rilevatore.models.keys()) == {"bmo1", "bmo2"}

@@ -21,12 +21,14 @@ Due pezzi restano isolati apposta dietro due funzioni, per ragioni ormai
 diverse — uno e' provvisorio, l'altro e' una scelta:
 
 - il **richiamo** e' Invio sulla tastiera di default; `RichiamoWakeWord`
-  (#22, `richiamo.py`) ascolta «Hey Jarvis» col modello preaddestrato di
-  openWakeWord (§2.6: la wake word «Hey BMO» propria è una rifinitura
-  successiva, non un prerequisito) e si chiede con `--wake-word`. Resta
-  opt-in, deciso il 25/9 sullo stesso schema della voce sotto: la soglia è
-  «provvisoria» (l'issue lo dice nel titolo) finché non è stata sentita
-  funzionare dal vivo nella stanza vera;
+  (#22, `richiamo.py`) ascolta «Hey BMO» coi due modelli addestrati da
+  Riccardo committati nel repo (`modelli-wake-word/bmo1.onnx`, `bmo2.onnx`,
+  §2.6 — non più il preaddestrato `hey_jarvis`, deciso il 26/9). Un terzo
+  modello (bmo3) resta deliberatamente fuori dal repo, solo sul BMO
+  personale di Riccardo. Si chiede con `--wake-word`. Resta opt-in, deciso
+  il 25/9 sullo stesso schema della voce sotto: la soglia è «provvisoria»
+  (l'issue lo dice nel titolo) finché non è stata sentita funzionare dal
+  vivo nella stanza vera;
 - la **voce** stampa il testo di default (`voce_sul_terminale`); `VoceTts`
   (#42) la sintetizza con edge-tts e la suona, e si chiede con
   `--voce-tts`. Resta opt-in finché non è stata sentita funzionare dal vivo:
@@ -85,7 +87,7 @@ from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, des
 from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
 from .radio import Radio
-from .richiamo import MODELLO_PREDEFINITO, SOGLIA_PREDEFINITA, RichiamoWakeWord
+from .richiamo import MODELLI_PREDEFINITI, SOGLIA_PREDEFINITA, RichiamoWakeWord
 from .suoni import Suoni, SuoniMuti
 from .sveglia import Sveglia
 from .tts import TtsNonDisponibile, sintetizza
@@ -477,7 +479,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="BMO acceso: premi Invio per parlargli (--wake-word per «Hey Jarvis» invece di Invio)."
+        description="BMO acceso: premi Invio per parlargli (--wake-word per «Hey BMO» invece di Invio)."
     )
     parser.add_argument(
         "--senza-vad", action="store_true",
@@ -502,7 +504,7 @@ def main() -> None:
     parser.add_argument("--senza-suoni", action="store_true", help="niente suono d'errore (#21)")
     parser.add_argument(
         "--wake-word", action="store_true",
-        help="richiamo a voce «Hey Jarvis» (#22, soglia provvisoria) invece di Invio; serve un microfono",
+        help="richiamo a voce «Hey BMO» (#22, soglia provvisoria) invece di Invio; serve un microfono",
     )
     parser.add_argument(
         "--modello-wake-word", action="append", default=None,
@@ -536,7 +538,7 @@ def main() -> None:
     # la soglia non è stata sentita funzionare dal vivo nella stanza vera
     # (#22, §2.6 — la soglia qui è dichiaratamente provvisoria).
     if argomenti.wake_word:
-        modelli_wake_word = argomenti.modello_wake_word or [MODELLO_PREDEFINITO]
+        modelli_wake_word = argomenti.modello_wake_word or MODELLI_PREDEFINITI
         rilevatore_vocale = RichiamoWakeWord(modello=modelli_wake_word, soglia=argomenti.soglia_wake_word)
 
         def richiamo() -> bool:

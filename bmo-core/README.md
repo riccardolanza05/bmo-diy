@@ -174,20 +174,28 @@ Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
 **richiamo** è Invio sulla tastiera se non si passa `--wake-word` (#22) e la
 **voce** stampa il testo se non si passa `--voce-tts` (#42).
 
-## Il richiamo a voce: «Hey Jarvis» (issue #22)
+## Il richiamo a voce: «Hey BMO» (issue #22)
 
 `--wake-word` sostituisce Invio con `RichiamoWakeWord` (`richiamo.py`):
 ascolta in continuo dal microfono e fa scattare il turno quando riconosce la
 parola, restando bloccante come `richiamo_da_tastiera` — `Macchina` non sa la
 differenza, prende entrambi come `Callable[[], bool]`.
 
-**Modello preaddestrato, non ancora «Hey BMO».** Il piano (§2.6) sceglie di
-proposito `hey_jarvis` di [openWakeWord](https://github.com/dscripka/openWakeWord)
-per lo sviluppo: addestrare un modello «Hey BMO» proprio è una rifinitura
-successiva (Colab ufficiale, dati sintetici), non un prerequisito. Gira
-interamente in locale via ONNX Runtime — nessun account, nessuna chiave,
-nessuna rete — con i modelli preaddestrati già dentro il pacchetto pip, senza
-download separati.
+**Due modelli «Hey BMO» addestrati da Riccardo, non più il preaddestrato
+`hey_jarvis`** (deciso il 26/9: non lo usa). I file — comunità di
+[openWakeWord](https://github.com/dscripka/openWakeWord), non pesi ufficiali
+— stanno in `modelli-wake-word/bmo1.onnx` e `bmo2.onnx`, caricati insieme
+di default (`richiamo.MODELLI_PREDEFINITI`): basta che uno solo superi la
+soglia. Non è ancora chiaro a quale frase esatta risponda ciascuno — dalle
+prime prove (26/9, frasi sintetizzate con edge-tts, non voce vera) `bmo1`
+risponde a "Beemo", `bmo2` a "Hey Beemo" e "Ehi Bimo" (italiano compreso).
+Gira interamente in locale via ONNX Runtime — nessun account, nessuna
+chiave, nessuna rete.
+
+Esiste anche un terzo modello (`bmo3`), tenuto **deliberatamente fuori dal
+repo**: Riccardo lo usa solo in locale, sul suo BMO personale, mai
+committato per nessun motivo. Chi vuole caricarlo lo fa con
+`--modello-wake-word <percorso locale>`, in aggiunta ai due di default.
 
 **Soglia provvisoria** (il titolo della #22 lo dice esplicitamente): il
 cancello vero — tarato nella stanza reale, con la TV accesa, ≥ 9/10 a 3 m,
@@ -195,13 +203,16 @@ cancello vero — tarato nella stanza reale, con la TV accesa, ≥ 9/10 a 3 m,
 montato sul Pi. Per tararla nel frattempo:
 
 ```bash
-python -m bmo_core.richiamo                                  # 5 rilevamenti, hey_jarvis, soglia 0.5
+python -m bmo_core.richiamo                                  # 5 rilevamenti, bmo1+bmo2, soglia 0.5
 python -m bmo_core.richiamo --soglia 0.6 --volte 10
 python -m bmo_core.macchina --wake-word --soglia-wake-word 0.6
+python -m bmo_core.macchina --wake-word --modello-wake-word modelli-wake-word/bmo1.onnx \
+  --modello-wake-word modelli-wake-word/bmo2.onnx --modello-wake-word /percorso/locale/bmo3.onnx
 ```
 
-`--modello-wake-word` accetta anche un percorso a un file `.onnx`: il punto
-in cui si innesterà il modello «Hey BMO» custom, senza toccare il codice.
+`--modello-wake-word` accetta anche un percorso a un file `.onnx`, o un nome
+fra i preaddestrati di openWakeWord (`hey_jarvis` compreso, se mai servisse
+di nuovo): niente qui è legato ai due modelli bmo di default.
 
 ## La voce di BMO (issue #42)
 
