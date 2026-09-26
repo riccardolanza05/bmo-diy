@@ -523,6 +523,69 @@ fa 2 tentativi per modello invece dei 5 predefiniti, per non aspettare 15 s prim
 di cambiare modello; dentro il tetto del turno (#18) il tempo per due tentativi
 non c'è quasi mai, quindi in pratica si passa subito alla riserva.
 
+## Memoria di sessione (issue #29)
+
+Prima di questa issue ogni turno partiva da zero: `rispondi()` mandava a
+Gemini solo l'audio appena registrato, e BMO non ricordava cosa si fosse
+detto un attimo prima. `sessione.py` tiene lo storico letterale dei turni
+recenti in RAM (`Cervello.sessione`), lo antepone a ogni richiesta e lo
+gestisce da solo, turno dopo turno:
+
+- **5 minuti di silenzio** chiudono la sessione: una richiesta silenziosa
+  estrae i fatti utili verso il diario delle preferenze (#14, stesso file
+  `memoria.json`, `fonte="modello"`) e lo storico riparte vuoto. **Il diario
+  si aggiorna solo qui**, alla chiusura vera della conversazione — mai al
+  tetto di token qui sotto, che comprime soltanto: decisione esplicita del
+  26/9, per non scrivere nulla di permanente a metà di una conversazione
+  ancora in corso.
+- **60k token** in ingresso (letti da `usage_metadata.prompt_token_count`
+  dell'ultima risposta, nessuna chiamata in più solo per contare) comprimono
+  la conversazione in un riassunto invece di chiuderla, senza toccare il
+  diario. Il riassunto vive nello strato STATO del prompt
+  (`contesto_dinamico`, accanto a Diario e Timer), non fra i `contents`
+  della conversazione: due turni `user` di fila lì non è una forma garantita
+  dall'API multi-turno. Quel che c'è da ricordare in quella conversazione
+  arriva comunque al diario quando la sessione chiuderà per davvero — non è
+  perso, solo rimandato.
+- **L'estrazione è pensata per essere rara**, non un riassunto ad ogni
+  conversazione: il prompt (`ISTRUZIONE_ESTRAZIONE`) chiede esplicitamente
+  che `NIENTE` sia la risposta più frequente, elenca cosa non scrivere mai
+  (azioni occasionali come un timer o una ricerca, cose vaghe, doppioni
+  anche riformulati) e limita a 2 voci nuove per chiamata
+  (`MAX_VOCI_PER_ESTRAZIONE`). Le voci scritte a mano (`fonte="manuale"`,
+  via SCP) non vengono mai sfrattate dal tetto del diario — solo quelle
+  automatiche (`memoria.MAX_VOCI_AUTOMATICHE`).
+- Se l'estrazione fallisce (rete giù, quota) non si perde niente: il testo
+  da estrarre resta da parte (`Cervello._estrazione_pendente`, separato
+  dallo storico vivo apposta) e si ritenta al turno successivo, fino a un
+  tetto di tentativi (`MAX_TENTATIVI_ESTRAZIONE`) oltre il quale si rinuncia.
+- Il testo di chi ha parlato è quello passato a `rispondi(testo=...)` quando
+  c'è già (prove, CLI). Con l'audio, il **primo giro del turno scrive la
+  trascrizione nella stessa risposta** (`[TRASCRIZIONE] ... \n===`, prima di
+  qualunque altra cosa, anche prima di chiamare uno strumento) invece di una
+  seconda chiamata dedicata — provato dal vivo il 26/9: 6/6 fra chiamate a
+  strumento e risposte dirette, italiano e inglese. La seconda chiamata
+  dedicata (`ISTRUZIONE_TRASCRIZIONE`) resta solo come ripiego per quando il
+  blocco manca dalla risposta.
+
+**Nessuna di queste richieste gira da `rispondi()`.** L'issue lo vieta
+esplicitamente ("mai mentre qualcuno aspetta una risposta"), e finché
+`rispondi()` non è tornata la persona sta aspettando esattamente questo.
+Girano tutte da `Cervello.dopo_il_turno()`, da chiamare **dopo** che la voce
+ha già parlato — `Macchina.turno()` lo fa subito dopo `self.voce(...)`, che
+aspetta la fine della sintesi. Chi usa `Cervello` direttamente (CLI, prove)
+deve chiamarlo a mano dopo ogni `rispondi()`.
+
+Tutto qui sopra è **turno dopo turno**, non un timer in background: si
+valuta all'inizio del turno successivo a quello che ha superato la soglia
+(`rispondi()`) o subito dopo aver risposto (`dopo_il_turno()`), mai mentre
+non sta succedendo niente. Per provarlo dal vivo, sullo stesso `Cervello`
+per tutta la conversazione:
+
+```bash
+python -m bmo_core.brain --conversazione   # Invio → parli → BMO risponde, di seguito
+```
+
 ## Sviluppo
 
 ```bash

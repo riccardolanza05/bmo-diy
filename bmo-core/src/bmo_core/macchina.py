@@ -432,6 +432,9 @@ class Macchina:
             # finisce sul terminale, e il suono è tutto quello che si sente.
             self.suoni.errore()
             self.voce(f"Non ci arrivo: {descrivi_errore(errore)}")
+            # Un'eventuale estrazione di sessione in sospeso (#29) non deve
+            # aspettare che questo turno vada a buon fine: non lo riguarda.
+            self.cervello.dopo_il_turno()
             return
         self.stato = Stato.PARLATO
         if risposta.testo:
@@ -442,6 +445,11 @@ class Macchina:
             # Il riepilogo non ha prodotto niente (#18): meglio dirlo che tacere.
             self.faccia.mostra(STATO_ERRORE)
             self.voce("Non sono riuscito a rispondere.")
+        # Le richieste silenziose della #29 (trascrizione, estrazione,
+        # riassunto) girano solo adesso: la voce ha già finito di parlare
+        # (`self.voce` aspetta la fine della sintesi, vedi `VoceTts.__call__`),
+        # non prima e non durante.
+        self.cervello.dopo_il_turno()
 
     def esegui(self, giri: int | None = None) -> None:
         """Aspetta di essere chiamato, finché non si esce (`giri` serve ai test).

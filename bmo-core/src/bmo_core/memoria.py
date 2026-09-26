@@ -15,9 +15,16 @@ Questo modulo non sa niente della conferma: sa solo leggere e scrivere il file.
 Ogni voce ha un `testo` in linguaggio naturale (non una coppia chiave-valore:
 un diario di preferenze di casa è troppo eterogeneo per uno schema fisso),
 una data e una `fonte` — "manuale" per quelle scritte via SCP, "modello" per
-quelle proposte da BMO e confermate a voce (in futuro anche per l'estrazione
-di fine sessione della #29). Il tetto sulle voci tiene il diario di
-dimensione limitata: oltre il tetto si tengono solo le più recenti.
+quelle proposte da BMO e confermate a voce, o scritte in automatico
+dall'estrazione di fine sessione (#29).
+
+**Il tetto (`MAX_VOCI_AUTOMATICHE`) riguarda solo le voci "modello"**: oltre
+il tetto si tengono solo le più recenti automatiche, quelle più vecchie
+vengono scartate. Le voci "manuale" — quelle scritte a mano da chi vive in
+casa, via SCP — **non vengono mai sfrattate**, qualunque sia il loro numero:
+è una decisione esplicita (26/9), perché altrimenti l'estrazione automatica
+della #29 potrebbe col tempo spingere fuori dal diario qualcosa che qualcuno
+ha scritto di suo pugno.
 """
 from __future__ import annotations
 
@@ -31,9 +38,10 @@ from .config import percorso_dati
 
 NOME_FILE = "memoria.json"
 
-# Oltre questo numero di voci il prompt comincia a gonfiarsi per poco
-# guadagno: si tengono le più recenti e si lasciano cadere le più vecchie.
-MAX_VOCI = 30
+# Oltre questo numero di voci "modello" il prompt comincia a gonfiarsi per
+# poco guadagno: si tengono le più recenti automatiche e si lasciano cadere
+# le più vecchie automatiche. Non tocca mai le voci "manuale" (vedi sopra).
+MAX_VOCI_AUTOMATICHE = 30
 
 
 @dataclass
@@ -43,7 +51,23 @@ class Voce:
     fonte: str = "manuale"
 
 
-def carica_diario(percorso: Path | None = None, tetto: int = MAX_VOCI) -> list[Voce]:
+def _applica_tetto_automatiche(voci: list[Voce], tetto: int) -> list[Voce]:
+    """Scarta solo le voci "modello" più vecchie oltre il tetto.
+
+    Le voci "manuale" restano tutte, nella loro posizione originale: solo
+    gli indici delle voci "modello" contano ai fini del tetto, e solo le più
+    vecchie fra quelle vengono tolte quando sono troppe.
+    """
+    if not tetto:
+        return voci
+    indici_automatiche = [i for i, v in enumerate(voci) if v.fonte == "modello"]
+    if len(indici_automatiche) <= tetto:
+        return voci
+    da_scartare = set(indici_automatiche[: len(indici_automatiche) - tetto])
+    return [v for i, v in enumerate(voci) if i not in da_scartare]
+
+
+def carica_diario(percorso: Path | None = None, tetto: int = MAX_VOCI_AUTOMATICHE) -> list[Voce]:
     """Le voci del diario, dalla più vecchia alla più recente nel file.
 
     Un file mancante o rotto non deve fermare BMO: si riparte da un diario
@@ -65,7 +89,7 @@ def carica_diario(percorso: Path | None = None, tetto: int = MAX_VOCI) -> list[V
                     fonte=str(riga.get("fonte", "manuale")),
                 )
             )
-    return voci[-tetto:] if tetto and len(voci) > tetto else voci
+    return _applica_tetto_automatiche(voci, tetto)
 
 
 def salva_diario(percorso: Path, voci: list[Voce]) -> None:
@@ -97,6 +121,6 @@ def aggiungi_voce(percorso: Path | None, testo: str, aggiunta_il: str, fonte: st
     percorso = Path(percorso) if percorso is not None else percorso_dati() / NOME_FILE
     voci = carica_diario(percorso)  # già tagliate al tetto in lettura
     nuova = Voce(testo=testo, aggiunta_il=aggiunta_il, fonte=fonte)
-    voci = (voci + [nuova])[-MAX_VOCI:]
+    voci = _applica_tetto_automatiche(voci + [nuova], MAX_VOCI_AUTOMATICHE)
     salva_diario(percorso, voci)
     return nuova

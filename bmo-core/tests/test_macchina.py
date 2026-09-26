@@ -51,13 +51,16 @@ class ArchivioFinto:
 class CervelloFinto:
     """Sostituto di Cervello: la macchina lo usa solo per ascoltare e rispondere."""
 
-    def __init__(self, risposte, faccia=None, classificazioni=None, diagnostiche=None):
+    def __init__(self, risposte, faccia=None, classificazioni=None, diagnostiche=None, sequenza=None):
         self._risposte = list(risposte)
         self.faccia = faccia
         self.ascolti = []
         self.ascolti_vad = []
         self.strumenti_registrati = {}
         self._classificazioni = list(classificazioni or [])
+        # Condivisa con `voce` in `_macchina()`, per provare che le richieste
+        # silenziose della #29 girino sempre dopo che la voce ha parlato.
+        self.sequenza = sequenza if sequenza is not None else []
         self._diagnostiche = list(diagnostiche or [])
         self.audio_classificati = []
         self.diario_percorso = None
@@ -86,16 +89,26 @@ class CervelloFinto:
         self.audio_classificati.append(audio_wav)
         return self._classificazioni.pop(0)
 
+    def dopo_il_turno(self):
+        """Le richieste silenziose della #29: qui non c'è niente da estrarre."""
+        self.sequenza.append("dopo_il_turno")
+
 
 def _macchina(risposte, orologio=None, richiami=1, classificazioni=None, diagnostiche=None, **opzioni):
     faccia = FacciaFinta()
-    cervello = CervelloFinto(risposte, faccia, classificazioni=classificazioni, diagnostiche=diagnostiche)
+    sequenza = []
+    cervello = CervelloFinto(risposte, faccia, classificazioni=classificazioni, diagnostiche=diagnostiche, sequenza=sequenza)
     dette = []
+
+    def voce(testo, lingua="it"):
+        sequenza.append("voce")
+        dette.append(testo)
+
     macchina = Macchina(
         cervello=cervello,
         faccia=faccia,
         richiamo=lambda: True,
-        voce=lambda testo, lingua="it": dette.append(testo),
+        voce=voce,
         orologio=orologio or OrologioFinto(),
         # Il VAD (aggiunto il 20/9) vive nel microfono vero: CervelloFinto non
         # lo implementa, perché questi test riguardano gli stati e il
@@ -112,6 +125,20 @@ def test_un_turno_passa_per_gli_stati_giusti():
     assert faccia.stati[:2] == [STATO_IDLE, STATO_ASCOLTO]
     assert dette == ["Ciao!"]
     assert macchina.stato is Stato.PARLATO
+
+
+def test_dopo_il_turno_gira_solo_dopo_che_la_voce_ha_parlato():
+    """Issue #29: le richieste silenziose non devono mai girare mentre chi
+    ha appena parlato aspetta ancora una risposta."""
+    macchina, faccia, cervello, dette = _macchina([Risposta(testo="Ciao!", espressione="felice")])
+    macchina.esegui(giri=1)
+    assert cervello.sequenza == ["voce", "dopo_il_turno"]
+
+
+def test_dopo_il_turno_gira_anche_quando_gemini_non_risponde():
+    macchina, faccia, cervello, dette = _macchina([GeminiNonDisponibile("rete", {})])
+    macchina.esegui(giri=1)
+    assert cervello.sequenza == ["voce", "dopo_il_turno"]
 
 
 def test_la_faccia_cambia_prima_di_registrare():
