@@ -106,6 +106,32 @@ della sintesi vocale e la tiene in `Risposta.espressione`.
 ha risposto e quanto è durato il turno: nelle prove a voce è il modo di vedere
 se un timer è stato impostato davvero o solo annunciato.
 
+## Le persone di casa nel prompt (issue #15)
+
+BMO non è di proprietà esclusiva: è condiviso da più persone. Senza
+riconoscimento vocale (troppo costoso in RAM/complessità su 512 MB, vedi #13)
+il prompt non sa mai chi sta parlando in un dato momento, ma può comunque
+sapere chi vive in casa. L'elenco è un dato personale, non tecnico: non sta
+nel repository pubblico, ma in un file privato `persone.json` nella stessa
+cartella dati di `memoria.json` e dell'archivio dei timer (`config.percorso_dati()`,
+`~/.local/state/bmo/` sul PC di sviluppo, `/var/lib/bmo/` sul Pi).
+
+```json
+["Finn", "Jake"]
+```
+
+Un array JSON di nomi, in qualunque ordine. Un file mancante o vuoto non
+cambia niente: il prompt semplicemente non ne parla, come se la sezione non
+esistesse. Il file va creato a mano su ogni deploy (non è nel repo, non c'è
+uno strumento che lo scrive): `bmo_core.persone.carica_persone()` lo rilegge
+una volta per turno, così una modifica via SCP si vede dal turno successivo
+senza riavviare BMO.
+
+Il prompt aggiunge solo l'elenco e un'istruzione esplicita a non indovinare
+né salutare per nome di propria iniziativa: senza riconoscimento vocale, una
+lista di nomi in mano al modello rischia di fargli assumere di sapere chi ha
+davanti, e non è così.
+
 ## Il tetto del turno e il riepilogo forzato (issue #18)
 
 Il loop agentico ha due limiti (§2.1): **4 giri** in cui BMO può chiamare
