@@ -166,15 +166,21 @@ class Renderer:
 
     def disegna(self, comando: ComandoFaccia, t: float) -> Image.Image:
         m = self.manifesto
-        anim_corpo = m.corpo[comando.stato]
-        immagine = self._fotogramma(anim_corpo.offset, indice_corpo(comando.stato, t, m), m.larghezza, m.altezza)
+        # Uno stato sconosciuto (un bug altrove, una versione di bmo-core più
+        # nuova che manda uno stato nuovo, o — il caso reale trovato dal vivo
+        # il 26/9 — un'espressione mandata per sbaglio dove ci si aspettava
+        # uno STATO_*) non deve mai far cadere bmo-face: si ripiega su
+        # "idle" invece di sollevare `KeyError`.
+        stato = comando.stato if comando.stato in m.corpo else "idle"
+        anim_corpo = m.corpo[stato]
+        immagine = self._fotogramma(anim_corpo.offset, indice_corpo(stato, t, m), m.larghezza, m.altezza)
 
-        if comando.stato == "parlato" and m.bocca:
+        if stato == "parlato" and m.bocca:
             rx, ry, rw, rh = m.bocca.regione
             indice = indice_da_livello(livello_bocca(comando, t), m.bocca.frames)
             immagine.paste(self._fotogramma(m.bocca.offset, indice, rw, rh), (rx, ry))
 
-        if comando.stato == "ascolto" and m.pupille:
+        if stato == "ascolto" and m.pupille:
             rx, ry, rw, rh = m.pupille.regione
             indice = indice_da_livello(comando.livello, m.pupille.frames)
             immagine.paste(self._fotogramma(m.pupille.offset, indice, rw, rh), (rx, ry))
@@ -189,7 +195,7 @@ class Renderer:
             rx, ry, rw, rh = anim_e.regione
             immagine.paste(self._fotogramma(anim_e.offset, 0, rw, rh), (rx, ry))
 
-        if comando.stato == "timer" and comando.timer_rimanente is not None:
+        if stato == "timer" and comando.timer_rimanente is not None:
             self._disegna_countdown(immagine, comando.timer_rimanente, comando.timer_etichetta)
 
         return immagine
@@ -241,7 +247,7 @@ def carta_prova(larghezza: int, altezza: int) -> Image.Image:
     righe = [r.ljust(20)[:20] for r in _RIGHE_CARTA_PROVA]
     immagine = Image.new("RGB", (larghezza, altezza), SFONDO)
     disegna = ImageDraw.Draw(immagine)
-    font = _dimensiona_font_per_larghezza(disegna, righe[0], larghezza * 0.90)
+    font = _dimensiona_font_per_larghezza(disegna, righe[0], larghezza * 0.97)
     altezza_riga = altezza / 4
     for i, riga in enumerate(righe):
         box = disegna.textbbox((0, 0), riga, font=font)

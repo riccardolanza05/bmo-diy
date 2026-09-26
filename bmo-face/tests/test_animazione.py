@@ -118,3 +118,17 @@ def test_renderer_e_puro_stesso_input_stesso_risultato():
     a = renderer.disegna(comando, 1.234).tobytes()
     b = renderer.disegna(comando, 1.234).tobytes()
     assert a == b
+
+
+def test_renderer_stato_sconosciuto_non_va_in_crash():
+    # Trovato dal vivo il 26/9: brain.py mandava per sbaglio un'espressione
+    # ("felice") a mostra() invece che a esprimi() — FacciaSocket la
+    # inoltrava fedelmente, e il renderer andava in KeyError. Corretto in
+    # brain.py, ma il renderer deve restare comunque robusto a qualunque
+    # stato sconosciuto arrivi dal socket: non è l'unico bug possibile.
+    dati, manifesto = costruisci(32, 24)
+    renderer = Renderer(manifesto, dati)
+    immagine = renderer.disegna(ComandoFaccia(stato="felice"), 0.0)
+    assert immagine.size == (32, 24)
+    atteso = renderer.disegna(ComandoFaccia(stato="idle"), 0.0)
+    assert immagine.tobytes() == atteso.tobytes()

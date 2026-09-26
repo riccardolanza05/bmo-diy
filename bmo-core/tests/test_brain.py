@@ -89,13 +89,23 @@ class MicrofonoFinto:
 
 
 class FacciaFinta:
-    """Registra gli stati che il cervello le chiede di mostrare."""
+    """Registra stati ed espressioni che il cervello le chiede di mostrare.
+
+    Due liste separate apposta (issue #23): `mostra` (STATO_*) ed `esprimi`
+    (le espressioni del modello) sono due canali distinti del vero contratto
+    `FacciaAdapter`, non lo stesso elenco — confonderli qui nasconderebbe lo
+    stesso bug che in `brain.py` mandava un'espressione a `mostra()`.
+    """
 
     def __init__(self):
         self.stati = []
+        self.espressioni = []
 
     def mostra(self, stato: str) -> None:
         self.stati.append(stato)
+
+    def esprimi(self, espressione: str, ttl: float = 3.0) -> None:
+        self.espressioni.append(espressione)
 
 
 def _ricerca_finta(query):
@@ -376,8 +386,9 @@ def test_la_faccia_dice_cosa_sta_facendo_bmo():
     assert faccia.stati == [
         brain_modulo.STATO_ASCOLTO,
         brain_modulo.STATO_PENSIERO,
-        "felice",
+        brain_modulo.STATO_PARLATO,
     ]
+    assert faccia.espressioni == ["felice"]
 
 
 def test_la_faccia_resta_in_pensiero_per_tutto_il_loop():

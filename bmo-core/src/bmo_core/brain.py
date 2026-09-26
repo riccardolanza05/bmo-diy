@@ -1055,7 +1055,15 @@ class Cervello:
         # Innocuo quando non c'è (`separa_trascrizione` lo lascia intatto).
         _, testo_grezzo = separa_trascrizione(testo_grezzo)
         espressione, lingua, testo_finale = separa_etichette(testo_grezzo)
-        self.faccia.mostra(espressione or (STATO_PARLATO if testo_finale else STATO_ERRORE))
+        # Due chiamate distinte apposta (issue #23): `mostra` è sempre uno
+        # STATO_* vero, `esprimi` è l'espressione scelta dal modello. Prima
+        # di bmo-face erano confuse in una sola (`mostra(espressione or ...)`),
+        # innocuo quando la faccia non faceva altro che stampare o ignorare,
+        # ma `FacciaSocket` verso un renderer vero andava in KeyError su
+        # un'espressione passata come se fosse uno stato.
+        self.faccia.mostra(STATO_PARLATO if testo_finale else STATO_ERRORE)
+        if espressione:
+            self.faccia.esprimi(espressione)
         # Storico di sessione (#29): non lo si scrive già qui. `dopo_il_turno()`
         # farà le eventuali richieste silenziose (trascrizione, estrazione,
         # riassunto) solo *dopo* che questa `Risposta` sarà arrivata a

@@ -5,11 +5,28 @@ pipeline della §2.11 assume delle GIF già pronte in ingresso a `build_face.py`
 ma finché nessuno le disegna serve comunque qualcosa da convertire in
 `faces.bin` per collaudare tutto il resto (pipeline, protocollo socket,
 finestra a dimensione fisica). Questo modulo genera forme geometriche
-semplicissime con PIL — mai i fotogrammi veri di Adventure Time, che restano
-fuori dal repository pubblico come già per l'audio di terzi (`suoni.py`) —
-in modo che chiunque possa sostituirle in seguito senza toccare il resto
-della pipeline: `build_face.py --sorgente cartella/` prenderà il posto di
-`genera_placeholder()` il giorno in cui esisterà un disegno vero.
+disegnate a codice con PIL, in modo che chiunque possa sostituirle in
+seguito senza toccare il resto della pipeline: `build_face.py --sorgente
+cartella/` prenderà il posto di `genera_placeholder()` il giorno in cui
+esisterà un disegno vero.
+
+**Nota sui diritti (26/9, su richiesta esplicita)**: i colori e le
+proporzioni qui sotto (schermo chiaro, occhi grandi e ovali scuri) sono
+scelti per richiamare l'aspetto di BMO — non un fotogramma copiato da
+Adventure Time, non i file del progetto di riferimento esterno
+(`brenpoly/be-more-agent`, che ha una licenza propria e non chiaramente
+estesa alle sue immagini), ma nemmeno una forma neutra qualunque. BMO è un
+personaggio protetto da copyright e marchio (Cartoon Network / Warner Bros.
+Discovery): l'intero progetto bmo-diy è già, per sua natura, una
+ricostruzione non ufficiale e non commerciale del personaggio (il guscio
+stampato in 3D viene dagli stessi modelli "BMO" di Printables, §"Riferimenti
+esterni"), quindi questa faccia non introduce un rischio nuovo — ma **non è
+"open source" nel senso di essere liberamente riutilizzabile da chiunque per
+qualunque scopo**: resta materiale di un progetto fan-made. La decisione se
+e come distribuire pubblicamente questo repository (licenza, eventuale
+disclaimer esplicito nel README principale — oggi assente, vedi
+`docs/note-issue-23.md`) resta di Riccardo, proprietario del progetto: qui
+si segnala soltanto, non si decide.
 
 Tutto è parametrico su `larghezza`/`altezza`: nessuna forma assume 320×240,
 perché il pannello del BOM non è ancora deciso (issue #1) e potrebbe finire
@@ -19,14 +36,13 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw
 
-# Un unico schema di colori, scelto solo per essere leggibile a bassa
-# risoluzione: sfondo quasi nero (uno schermo spento, non acceso di suo) e
-# occhi/bocca chiari e ad alto contrasto — la prova di leggibilità (#23b)
-# guarda proprio questo.
-SFONDO = (18, 22, 26)
-CHIARO = (223, 238, 250)
-ACCENTO_ERRORE = (214, 90, 90)
-ACCENTO_TIMER = (240, 200, 90)
+# Schermo chiaro (crema/verde pallido) e tratti scuri: l'aspetto tipico dello
+# schermo-faccia di BMO, non lo "schermo spento" nero della prima versione
+# placeholder — vedi la nota sui diritti qui sopra.
+SFONDO = (224, 234, 205)
+CHIARO = (38, 42, 36)
+ACCENTO_ERRORE = (176, 60, 60)
+ACCENTO_TIMER = (196, 140, 30)
 
 
 def _tela(larghezza: int, altezza: int) -> tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -46,21 +62,23 @@ def _occhio(
     """Un occhio rettangolare, largo `larghezza` px, alto in proporzione ad `aperto` (0-1).
 
     `aperto=0` è una fessura orizzontale (occhio chiuso, battito di palpebre);
-    `aperto=1` è tutto aperto. Il centro è in frazione di schermo (0-1, 0-1),
-    così la stessa funzione vale per qualunque risoluzione del pannello.
+    `aperto=1` è tutto aperto — un ovale, non un rettangolo: la forma grande
+    e ovale è quella che rende un occhio riconoscibile come "occhio di BMO"
+    invece che un rettangolo generico. Il centro è in frazione di schermo
+    (0-1, 0-1), così la stessa funzione vale per qualunque risoluzione del
+    pannello.
     """
     h = max(2, round(altezza * aperto))
     x0, x1 = cx - larghezza / 2, cx + larghezza / 2
     y0, y1 = cy - h / 2, cy + h / 2
-    raggio = min(larghezza, h) / 3
-    disegna.rounded_rectangle([x0, y0, x1, y1], radius=raggio, fill=colore)
+    disegna.ellipse([x0, y0, x1, y1], fill=colore)
 
 
 def _dimensioni_occhi(w: int, h: int) -> tuple[float, float, int, int]:
     """Centro verticale e dimensioni degli occhi, in frazione/pixel di (w, h)."""
-    cy = h * 0.38
-    larghezza_occhio = round(w * 0.12)
-    altezza_occhio = round(h * 0.20)
+    cy = h * 0.36
+    larghezza_occhio = round(w * 0.15)
+    altezza_occhio = round(h * 0.26)
     return cy, cy, larghezza_occhio, altezza_occhio
 
 
@@ -251,11 +269,14 @@ def overlay_bocca(w: int, h: int, n_livelli: int = 5) -> tuple[list[Image.Image]
         apertura = i / max(1, n_livelli - 1)
         img = Image.new("RGB", (rw, rh), SFONDO)
         disegna = ImageDraw.Draw(img)
-        altezza_bocca = max(2, round(rh * (0.12 + 0.75 * apertura)))
-        y0 = (rh - altezza_bocca) // 2
-        disegna.rounded_rectangle(
-            [rw * 0.08, y0, rw * 0.92, y0 + altezza_bocca], radius=altezza_bocca / 2, fill=CHIARO
-        )
+        # Un ovale, non un rettangolo arrotondato: chiusa è una fessura
+        # orizzontale sottile, spalancata è un piccolo ovale — la stessa
+        # forma "a O" della bocca di BMO quando parla, non una barra.
+        altezza_bocca = max(2, round(rh * (0.10 + 0.80 * apertura)))
+        larghezza_bocca = rw * (0.62 - 0.10 * apertura)
+        x0 = (rw - larghezza_bocca) / 2
+        y0 = (rh - altezza_bocca) / 2
+        disegna.ellipse([x0, y0, x0 + larghezza_bocca, y0 + altezza_bocca], fill=CHIARO)
         frame.append(img)
     return frame, [rx, ry, rw, rh]
 
@@ -325,12 +346,15 @@ def overlay_espressioni(w: int, h: int) -> dict[str, tuple[Image.Image, list[int
     """
     rx, ry, rw, rh = regione_espressione(w, h)
     forme: dict[str, tuple[Image.Image, list[int]]] = {}
+    # Colori scuri, non chiari: lo sfondo ora è chiaro (vedi SFONDO), un
+    # accento chiaro come "sorpreso" prima della correzione sarebbe stato
+    # invisibile sopra.
     colori = {
-        "felice": (240, 200, 90),
-        "pensieroso": (150, 180, 220),
-        "sorpreso": (240, 240, 240),
-        "triste": (110, 130, 180),
-        "assonnato": (120, 120, 130),
+        "felice": (196, 140, 30),
+        "pensieroso": (70, 95, 140),
+        "sorpreso": (150, 60, 60),
+        "triste": (60, 75, 120),
+        "assonnato": (90, 90, 95),
     }
     # Margine di sicurezza per lato: su un pannello minuscolo `rw`/`rh` sono
     # piccoli quanto basta a far collassare un margine fisso di 2 px in un

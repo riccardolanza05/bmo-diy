@@ -40,6 +40,43 @@ un pannello più piccolo di quanto pianificato oggi — la pipeline è stata
 provata fino a 16×16 senza rompersi. A 320×240 pesa circa 2 MB, in linea col
 budget del piano (§2.11); un pannello più piccolo pesa proporzionalmente meno.
 
+### Arte vera invece del placeholder (`--sorgente`)
+
+```bash
+python -m bmo_face.build_face --sorgente /percorso/a/una/cartella --destinazione assets/
+```
+
+`--sorgente` legge fotogrammi `.png` veri, nello stesso layout a cartelle del
+progetto di riferimento esterno **[brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent)**
+(video: [youtu.be/l5ggH-YhuAw](https://youtu.be/l5ggH-YhuAw)) — `idle/`,
+`listening/`, `thinking/`, `speaking/`, `error/`, `warmup/` — ridimensionati
+e ritagliati al centro sulla risoluzione del pannello (l'originale è 800×480,
+5:3; il pannello 4:3 taglia i bordi, non deforma). I fotogrammi `speaking`
+diventano l'overlay della bocca, ordinati automaticamente dal più chiuso al
+più aperto; con arte vera non ci sono overlay di pupille o espressioni (le
+regioni di `arte_placeholder.py` sono calcolate sulla geometria del
+placeholder, non su dove stanno davvero occhi e bocca in un'immagine
+importata) — solo il corpo e la bocca.
+
+**Le immagini non entrano mai nel repository**, né `faces.bin` che ne deriva
+(è comunque un artefatto di build, mai committato): sono di
+`brenpoly/be-more-agent`, codice MIT ma senza una licenza esplicita sulle
+immagini stesse, e raffigurano BMO — personaggio protetto da copyright e
+marchio (Cartoon Network / Warner Bros. Discovery). L'intero progetto bmo-diy
+è già, per sua natura, una ricostruzione fan-made non ufficiale e non
+commerciale del personaggio (il guscio stampato in 3D viene dagli stessi
+modelli "BMO" di Printables), quindi usare quest'arte non introduce un
+rischio nuovo — ma **questa parte non è "open source"** nel senso di essere
+liberamente riutilizzabile da chiunque: resta materiale di un progetto
+fan-made, con la stessa origine esterna. Tenere le immagini fuori dal
+repository (cartella a parte, mai `git add`) e citare la fonte, come qui,
+sono i due passi che il progetto già applica all'audio di terzi (`suoni.py`).
+
+**Difetto noto**: lo stato `error` del riferimento è un'icona a piena
+larghezza (assenza di rete), non una faccia — il ritaglio centrato pensato
+per occhi/bocca la taglia male. Non risolto in questa sessione: un ritaglio
+diverso per-immagine, o un fotogramma `error` dedicato, restano da fare.
+
 ## 2. La finestra
 
 ```bash

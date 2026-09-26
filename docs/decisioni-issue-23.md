@@ -43,23 +43,34 @@ con l'avviso quando è sottocampionata), non il verdetto.
 dimensione, è un segnale concreto contro il 2.4" (§1.3) prima di comprarlo —
 esattamente il dato che l'issue chiede di produrre.
 
-## 2. L'arte è placeholder geometrico, non un disegno vero di BMO
+## 2. L'arte: placeholder geometrico di default, arte vera disponibile con `--sorgente` (aggiornato 26/9)
 
-**Impostato come predefinito**: `arte_placeholder.py` disegna occhi e bocca
-come forme geometriche semplici (rettangoli arrotondati, ellissi), generate a
-codice con PIL — mai un fotogramma vero di Adventure Time, e nemmeno le PNG
-del progetto di riferimento esterno (`brenpoly/be-more-agent`, controllato:
-codice MIT, ma gli asset non sono chiaramente licenziati per il riuso e
-raffigurano il personaggio).
+**Corretto rispetto alla prima stesura**: su richiesta esplicita di
+Riccardo ("Voglio che sia uguale alla faccia di bmo della repo di
+riferimento"), `build_face.py --sorgente cartella/` ora esiste davvero e
+legge i fotogrammi veri del progetto di riferimento esterno
+(`brenpoly/be-more-agent`) — non li copia nel repository (restano in una
+cartella a parte, mai `git add`), ma li usa per costruire `faces.bin`. Il
+placeholder geometrico di `arte_placeholder.py` resta il *default* di
+`build_face.py` senza argomenti (serve a mantenere i test offline).
 
-**L'alternativa**: qualcuno disegna un'arte vera (o adatta GIF/PNG proprie) e
-la mette in una cartella sorgente; `build_face.py --sorgente cartella/`
-prenderebbe il posto di `genera_placeholder()` — il resto della pipeline
-(RGB565, manifesto, regioni, socket, finestra) non cambia.
+**La distribuzione pubblica resta un rischio aperto, non risolto da me**:
+uso l'arte del riferimento e la cito (README, "Arte vera invece del
+placeholder"), ma non decido se e come questo repository debba restare
+pubblico con quell'arte dentro — quella è una scelta di Riccardo come
+proprietario del progetto, non qualcosa che il codice possa decidere da solo.
 
-**Conseguenza di non decidere**: BMO continua a mostrare forme geometriche
-astratte finché nessuno disegna qualcosa di più caratterizzato. Nessun rischio
-di copyright nel frattempo, ma anche nessuna vera "faccia di BMO".
+**Limiti noti dell'arte vera** (diversi dal placeholder):
+- Nessun overlay di pupille reattive al microfono, nessuna espressione del
+  modello sovrapposta — le regioni geometriche del placeholder non
+  corrispondono a dove stanno occhi/bocca in un'immagine importata.
+- `timer` e `conferma` riusano `idle`/`ascolto`: il riferimento non ha
+  cartelle proprie per questi due stati (non esistono nel suo vocabolario).
+- Lo stato `errore-rete` è tagliato male (vedi README): l'icona del
+  riferimento è pensata per tutta la larghezza, il ritaglio centrato la
+  spezza.
+- Solo 3 livelli di bocca (i fotogrammi `speaking` del riferimento), non un
+  continuo: l'inviluppo RMS sceglie fra 3, non fra 5 come il placeholder.
 
 ## 3. Formato del countdown del timer: disegnato a runtime, non pre-cotto
 

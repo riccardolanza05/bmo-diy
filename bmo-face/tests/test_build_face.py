@@ -70,3 +70,60 @@ def test_generatori_coprono_tutti_i_conteggi_dichiarati():
         frame = genera(32, 24, N_FRAME_CORPO[stato])
         assert len(frame) == N_FRAME_CORPO[stato]
         assert all(img.size == (32, 24) for img in frame)
+
+
+def _scrivi_png_tinta(percorso, colore, dimensione=(80, 48)):
+    from PIL import Image
+
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", dimensione, colore).save(percorso)
+
+
+def test_costruisci_da_sorgente_legge_il_layout_del_riferimento(tmp_path):
+    from bmo_face.build_face import costruisci_da_sorgente
+
+    sorgente = tmp_path / "sorgente"
+    _scrivi_png_tinta(sorgente / "idle" / "idle 01.png", (200, 230, 190))
+    _scrivi_png_tinta(sorgente / "listening" / "listen 01.png", (200, 230, 190))
+    _scrivi_png_tinta(sorgente / "thinking" / "thinking 01.png", (200, 230, 190))
+    _scrivi_png_tinta(sorgente / "error" / "error 01.png", (200, 60, 60))
+    _scrivi_png_tinta(sorgente / "warmup" / "warmup 01.png", (150, 150, 150))
+    dati, manifesto = costruisci_da_sorgente(sorgente, 32, 24)
+
+    attesi = {"assonnato", "idle", "ascolto", "pensiero", "errore-rete", "timer", "parlato", "conferma"}
+    assert set(manifesto.corpo) == attesi
+    assert manifesto.corpo["timer"] == manifesto.corpo["idle"]  # riuso, nessuna cartella "timer" nel riferimento
+    assert manifesto.corpo["conferma"] == manifesto.corpo["ascolto"]
+    assert len(dati) > 0
+
+
+def test_costruisci_da_sorgente_ordina_la_bocca_dal_chiuso_allaperto(tmp_path):
+    from PIL import Image, ImageDraw
+
+    from bmo_face.build_face import costruisci_da_sorgente
+
+    sorgente = tmp_path / "sorgente"
+    _scrivi_png_tinta(sorgente / "idle" / "idle 01.png", (200, 230, 190))
+
+    cartella_bocca = sorgente / "speaking"
+    cartella_bocca.mkdir(parents=True)
+    for nome, apertura in (("c_aperta.png", 20), ("a_chiusa.png", 2), ("b_media.png", 10)):
+        img = Image.new("RGB", (80, 48), (200, 230, 190))
+        disegna = ImageDraw.Draw(img)
+        disegna.ellipse([40 - apertura, 24 - apertura, 40 + apertura, 24 + apertura], fill=(20, 20, 20))
+        img.save(cartella_bocca / nome)
+
+    _, manifesto = costruisci_da_sorgente(sorgente, 32, 24)
+    assert manifesto.bocca is not None
+    assert manifesto.bocca.frames == 3
+    # L'ordine sul disco era c(aperta), a(chiusa), b(media): dopo il sort per
+    # apertura deve uscire chiusa -> media -> aperta, non l'ordine del nome file.
+
+
+def test_costruisci_da_sorgente_senza_cartelle_da_manifesto_vuoto(tmp_path):
+    from bmo_face.build_face import costruisci_da_sorgente
+
+    dati, manifesto = costruisci_da_sorgente(tmp_path / "vuota", 32, 24)
+    assert manifesto.corpo == {}
+    assert manifesto.bocca is None
+    assert dati == b""
