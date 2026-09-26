@@ -214,6 +214,15 @@ python -m bmo_core.macchina --wake-word --modello-wake-word modelli-wake-word/bm
 fra i preaddestrati di openWakeWord (`hey_jarvis` compreso, se mai servisse
 di nuovo): niente qui è legato ai due modelli bmo di default.
 
+**Il buffer si azzera a ogni ascolto** (bug trovato dal vivo il 26/9):
+`openwakeword.Model` tiene un `prediction_buffer` interno che sopravvive fra
+un ascolto e l'altro finché lo stesso `Model` resta in vita, e `esegui()`
+(`macchina.py`) lo riusa per ogni giro. Senza `rilevatore.reset()` all'inizio
+di ogni `ascolta_punteggio()`, un punteggio residuo dal richiamo appena
+sentito poteva far scattare una cascata di richiami — bastava rumore di
+fondo o la radio accesa subito dopo un "Hey BMO" vero, fino a esaurire i
+limiti dell'API in fretta.
+
 ## La voce di BMO (issue #42)
 
 BMO parla con **`it-IT-DiegoNeural`** al **+35%** di velocità, sintetizzata da
@@ -414,9 +423,19 @@ elenca. Il file si riscrive in modo atomico, come quello dei timer.
 
 YouTube resta alla V2 (#4).
 
-**Il volume** è quello dell'altoparlante, non del lettore: «abbassa il volume»
-detto a un BMO che parla troppo forte non riguarda la radio. Sul PC passa per
-`wpctl` (PipeWire), sul Pi per `amixer`.
+**Il volume** ha quattro canali indipendenti (`volumi.py`, dopo l'issue #23 di
+bmo-face): `radio`, `voce`, `timer` e `sistema` (tutto il resto — i suoni di
+`Suoni`, e qualunque sorgente audio futura senza un canale proprio). «Abbassa
+la radio» tocca solo `LettoreMpv` (via il suo IPC, non il volume di sistema);
+«parla più piano» tocca solo `VoceTts`; «abbassa il timer» tocca solo il tono
+della sveglia; un «abbassa il volume» generico, senza dire cosa, resta
+`sistema` — l'altoparlante nel suo complesso, `wpctl` (PipeWire) sul PC,
+`amixer` sul Pi, come prima di avere i canali. Radio e sistema cambiano
+subito; voce e timer passano da un file (`<cartella dati>/volumi.json`)
+perché `sveglia.py` gira in un processo separato e non vedrebbe mai un
+attributo in RAM di `bmo-core`. Il canale lo sceglie il modello dal
+significato della frase — `regola_volume(percentuale, canale=...)` — provato
+dal vivo con chiamate reali a Gemini (`prova_frasi.py --categoria volume`).
 
 La radio gira su un mpv separato da quello delle clip, tenuto acceso e comandato
 dal suo socket IPC (§2.4), perché va messa in pausa e cambiata mentre suona.

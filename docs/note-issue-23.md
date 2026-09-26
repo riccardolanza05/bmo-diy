@@ -47,3 +47,23 @@ Come già notato per l'issue #15: `brain.PROMPT_FISSO` dice ancora "vivi in
 una casa a Milano". Non riguarda #23 (che è sulla faccia, non sul prompt di
 sistema), segnalato solo perché è emerso di nuovo leggendo il codice
 circostante durante questo lavoro.
+
+## Due correzioni trovate con la prova dal vivo (26/9, dopo la prima finestra)
+
+**Loop del wake word.** `openwakeword.Model` tiene un `prediction_buffer`
+interno che sopravvive fra un ascolto e l'altro finché lo stesso `Model`
+resta in vita (`RichiamoWakeWord` lo riusa per ogni giro): senza azzerarlo,
+un rumore di fondo o la radio potevano far risuperare la soglia quasi
+subito dopo un "Hey BMO" vero, con una cascata di richiami che esauriva i
+limiti dell'API. Corretto con `rilevatore.reset()` a ogni ascolto
+(`richiamo.py`), che è l'API pensata apposta per questo dalla libreria.
+
+**Volumi indipendenti.** Nuovo modulo `volumi.py`: quattro canali (radio,
+voce, timer, sistema) invece di un solo volume condiviso per tutto quello
+che BMO emette. Radio e sistema cambiano subito (IPC di mpv per la radio,
+`wpctl`/`amixer` per il sistema); voce e timer passano da un file
+(`volumi.json` in `percorso_dati()`) perché `sveglia.py` gira in un
+processo separato da `bmo-core` e non vedrebbe mai un attributo in RAM.
+Verificato dal vivo con chiamate reali a Gemini (`prova_frasi.py`,
+categoria "volume", 7/7): il modello sceglie il canale giusto dal
+significato della frase, senza bisogno di toccare il prompt.

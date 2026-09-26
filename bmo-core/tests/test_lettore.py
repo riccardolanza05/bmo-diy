@@ -114,3 +114,29 @@ def test_in_riproduzione_vero_con_una_playlist_caricata(tmp_path):
         assert lettore._processo is None  # interrogazione, non accensione
     finally:
         finto.chiudi()
+
+
+def test_imposta_volume_manda_set_property_volume(tmp_path):
+    percorso = tmp_path / "finto.sock"
+    finto = AscoltatoreFinto(percorso)
+    try:
+        lettore = LettoreMpv(socket_path=percorso)
+        lettore.imposta_volume(42)
+        assert {"command": ["set_property", "volume", 42]} in finto.ricevuti
+    finally:
+        finto.chiudi()
+
+
+def test_leggi_volume_legge_get_property_volume(tmp_path):
+    percorso = tmp_path / "finto.sock"
+    finto = AscoltatoreFinto(percorso, risposta={"error": "success", "data": 77})
+    try:
+        lettore = LettoreMpv(socket_path=percorso)
+        assert lettore.leggi_volume() == 77
+    finally:
+        finto.chiudi()
+
+
+def test_leggi_volume_senza_risposta_e_none(tmp_path):
+    lettore = LettoreMpv(socket_path=tmp_path / "assente.sock")
+    assert lettore.leggi_volume() is None

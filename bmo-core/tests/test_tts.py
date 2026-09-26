@@ -179,12 +179,14 @@ def test_la_cartella_predefinita_segue_bmo_dati(tmp_path, monkeypatch):
 class AltoparlanteFinto:
     def __init__(self, errore_alla_riproduzione=None):
         self.eventi = []
+        self.volumi = []
         self._errore = errore_alla_riproduzione
 
-    def riproduci(self, sorgente, *, filtro=None):
+    def riproduci(self, sorgente, *, filtro=None, volume=None):
         if self._errore is not None:
             raise self._errore
         self.eventi.append(("riproduci", sorgente))
+        self.volumi.append(volume)
 
     def attendi(self, timeout_s=None):
         self.eventi.append(("attendi", timeout_s))
@@ -522,7 +524,7 @@ def test_la_voce_passa_il_suo_filtro_alla_riproduzione(tmp_path, monkeypatch):
     ricevuti = []
 
     class Altoparlante:
-        def riproduci(self, sorgente, *, filtro=None):
+        def riproduci(self, sorgente, *, filtro=None, volume=None):
             ricevuti.append(filtro)
 
         def attendi(self, timeout_s=None):

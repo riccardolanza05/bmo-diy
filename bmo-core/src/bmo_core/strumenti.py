@@ -155,10 +155,22 @@ DICHIARAZIONI = [
     types.FunctionDeclaration(
         name="regola_volume",
         description=(
-            "Sets the speaker volume to an absolute level. For relative requests "
-            "('un po' più basso') choose a sensible absolute value."
+            "Sets the volume of one audio channel to an absolute level, independently of the others. "
+            "For relative requests ('un po' più basso') choose a sensible absolute value. "
+            "'radio': the radio player only. 'voce': BMO's own speaking voice only. 'timer': the "
+            "alarm/timer sound only. 'sistema': everything else (the overall speaker, error/listening "
+            "sounds, and any future sound source with no channel of its own) — the default when the "
+            "request does not say which one, e.g. a plain 'abbassa il volume' with no radio playing."
         ),
-        parameters=_schema({"percentuale": _intero("Volume level from 0 to 100.")}, ["percentuale"]),
+        parameters=_schema(
+            {
+                "percentuale": _intero("Volume level from 0 to 100."),
+                "canale": _testo(
+                    "Which audio channel to change.", ["radio", "voce", "timer", "sistema"]
+                ),
+            },
+            ["percentuale"],
+        ),
     ),
     types.FunctionDeclaration(
         name="metti_in_pausa_l_ascolto",

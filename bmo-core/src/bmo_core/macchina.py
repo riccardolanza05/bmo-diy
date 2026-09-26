@@ -86,6 +86,7 @@ from .adapters import (
 from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
 from .inviluppo import inviluppo_rms
+from .volumi import leggi_volume
 from .memoria import aggiungi_voce
 from .radio import Radio
 from .richiamo import MODELLI_PREDEFINITI, SOGLIA_PREDEFINITA, RichiamoWakeWord
@@ -230,7 +231,10 @@ class VoceTts:
             # battuta, mai far aspettare l'inizio del suono.
             threading.Thread(target=self._manda_inviluppo, args=(percorso,), daemon=True).start()
         try:
-            self.altoparlante.riproduci(percorso, filtro=self.filtro)
+            # Il volume si rilegge a ogni battuta, non una volta sola
+            # all'avvio: "abbassa la tua voce" deve valere dalla prossima
+            # frase (volumi.py — il canale "voce" del volume indipendente).
+            self.altoparlante.riproduci(percorso, filtro=self.filtro, volume=leggi_volume("voce"))
         except OSError as errore:  # mpv non installato, dispositivo audio occupato
             print(f"[voce: riproduzione non riuscita, leggo il testo — {errore}]", file=sys.stderr)
             self.ripiego(testo, lingua)
