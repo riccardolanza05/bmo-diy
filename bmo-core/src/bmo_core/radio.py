@@ -31,6 +31,7 @@ from typing import Any, Callable, Iterator
 
 from .adapters import LettoreAdapter, VolumeAdapter, crea_lettore, crea_volume
 from .config import percorso_dati
+from .volumi import regola_volume as regola_volume_canale
 
 # Elenco pubblico di radio online: nessuna chiave, nessun account.
 INDIRIZZO_ELENCO = "https://all.api.radio-browser.info/json/stations/search"
@@ -289,9 +290,17 @@ class Radio:
             ]
         }
 
-    def regola_volume(self, percentuale: int) -> dict[str, Any]:
-        percentuale = int(percentuale)
-        if not 0 <= percentuale <= 100:
-            raise ValueError("percentuale deve essere fra 0 e 100")
-        self.volume.imposta(percentuale)
-        return {"stato": "ok", "percentuale": percentuale}
+    def regola_volume(self, percentuale: int, canale: str = "sistema") -> dict[str, Any]:
+        """Lo strumento `regola_volume` (§2.4), esteso con volumi indipendenti
+        per canale (dopo l'issue #23 di bmo-face): "radio" tocca solo il
+        lettore (`self.lettore`, via il suo IPC), "sistema" resta il volume
+        dell'altoparlante nel suo complesso come prima (`self.volume`); vedi
+        `volumi.py` per "voce"/"timer", che qui non servono — sono canali che
+        non toccano nulla di quello che possiede `Radio`.
+        """
+        return regola_volume_canale(
+            percentuale,
+            canale,
+            imposta_radio=self.lettore.imposta_volume,
+            imposta_sistema=self.volume.imposta,
+        )

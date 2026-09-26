@@ -85,6 +85,8 @@ from .adapters import (
 )
 from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
+from .inviluppo import inviluppo_rms
+from .volumi import leggi_volume
 from .memoria import aggiungi_voce
 from .radio import Radio
 from .richiamo import MODELLI_PREDEFINITI, SOGLIA_PREDEFINITA, RichiamoWakeWord
@@ -189,10 +191,17 @@ class VoceTts:
         pausa_max_s: float | None = None,
         diagnostica: bool = True,
         cronometro: Callable[[], float] = time.monotonic,
+        faccia: FacciaAdapter | None = None,
+        inviluppo_fn: Callable[..., list[float]] = inviluppo_rms,
     ) -> None:
         self.altoparlante = altoparlante or crea_audio_output()
         self.ripiego = ripiego
         self.sintetizza_fn = sintetizza_fn
+        # Bocca guidata dall'inviluppo RMS della voce vera (§2.2, issue #23):
+        # facoltativa, `None` di default, così chi non ha bmo-face acceso non
+        # paga il costo di `ffmpeg` per ogni battuta.
+        self.faccia = faccia
+        self.inviluppo_fn = inviluppo_fn
         # La catena della voce (#42): timbro da `BMO_VOCE_FILTRO` (predefinito
         # "radiolina", scelto all'ascolto) e accorciamento delle pause da
         # `BMO_VOCE_PAUSA`, in secondi — "0" lo disattiva.
@@ -212,8 +221,20 @@ class VoceTts:
             self.ripiego(testo, lingua)
             return
         sintesi = self.cronometro()
+        if self.faccia is not None:
+            # In un thread a parte, apposta: `_stampa_tempi` protegge già
+            # (#42) i due numeri di latenza che contano da qualunque lavoro
+            # in più per singola risposta, e decodificare con ffmpeg è
+            # esattamente il costo che quella scelta aveva evitato. Qui
+            # arriva comunque, ma senza aggiungersi alla latenza percepita:
+            # la bocca può restare ferma per i primi fotogrammi di una
+            # battuta, mai far aspettare l'inizio del suono.
+            threading.Thread(target=self._manda_inviluppo, args=(percorso,), daemon=True).start()
         try:
-            self.altoparlante.riproduci(percorso, filtro=self.filtro)
+            # Il volume si rilegge a ogni battuta, non una volta sola
+            # all'avvio: "abbassa la tua voce" deve valere dalla prossima
+            # frase (volumi.py — il canale "voce" del volume indipendente).
+            self.altoparlante.riproduci(percorso, filtro=self.filtro, volume=leggi_volume("voce"))
         except OSError as errore:  # mpv non installato, dispositivo audio occupato
             print(f"[voce: riproduzione non riuscita, leggo il testo — {errore}]", file=sys.stderr)
             self.ripiego(testo, lingua)
@@ -222,6 +243,15 @@ class VoceTts:
         if self.diagnostica:
             self._stampa_tempi(sintesi - inizio, partenza - sintesi)
         self.altoparlante.attendi()
+
+    def _manda_inviluppo(self, percorso: Any) -> None:
+        """La parte in background di `__call__`: mai far fallire la voce (#23)."""
+        try:
+            inviluppo = self.inviluppo_fn(percorso)
+        except Exception:  # difensivo apposta: un thread in background non deve mai propagare
+            return
+        if inviluppo:
+            self.faccia.parla(inviluppo)
 
     def _stampa_tempi(self, sintesi_s: float, avvio_s: float) -> None:
         """I due tempi separati, non la somma (criterio di uscita della #42).
@@ -538,7 +568,9 @@ def main() -> None:
     # Un altoparlante solo per voce e suoni: `riproduci` ferma quello che sta
     # suonando, quindi non ci sono mai due mpv che si parlano sopra.
     altoparlante = crea_audio_output()
-    voce = VoceTts(altoparlante=altoparlante) if argomenti.voce_tts else voce_sul_terminale
+    # Stessa `faccia` di Cervello: un solo FacciaSocket, una sola connessione
+    # persistente verso bmo-face, non due che si rincorrono (#23).
+    voce = VoceTts(altoparlante=altoparlante, faccia=faccia) if argomenti.voce_tts else voce_sul_terminale
     # Uno solo, condiviso col richiamo qui sotto: stesso altoparlante di voce
     # ed errore, così due mpv non suonano mai uno sopra l'altro.
     suoni_bmo = None if argomenti.senza_suoni else Suoni(altoparlante)

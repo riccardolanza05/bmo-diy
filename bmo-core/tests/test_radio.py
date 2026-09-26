@@ -12,6 +12,10 @@ class LettoreFinto:
         self.code = []
         self.azioni = []
         self.suona = suona
+        self.volume = None
+
+    def imposta_volume(self, percentuale):
+        self.volume = percentuale
 
     def riproduci(self, tracce):
         self.code.append(list(tracce))
@@ -185,12 +189,27 @@ def test_controlli_e_volume(tmp_path):
     assert radio.controllo("stop")["stato"] == "ok"
     assert radio.in_ascolto is None
 
-    assert radio.regola_volume(60) == {"stato": "ok", "percentuale": 60}
+    assert radio.regola_volume(60) == {"stato": "ok", "percentuale": 60, "canale": "sistema"}
     assert volume.impostati == [60]
     with pytest.raises(ValueError):
         radio.regola_volume(101)
     with pytest.raises(ValueError):
         radio.controllo("rewind")
+
+
+def test_regola_volume_canali_indipendenti(tmp_path):
+    """Issue successiva alla #23: radio e sistema sono due manopole diverse."""
+    radio, lettore, volume = _radio(tmp_path)
+    assert radio.regola_volume(40, canale="radio") == {"stato": "ok", "percentuale": 40, "canale": "radio"}
+    assert lettore.volume == 40
+    assert volume.impostati == []  # il volume di sistema non è stato toccato
+
+    assert radio.regola_volume(70, canale="sistema") == {"stato": "ok", "percentuale": 70, "canale": "sistema"}
+    assert volume.impostati == [70]
+    assert lettore.volume == 40  # e la radio non si è mossa
+
+    with pytest.raises(ValueError):
+        radio.regola_volume(50, canale="non-esiste")
 
 
 def test_file_delle_preferite_rotto_o_vecchio(tmp_path):
@@ -246,7 +265,7 @@ def test_gli_strumenti_passano_dal_cervello(tmp_path):
     [elenco] = cervello.strumenti([types.FunctionCall(name="elenca_stazioni", args={})])
     assert len(elenco.risultato["preferite"]) == 1
     [alzato] = cervello.strumenti([types.FunctionCall(name="regola_volume", args={"percentuale": 60})])
-    assert alzato.risultato == {"stato": "ok", "percentuale": 60}
+    assert alzato.risultato == {"stato": "ok", "percentuale": 60, "canale": "sistema"}
 
 
 def test_sospesa_mette_in_pausa_e_riprende_se_sta_suonando(tmp_path):

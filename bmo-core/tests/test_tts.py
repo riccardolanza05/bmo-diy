@@ -4,6 +4,8 @@
 modulo TTS vista dall'altro capo, e tenerle insieme rende evidente quale
 comportamento del ripiego dipende da quale guasto della sintesi.
 """
+import threading
+import time
 import wave
 
 import pytest
@@ -177,12 +179,14 @@ def test_la_cartella_predefinita_segue_bmo_dati(tmp_path, monkeypatch):
 class AltoparlanteFinto:
     def __init__(self, errore_alla_riproduzione=None):
         self.eventi = []
+        self.volumi = []
         self._errore = errore_alla_riproduzione
 
-    def riproduci(self, sorgente, *, filtro=None):
+    def riproduci(self, sorgente, *, filtro=None, volume=None):
         if self._errore is not None:
             raise self._errore
         self.eventi.append(("riproduci", sorgente))
+        self.volumi.append(volume)
 
     def attendi(self, timeout_s=None):
         self.eventi.append(("attendi", timeout_s))
@@ -520,7 +524,7 @@ def test_la_voce_passa_il_suo_filtro_alla_riproduzione(tmp_path, monkeypatch):
     ricevuti = []
 
     class Altoparlante:
-        def riproduci(self, sorgente, *, filtro=None):
+        def riproduci(self, sorgente, *, filtro=None, volume=None):
             ricevuti.append(filtro)
 
         def attendi(self, timeout_s=None):
@@ -596,3 +600,100 @@ def test_il_terminale_segnala_solo_le_lingue_diverse(capsys):
     uscita = capsys.readouterr().out
     assert "BMO: Ciao" in uscita
     assert "BMO [en]: Hello" in uscita
+
+
+# --- l'inviluppo RMS verso la faccia (issue #23) -----------------------------
+
+
+class FacciaFinta:
+    """`FacciaAdapter` finto con un `Event`: `_manda_inviluppo` gira in un
+    thread a parte (macchina.py), i test devono aspettarlo invece di
+    controllare `chiamate` subito dopo `voce(...)`."""
+
+    def __init__(self):
+        self.chiamate = []
+        self.evento = threading.Event()
+
+    def mostra(self, stato):
+        pass
+
+    def esprimi(self, espressione, ttl=3.0):
+        pass
+
+    def livello(self, valore):
+        pass
+
+    def timer(self, rimanente, etichetta=None):
+        pass
+
+    def parla(self, inviluppo, fps=25.0):
+        self.chiamate.append((inviluppo, fps))
+        self.evento.set()
+
+
+def test_con_faccia_manda_linviluppo_in_background_senza_bloccare(tmp_path):
+    percorso = tmp_path / "frase.wav"
+    scrivi_wav(percorso, PCM)
+    faccia = FacciaFinta()
+    voce = VoceTts(
+        altoparlante=AltoparlanteFinto(),
+        sintetizza_fn=lambda testo, lingua="it": percorso,
+        diagnostica=False,
+        faccia=faccia,
+        inviluppo_fn=lambda p: [0.1, 0.9, 0.3],
+    )
+
+    voce("ciao")  # non deve aspettare il thread dell'inviluppo per tornare
+
+    assert faccia.evento.wait(timeout=1.0), "parla() non è mai arrivato"
+    assert faccia.chiamate == [([0.1, 0.9, 0.3], 25.0)]
+
+
+def test_senza_faccia_non_calcola_niente(tmp_path):
+    percorso = tmp_path / "frase.wav"
+    scrivi_wav(percorso, PCM)
+    chiamato = []
+    VoceTts(
+        altoparlante=AltoparlanteFinto(),
+        sintetizza_fn=lambda testo, lingua="it": percorso,
+        diagnostica=False,
+        inviluppo_fn=lambda p: chiamato.append(p) or [],
+    )("ciao")
+
+    assert chiamato == []  # nessuna faccia collegata: nessun costo di ffmpeg per niente
+
+
+def test_inviluppo_vuoto_non_chiama_parla(tmp_path):
+    percorso = tmp_path / "frase.wav"
+    scrivi_wav(percorso, PCM)
+    faccia = FacciaFinta()
+    voce = VoceTts(
+        altoparlante=AltoparlanteFinto(),
+        sintetizza_fn=lambda testo, lingua="it": percorso,
+        diagnostica=False,
+        faccia=faccia,
+        inviluppo_fn=lambda p: [],  # es. ffmpeg mancante
+    )
+    voce("ciao")
+    time.sleep(0.1)
+    assert faccia.chiamate == []
+
+
+def test_un_inviluppo_che_solleva_non_rompe_la_voce(tmp_path, capsys):
+    percorso = tmp_path / "frase.wav"
+    scrivi_wav(percorso, PCM)
+    altoparlante = AltoparlanteFinto()
+
+    def esplode(p):
+        raise RuntimeError("ffmpeg esploso")
+
+    voce = VoceTts(
+        altoparlante=altoparlante,
+        sintetizza_fn=lambda testo, lingua="it": percorso,
+        diagnostica=False,
+        faccia=FacciaFinta(),
+        inviluppo_fn=esplode,
+    )
+    voce("ciao")  # nessuna eccezione: il thread la assorbe
+    time.sleep(0.1)
+    assert altoparlante.eventi == [("riproduci", percorso), ("attendi", None)]

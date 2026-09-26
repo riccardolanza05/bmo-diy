@@ -22,9 +22,11 @@ class OrologioFinto:
 class AltoparlanteFinto:
     def __init__(self):
         self.riprodotti = []
+        self.volumi = []
 
-    def riproduci(self, sorgente):
+    def riproduci(self, sorgente, *, volume=None):
         self.riprodotti.append(str(sorgente))
+        self.volumi.append(volume)
 
     def ferma(self):
         pass
@@ -114,3 +116,22 @@ def test_esegui_si_ferma_dopo_i_giri_chiesti(tmp_path):
     orologio.avanza(1)
     sveglia.esegui(intervallo_s=0, giri=2)
     assert len(altoparlante.riprodotti) == 1
+
+
+def test_il_volume_del_timer_si_rilegge_a_ogni_squillo(tmp_path, monkeypatch):
+    from bmo_core.volumi import regola_volume
+
+    orologio = OrologioFinto()
+    sveglia, altoparlante, _, _ = _sveglia(tmp_path, orologio)
+    monkeypatch.setenv("BMO_DATI", str(tmp_path / "dati"))
+
+    sveglia.archivio.aggiungi("pasta", 60)
+    orologio.avanza(61)
+    sveglia.controlla()
+    assert altoparlante.volumi == [100]  # nessuna regolazione ancora: il predefinito
+
+    regola_volume(35, "timer", percorso_file=tmp_path / "dati" / "volumi.json")
+    sveglia.archivio.aggiungi("the", 60)
+    orologio.avanza(61)
+    sveglia.controlla()
+    assert altoparlante.volumi == [100, 35]

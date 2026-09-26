@@ -132,6 +132,24 @@ class LettoreMpv:
     def successivo(self) -> None:
         self._comanda("playlist-next", "force")
 
+    def imposta_volume(self, percentuale: int) -> None:
+        """Il volume **di questa istanza di mpv**, non quello di sistema.
+
+        Indipendente dall'altoparlante nel suo complesso (volume.py):
+        alzare la radio non deve alzare anche la voce di BMO o i suoi suoni,
+        che sono `MpvAdapter` separati. `set_property volume` e' la proprieta'
+        interna di mpv (0-100, oltre e' amplificazione software), non un
+        controllo ALSA/PipeWire.
+        """
+        self._comanda("set_property", "volume", int(percentuale))
+
+    def leggi_volume(self) -> int | None:
+        risposta = self._invia("get_property", "volume")
+        if not risposta or risposta.get("error") != "success":
+            return None
+        dato = risposta.get("data")
+        return round(dato) if isinstance(dato, (int, float)) else None
+
     def in_riproduzione(self) -> bool:
         """Solo un'interrogazione: se mpv non è acceso, la risposta è "no", non un motivo per accenderlo.
 

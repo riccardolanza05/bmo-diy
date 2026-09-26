@@ -214,6 +214,15 @@ python -m bmo_core.macchina --wake-word --modello-wake-word modelli-wake-word/bm
 fra i preaddestrati di openWakeWord (`hey_jarvis` compreso, se mai servisse
 di nuovo): niente qui è legato ai due modelli bmo di default.
 
+**Il buffer si azzera a ogni ascolto** (bug trovato dal vivo il 26/9):
+`openwakeword.Model` tiene un `prediction_buffer` interno che sopravvive fra
+un ascolto e l'altro finché lo stesso `Model` resta in vita, e `esegui()`
+(`macchina.py`) lo riusa per ogni giro. Senza `rilevatore.reset()` all'inizio
+di ogni `ascolta_punteggio()`, un punteggio residuo dal richiamo appena
+sentito poteva far scattare una cascata di richiami — bastava rumore di
+fondo o la radio accesa subito dopo un "Hey BMO" vero, fino a esaurire i
+limiti dell'API in fretta.
+
 ## La voce di BMO (issue #42)
 
 BMO parla con **`it-IT-DiegoNeural`** al **+35%** di velocità, sintetizzata da
@@ -414,9 +423,19 @@ elenca. Il file si riscrive in modo atomico, come quello dei timer.
 
 YouTube resta alla V2 (#4).
 
-**Il volume** è quello dell'altoparlante, non del lettore: «abbassa il volume»
-detto a un BMO che parla troppo forte non riguarda la radio. Sul PC passa per
-`wpctl` (PipeWire), sul Pi per `amixer`.
+**Il volume** ha quattro canali indipendenti (`volumi.py`, dopo l'issue #23 di
+bmo-face): `radio`, `voce`, `timer` e `sistema` (tutto il resto — i suoni di
+`Suoni`, e qualunque sorgente audio futura senza un canale proprio). «Abbassa
+la radio» tocca solo `LettoreMpv` (via il suo IPC, non il volume di sistema);
+«parla più piano» tocca solo `VoceTts`; «abbassa il timer» tocca solo il tono
+della sveglia; un «abbassa il volume» generico, senza dire cosa, resta
+`sistema` — l'altoparlante nel suo complesso, `wpctl` (PipeWire) sul PC,
+`amixer` sul Pi, come prima di avere i canali. Radio e sistema cambiano
+subito; voce e timer passano da un file (`<cartella dati>/volumi.json`)
+perché `sveglia.py` gira in un processo separato e non vedrebbe mai un
+attributo in RAM di `bmo-core`. Il canale lo sceglie il modello dal
+significato della frase — `regola_volume(percentuale, canale=...)` — provato
+dal vivo con chiamate reali a Gemini (`prova_frasi.py --categoria volume`).
 
 La radio gira su un mpv separato da quello delle clip, tenuto acceso e comandato
 dal suo socket IPC (§2.4), perché va messa in pausa e cambiata mentre suona.
@@ -474,10 +493,24 @@ agentico, e alla fine l'espressione scelta dal modello (`felice`, `pensieroso`,
 risposta.
 
 Sono due vocabolari diversi: le **espressioni** le sceglie il modello per la
-risposta parlata, gli **stati della faccia** li decide il codice. Per ora
-l'unica implementazione è `FacciaTerminale`, che scrive `[faccia: pensiero]`
-sullo standard error (attiva nei comandi `brain` e `prova_frasi --voce`); il
-disegno vero è l'issue #23 e sostituirà solo l'implementazione dell'adapter.
+risposta parlata, gli **stati della faccia** li decide il codice.
+`FacciaTerminale` scrive `[faccia: pensiero]` sullo standard error (attiva nei
+comandi `brain` e `prova_frasi --voce`); il disegno vero è `bmo-face`
+(cartella a sé nel repository, issue #23), collegato con `BMO_FACCIA=socket`:
+
+```bash
+# in un terminale: la finestra (vedi bmo-face/README.md per i dettagli)
+cd bmo-face && python -m bmo_face.build_face --destinazione assets/
+python -m bmo_face.finestra --assets assets/
+
+# in un altro: bmo-core ci parla sullo stesso socket Unix
+BMO_FACCIA=socket python -m bmo_core.brain --voce-tts --testo "Metti un timer di dieci minuti"
+```
+
+Con `--voce-tts` la bocca durante `parlato` segue l'inviluppo RMS vero della
+voce (`inviluppo.py`, via `ffmpeg`, calcolato in un thread a parte per non
+aggiungere latenza alla risposta — vedi `VoceTts._manda_inviluppo`); senza
+`BMO_FACCIA=socket` resta com'era, muta o sul terminale.
 
 Le frasi di prova coprono timer, gestione dei timer, foto, musica e radio,
 volume, pausa dell'ascolto, ricerche sul web (meteo, risultati) e
