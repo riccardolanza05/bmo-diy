@@ -57,10 +57,24 @@ class FacciaAdapter(Protocol):
     BMO non ha pulsanti ne' spie: la faccia e' l'unico modo che ha di dire
     che sta ascoltando, che sta elaborando o che qualcosa e' andato storto.
     Serve soprattutto nei secondi in cui tace, che altrimenti non si
-    distinguono da un guasto. Il disegno vero arriva con l'issue #23.
+    distinguono da un guasto.
+
+    I cinque metodi ricalcano uno a uno i cinque comandi del socket Unix
+    verso bmo-face (piano, §2.2): `mostra` è `state`, gli altri quattro sono
+    facoltativi da implementare per davvero (le implementazioni provvisorie
+    qui sotto li ignorano) ma fanno parte del contratto da quando esiste un
+    ascoltatore vero (`FacciaSocket`, issue #23).
     """
 
     def mostra(self, stato: str) -> None: ...
+
+    def esprimi(self, espressione: str, ttl: float = 3.0) -> None: ...
+
+    def livello(self, valore: float) -> None: ...
+
+    def parla(self, inviluppo: list[float], fps: float = 25.0) -> None: ...
+
+    def timer(self, rimanente: int, etichetta: str | None = None) -> None: ...
 
 
 class AudioOutputAdapter(Protocol):

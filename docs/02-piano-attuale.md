@@ -276,6 +276,11 @@ Messaggi:
 {"cmd":"level",      "value":0.34}          # durante LISTEN: le pupille reagiscono alla voce
 ```
 
+**Nota di implementazione (#23):** `state.value` sono le stesse stringhe di
+`adapters.base.STATO_*` (`"ascolto"`, non l'esempio inglese `"listening"` qui
+sopra, rimasto come bozza) — è il vocabolario già esistente e testato altrove,
+usarne un secondo per la stessa cosa non avrebbe aggiunto niente.
+
 ### 2.3 Il prompt di sistema e l'iniezione di contesto
 
 Tre strati, il terzo solo quando serve: uno fisso, uno **ricostruito a ogni turno** con lo stato reale del dispositivo, e un terzo che si aggiunge — senza sostituire gli altri due — solo quando il loop agentico deve chiudere senza più chiamare strumenti (§2.1, #18). È il secondo strato a rendere affidabile il tool calling.
@@ -539,7 +544,7 @@ Tutto gira con `BMO_ENV=dev-linux`: `WebcamV4L2Adapter` per la foto, `ArecordAda
 
 **1.5 · Wake word sul microfono del PC.** `pip install openwakeword onnxruntime`, modello `hey_jarvis`, collegata alla macchina a stati. La soglia tarata qui è **provvisoria**: il microfono del portatile non è il MEMS del HAT. Serve a scrivere e collaudare tutta la logica (rilevamento → ascolto → risposta → ritorno in attesa); il cancello vero, a 3 metri con la TV accesa, resta alla fase 4.4. *Uscita*: il giro completo parte a voce, senza toccare la tastiera, dal portatile a un metro.
 
-**1.6 · La faccia in una finestra.** La pipeline asset della §2.11 gira sul PC di sviluppo; `bmo-face` disegna in una finestra 320×240 invece che sul bus SPI, con gli stati minimi della §2.11 pilotati da `bmo-core` sullo stesso socket Unix che userà sul Pi. *Uscita, due*: (a) tutti gli stati, battito di palpebre irregolare, bocca pilotata dall'inviluppo RMS; (b) la finestra mostrata **alle dimensioni fisiche del pannello** (48,96 × 36,72 mm per il 2.4") per una prima prova di leggibilità delle tre righe da 20 caratteri a mezzo metro. Il punto (b) dà un dato concreto per la scelta del display (§1.3) prima di comprarlo.
+**1.6 · La faccia in una finestra.** La pipeline asset della §2.11 gira sul PC di sviluppo; `bmo-face` disegna in una finestra invece che sul bus SPI, con gli stati minimi della §2.11 pilotati da `bmo-core` sullo stesso socket Unix che userà sul Pi. *Uscita, due*: (a) *fatto (#23)*: tutti gli stati, battito di palpebre irregolare, bocca pilotata dall'inviluppo RMS vero della voce; arte placeholder disegnata a codice, non ancora l'arte vera. (b) *codice pronto, giudizio ancora da dare*: la finestra mostrata **alle dimensioni fisiche del pannello** (48,96 × 36,72 mm per il 2.4", parametrico per qualunque altro pannello — anche uno più piccolo di quanto pianificato oggi) per una prima prova di leggibilità delle tre righe da 20 caratteri a mezzo metro; su questo laptop il pannello risulta sottocampionato (pitch dello schermo più grosso di quello del 2.4"), quindi la prova è più severa del display reale. Il punto (b) dà un dato concreto per la scelta del display (§1.3) prima di comprarlo — dettagli in `bmo-face/README.md` e nelle decisioni aperte di `docs/decisioni-issue-23.md`.
 
 **1.7 · Foto con la webcam.** `scatta_foto` con `WebcamV4L2Adapter`, JPEG a Flash col pattern in due parti della §2.4. *Uscita*: «cosa vedi?» con qualcosa davanti alla webcam → descrizione corretta in meno di 6 s.
 

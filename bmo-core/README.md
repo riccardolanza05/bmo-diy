@@ -474,10 +474,24 @@ agentico, e alla fine l'espressione scelta dal modello (`felice`, `pensieroso`,
 risposta.
 
 Sono due vocabolari diversi: le **espressioni** le sceglie il modello per la
-risposta parlata, gli **stati della faccia** li decide il codice. Per ora
-l'unica implementazione è `FacciaTerminale`, che scrive `[faccia: pensiero]`
-sullo standard error (attiva nei comandi `brain` e `prova_frasi --voce`); il
-disegno vero è l'issue #23 e sostituirà solo l'implementazione dell'adapter.
+risposta parlata, gli **stati della faccia** li decide il codice.
+`FacciaTerminale` scrive `[faccia: pensiero]` sullo standard error (attiva nei
+comandi `brain` e `prova_frasi --voce`); il disegno vero è `bmo-face`
+(cartella a sé nel repository, issue #23), collegato con `BMO_FACCIA=socket`:
+
+```bash
+# in un terminale: la finestra (vedi bmo-face/README.md per i dettagli)
+cd bmo-face && python -m bmo_face.build_face --destinazione assets/
+python -m bmo_face.finestra --assets assets/
+
+# in un altro: bmo-core ci parla sullo stesso socket Unix
+BMO_FACCIA=socket python -m bmo_core.brain --voce-tts --testo "Metti un timer di dieci minuti"
+```
+
+Con `--voce-tts` la bocca durante `parlato` segue l'inviluppo RMS vero della
+voce (`inviluppo.py`, via `ffmpeg`, calcolato in un thread a parte per non
+aggiungere latenza alla risposta — vedi `VoceTts._manda_inviluppo`); senza
+`BMO_FACCIA=socket` resta com'era, muta o sul terminale.
 
 Le frasi di prova coprono timer, gestione dei timer, foto, musica e radio,
 volume, pausa dell'ascolto, ricerche sul web (meteo, risultati) e
