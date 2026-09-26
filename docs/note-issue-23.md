@@ -25,13 +25,21 @@ thinking/speaking) — non lo stesso overlay di bocca/pupille/espressioni di
 qui, ma conferma che l'idea di comporre più livelli sopra un fotogramma base
 non è insolita.
 
-## Il "caso peggiore" di un pannello più piccolo di 2.4" non è nel BOM
+## Correzione: il "caso peggiore" è il 2.4" stesso, non un pannello ancora più piccolo
 
-Nessun documento del piano elenca oggi un pannello display più piccolo del
-2.4" (le opzioni tracciate restano 2.4", 3.5", 5" — vedi §1.3). La pipeline
-e la finestra sono state rese parametriche su risoluzione e dimensioni
-fisiche proprio per reggere un eventuale pannello più piccolo senza dover
-riscrivere codice, ma non esiste ancora un candidato preciso da verificare.
+Prima lettura sbagliata di questa nota: ho cercato nel BOM un pannello "poco
+più di 2 pollici" distinto dal 2.4" già scelto, non trovandolo. Rileggendo,
+il significato più semplice è che il 2.4" **è già** il pannello più piccolo
+del BOM (le opzioni restano 2.4", 3.5", 5" — §1.3): il caso peggiore da
+verificare è quello, non un ipotetico pannello ancora più piccolo che non
+esiste. La risposta pratica è quindi il criterio (b) stesso — leggibilità a
+mezzo metro **sul 2.4"**, con la modalità test-card della finestra
+(`--carta-prova`, vedi `bmo-face/README.md`).
+
+La pipeline resta comunque parametrica su risoluzione e dimensioni fisiche
+(costa poco e non fa danno), quindi se in futuro comparisse davvero un
+pannello più piccolo nel BOM, funzionerebbe senza modifiche — ma non è la
+risposta al "caso peggiore" di cui parlava la richiesta originale.
 
 ## La città "Milano" resta hardcoded nel prompt — non è questa issue
 

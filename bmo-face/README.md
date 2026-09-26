@@ -43,11 +43,18 @@ budget del piano (§2.11); un pannello più piccolo pesa proporzionalmente meno.
 ## 2. La finestra
 
 ```bash
-python -m bmo_face.finestra --assets assets/                 # dimensione fisica, preset 2.4"
-python -m bmo_face.finestra --assets assets/ --pixel          # 1 px pannello = 1 px schermo
-python -m bmo_face.finestra --assets assets/ --pannello 3.5   # l'altro preset del BOM
-python -m bmo_face.finestra --assets assets/ --mm-larghezza 40 --mm-altezza 30  # caso peggiore
+python -m bmo_face.finestra --assets assets/                    # dimensione fisica, preset 2.4"
+python -m bmo_face.finestra --assets assets/ --carta-prova       # criterio (b): tre righe da 20 caratteri
+python -m bmo_face.finestra --assets assets/ --pixel             # 1 px pannello = 1 px schermo
+python -m bmo_face.finestra --assets assets/ --pannello 3.5      # l'altro preset del BOM
 ```
+
+**`--carta-prova`** è il comando che risponde davvero al criterio (b): mostra
+tre righe da 20 caratteri (non la faccia) alla dimensione fisica del
+pannello, quantizzate come `faces.bin` (RGB565), e ne salva anche una copia
+in `assets/carta_prova.png` per un controllo rapido senza aprire la finestra.
+Il "caso peggiore" della #23 è **il 2.4" stesso** (non c'è ancora un
+pannello più piccolo nel BOM, §1.3): è quello il pannello da giudicare.
 
 Apre un socket Unix (predefinito: `$XDG_RUNTIME_DIR/bmo.sock` sul PC,
 `/run/bmo.sock` sul Pi, `BMO_SOCKET` sempre prioritario — stesso schema di

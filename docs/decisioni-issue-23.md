@@ -7,15 +7,24 @@ così Riccardo può correggerle in un solo passaggio.
 
 ## 1. Il criterio di leggibilità (b) — serve il tuo giudizio, non è rimandabile al codice
 
+**Correzione rispetto alla prima stesura di questo file**: "il caso peggiore"
+dell'issue è il pannello **2.4" stesso** — è già il più piccolo nel BOM
+(§1.3), non un pannello ancora più piccolo (non esiste ancora nel BOM). La
+prima versione di questo file cercava il candidato sbagliato.
+
 **Cosa è già pronto**: `bmo-face/README.md` spiega come costruire gli asset e
-aprire la finestra; il comando è:
+aprire la finestra; il comando per il criterio (b) è:
 
 ```bash
 cd bmo-face
 python3 -m venv --system-site-packages .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m bmo_face.build_face --destinazione assets/
-.venv/bin/python -m bmo_face.finestra --assets assets/
+.venv/bin/python -m bmo_face.finestra --assets assets/ --carta-prova
 ```
+
+`--carta-prova` mostra tre righe da 20 caratteri (non la faccia), quantizzate
+come `faces.bin` (RGB565) — è quello il test, non la faccia stessa — e ne
+salva anche una copia in `assets/carta_prova.png`.
 
 Su questo laptop la finestra stamperà un avviso: il pitch dello schermo di
 sviluppo (~0,177 mm/px) è più grosso di quello del pannello 2.4" target
@@ -88,6 +97,18 @@ ritardo nel far sentire la voce.
 (sincrono) — bocca perfettamente sincronizzata dal primo fotogramma, ma con
 un ritardo reale nell'avvio del suono, la stessa cosa che l'issue #42 aveva
 deciso di evitare.
+
+## 5b. Lo scarto delle pupille e l'accento dell'espressione sono piccoli — da verificare insieme al punto 1
+
+Non misurato con precisione: a 0,153 mm/px lo scarto delle pupille durante
+`ascolto` è dell'ordine di ±1 mm, e l'accento sopra l'occhio destro durante
+un'espressione è un arco di ~2 px di spessore. Non è detto che si vedano a
+mezzo metro sul pannello vero, anche se il resto (occhi, bocca, il testo
+della carta di prova) resta leggibile. Non li ho allargati perché non so
+quanto dovrebbero essere vistosi senza il tuo giudizio — se nella stessa
+sessione in cui guardi `--carta-prova` noti che pupille/espressione sono
+invisibili, dimmelo e li ingrandisco (`arte_placeholder.overlay_pupille`,
+`overlay_espressioni`).
 
 ## 5. `BMO_FACCIA=socket` è opt-in, non il default
 

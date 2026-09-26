@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import socket
 import sys
+import threading
 from pathlib import Path
 from typing import TextIO
 
@@ -70,11 +71,18 @@ class FacciaSocket:
     ogni scrittura che fallisce prova a riconnettersi una volta prima di
     arrendersi in silenzio — una faccia muta perche' bmo-face non gira ancora
     non deve mai far fallire il turno di conversazione.
+
+    Chiamata da due thread diversi (issue #23): il turno normale mostra lo
+    stato dal thread principale, `VoceTts._manda_inviluppo` manda l'inviluppo
+    da un thread a parte per non aggiungere latenza alla risposta. Un `Lock`
+    tiene le scritture atomiche: senza, due righe JSON potrebbero
+    interfogliarsi sullo stesso socket e bmo-face leggerebbe spazzatura.
     """
 
     def __init__(self, percorso: Path) -> None:
         self.percorso = percorso
         self._socket: socket.socket | None = None
+        self._lock = threading.Lock()
 
     def _connetti(self) -> socket.socket | None:
         try:
@@ -86,6 +94,10 @@ class FacciaSocket:
 
     def _manda(self, messaggio: dict) -> None:
         riga = (json.dumps(messaggio) + "\n").encode("utf-8")
+        with self._lock:
+            self._manda_bloccato(riga)
+
+    def _manda_bloccato(self, riga: bytes) -> None:
         if self._socket is None:
             self._socket = self._connetti()
         if self._socket is None:

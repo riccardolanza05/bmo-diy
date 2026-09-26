@@ -17,8 +17,8 @@ def test_costruisci_produce_tutti_gli_stati_minimi():
 def test_costruisci_e_parametrico_sulla_risoluzione():
     dati_piccoli, manifesto_piccolo = costruisci(64, 48)
     dati_grandi, manifesto_grande = costruisci(128, 96)
-    assert manifesto_piccolo.larghezza, manifesto_piccolo.altezza == (64, 48)
-    assert manifesto_grande.larghezza, manifesto_grande.altezza == (128, 96)
+    assert (manifesto_piccolo.larghezza, manifesto_piccolo.altezza) == (64, 48)
+    assert (manifesto_grande.larghezza, manifesto_grande.altezza) == (128, 96)
     # Il pannello grande ha più byte per fotogramma quindi, a parità di
     # numero di fotogrammi, un faces.bin più grande.
     assert len(dati_grandi) > len(dati_piccoli)

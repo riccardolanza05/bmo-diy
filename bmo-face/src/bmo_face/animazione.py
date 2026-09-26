@@ -20,7 +20,8 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .formato import Manifesto, rgb888_da_565
+from .arte_placeholder import CHIARO, SFONDO
+from .formato import Manifesto, rgb565, rgb888_da_565
 
 # Battito di palpebre irregolare (§2.11: "la regolarità è ciò che fa sembrare
 # morta un'animazione"), ma calcolato una volta sola su un superperiodo fisso
@@ -210,3 +211,53 @@ class Renderer:
             box_e = disegna.textbbox((0, 0), etichetta, font=font_etichetta)
             xe = (w - (box_e[2] - box_e[0])) // 2
             disegna.text((xe, round(h * 0.90)), etichetta, font=font_etichetta, fill=(200, 200, 200))
+
+
+_RIGHE_CARTA_PROVA = (
+    "0123456789ABCDEFGHIJ",
+    "Che tempo fa domani?",
+    "Timer: 02:05 pasta ",
+)
+
+
+def _dimensiona_font_per_larghezza(disegna: ImageDraw.ImageDraw, testo: str, larghezza_target: float) -> Any:
+    campione = _font(20)
+    larghezza_campione = disegna.textlength(testo, font=campione)
+    if larghezza_campione <= 0:
+        return campione
+    return _font(max(6, round(20 * larghezza_target / larghezza_campione)))
+
+
+def carta_prova(larghezza: int, altezza: int) -> Image.Image:
+    """Tre righe da 20 caratteri, per il criterio di leggibilità (b, issue #23).
+
+    Non è un'animazione: una carta statica, pensata solo per essere guardata
+    a mezzo metro — `finestra.py --carta-prova` la mostra al posto della
+    faccia, facendola passare dallo stesso giro di quantizzazione RGB565
+    delle altre (`quantizza_come_pannello`), non da questa funzione pura da
+    sola: quel giro è quel che la rende una prova vera della qualità
+    d'immagine del pannello, non solo del font scelto.
+    """
+    righe = [r.ljust(20)[:20] for r in _RIGHE_CARTA_PROVA]
+    immagine = Image.new("RGB", (larghezza, altezza), SFONDO)
+    disegna = ImageDraw.Draw(immagine)
+    font = _dimensiona_font_per_larghezza(disegna, righe[0], larghezza * 0.90)
+    altezza_riga = altezza / 4
+    for i, riga in enumerate(righe):
+        box = disegna.textbbox((0, 0), riga, font=font)
+        larghezza_testo = box[2] - box[0]
+        x = max(0, (larghezza - larghezza_testo) // 2)
+        y = round(altezza_riga * (i + 0.6))
+        disegna.text((x, y), riga, font=font, fill=CHIARO)
+    return immagine
+
+
+def quantizza_come_pannello(immagine: Image.Image) -> Image.Image:
+    """Fa passare `immagine` dallo stesso quantizzatore RGB565 di `faces.bin`.
+
+    Usata da `carta_prova` (via `finestra.py`) e da qualunque altra immagine
+    che debba mostrare la stessa qualità che avrà davvero il pannello, non
+    quella (più pulita) dell'immagine sorgente prima della conversione.
+    """
+    w, h = immagine.size
+    return Image.frombytes("RGB", (w, h), rgb888_da_565(rgb565(immagine.convert("RGB").tobytes())))
