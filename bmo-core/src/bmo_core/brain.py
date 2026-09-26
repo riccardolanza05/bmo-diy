@@ -142,9 +142,10 @@ IL DIARIO:
   senza insistere né riprovare nello stesso turno.
 
 LE AZIONI SI FANNO SOLO CON GLI STRUMENTI:
-- Quando serve uno strumento, la chiamata allo strumento è la prima e unica cosa che fai in quel
-  momento: non scrivere niente prima, nemmeno l'espressione. L'espressione e le parole vengono
-  solo dopo, nella risposta finale, quando hai letto il risultato.
+- Quando serve uno strumento, la chiamata allo strumento resta la prima azione del turno: non
+  scrivere niente prima, nemmeno l'espressione — a parte l'eventuale trascrizione richiesta più
+  sotto, che non è una risposta e non sostituisce mai la chiamata allo strumento. L'espressione
+  e le parole vengono solo dopo, nella risposta finale, quando hai letto il risultato.
 - Timer, musica e radio, volume, pausa dell'ascolto, foto e ricerche avvengono SOLO chiamando
   lo strumento corrispondente. Se non chiami lo strumento, non succede niente.
 - Di' di aver fatto un'azione solo se lo strumento ha risposto con stato "ok".
@@ -187,6 +188,29 @@ IL TEMPO PER GLI STRUMENTI È FINITO:
   usando quello che hai già scoperto dai risultati raccolti finora.
 - Se quei risultati non bastano, di' semplicemente cosa non sei riuscito a sapere,
   senza scusarti e senza inventare una causa.
+"""
+
+# Quarto strato, solo sul primo giro di un turno ad audio (#29, seconda
+# versione): chiede la trascrizione di quello che ha detto la persona nella
+# STESSA chiamata che elabora l'audio, invece di una seconda richiesta
+# dedicata (la prima versione, ancora disponibile come ripiego in
+# `Cervello._trascrivi` se questo blocco manca dalla risposta). Provato dal
+# vivo il 26/9 su gemini-3.5-flash-lite: senza l'eccezione esplicita nella
+# regola "LE AZIONI SI FANNO SOLO CON GLI STRUMENTI" qui sopra, un turno
+# italiano con richiesta di timer ha risposto a voce senza chiamare lo
+# strumento — con l'eccezione, 6/6 fra italiano e inglese hanno chiamato lo
+# strumento correttamente.
+ISTRUZIONE_TRASCRIZIONE_INLINE = """\
+QUESTA È LA TUA PRIMA RISPOSTA DEL TURNO, quella che elabora l'audio appena arrivato:
+prima di qualunque altra cosa — anche prima di chiamare uno strumento, anche prima
+delle etichette di lingua ed espressione — scrivi ESATTAMENTE questo, su due righe:
+[TRASCRIZIONE] <trascrizione letterale, parola per parola, di quello che hai appena sentito>
+===
+Poi continua ESATTAMENTE come faresti senza questa istruzione: se il turno richiede
+uno strumento, chiamalo subito dopo — la trascrizione non conta come "aver scritto
+qualcosa prima", è un'eccezione dichiarata alla regola, non un'alternativa alla
+chiamata. Se non serve nessuno strumento, scrivi la tua risposta con le etichette
+come sempre. La trascrizione non è la tua risposta e non viene letta ad alta voce.
 """
 
 # Prompt a sé, per Cervello.classifica_risposta() (#17): non è uno strato del
@@ -245,12 +269,18 @@ class _TurnoSospeso:
     `testo_grezzo` è la risposta di BMO *con* le etichette (vedi
     `sessione.Turno.bmo`): `Risposta.testo` che torna a chi chiama `rispondi()`
     resta invece ripulito, come sempre.
+
+    `trascrizione_inline` è quella letta dal blocco `[TRASCRIZIONE]` del
+    primo giro (#29 v2), se il modello l'ha scritta: `dopo_il_turno()` la usa
+    al posto di una seconda chiamata dedicata, e ricorre a quella solo se
+    manca (`None`).
     """
 
     audio_wav: bytes | None
     testo: str | None
     testo_grezzo: str
     token_prompt: int
+    trascrizione_inline: str | None = None
 
 
 def _durata_parlata(secondi: int) -> str:
@@ -433,6 +463,39 @@ def separa_espressione(testo: str) -> tuple[str | None, str]:
     """Come `separa_etichette`, senza la lingua. Resta per chi non ne ha bisogno."""
     espressione, _, pulito = separa_etichette(testo)
     return espressione, pulito
+
+
+_INIZIO_TRASCRIZIONE = re.compile(r"^\s*\[TRASCRIZIONE\]\s*")
+_RIGA_SEPARATORE_TRASCRIZIONE = re.compile(r"^===[ \t]*$", re.MULTILINE)
+
+
+def separa_trascrizione(testo: str) -> tuple[str | None, str]:
+    """Toglie il blocco iniziale `[TRASCRIZIONE] ... \\n===` (#29, seconda versione).
+
+    A differenza di `separa_etichette`, il modello non segue il formato alla
+    lettera in un punto preciso: la riga `===` a volte manca — osservato dal
+    vivo (prove del 26/9) quando la trascrizione è l'unica cosa che scrive,
+    come prima di chiamare uno strumento, la considera già "separata" dalla
+    riga a capo e non ripete il separatore. In quel caso il confine è la
+    fine della prima riga. Quando invece c'è una riga `===` (anche non
+    subito dopo, se la trascrizione va a capo da sola perché lunga), è
+    quella il vero confine: cercarla in tutto il testo, non solo sulla
+    seconda riga, evita che una trascrizione andata a capo faccia finire un
+    pezzo di sé nella risposta parlata.
+
+    Nessun blocco trovato: nessuna trascrizione, testo intatto — così è
+    sicuro chiamarla anche quando non è stata richiesta.
+    """
+    inizio = _INIZIO_TRASCRIZIONE.match(testo)
+    if not inizio:
+        return None, testo
+    corpo = testo[inizio.end():]
+    separatore = _RIGA_SEPARATORE_TRASCRIZIONE.search(corpo)
+    if separatore:
+        trascrizione, resto = corpo[: separatore.start()], corpo[separatore.end():]
+    else:
+        trascrizione, _, resto = corpo.partition("\n")
+    return trascrizione.strip() or None, resto.strip()
 
 
 def prompt_da_file(percorso: Path | None) -> dict[str, str]:
@@ -738,14 +801,17 @@ class Cervello:
         Chiamato da `dopo_il_turno()`, dopo aver aggiunto il turno appena
         concluso allo storico: "la compressione parte dopo che BMO ha
         risposto al turno che ha superato il tetto" (l'issue), non prima.
+
+        **Non scrive mai nel diario** (#14, deciso il 26/9): la memoria
+        persistente si aggiorna solo quando la sessione chiude per davvero
+        (caso 1, `_gestisci_scadenza_sessione`/`_estrai_pendente_se_ce`), non
+        a metà conversazione. Quel che c'è da ricordare qui dentro non è
+        perso: resta nel riassunto, che `testo_per_estrazione()` include
+        comunque quando l'estrazione vera arriverà.
         """
         if not self.sessione.oltre_tetto(self.tetto_token_storico):
             return
         testo = self.sessione.testo_per_estrazione()
-        try:
-            self._estrai_verso_diario(testo, scadenza)
-        except ERRORI_SESSIONE:
-            pass  # l'estrazione di questi turni si ritenta alla prossima scadenza per inattività (caso 1)
         try:
             self.sessione.sostituisci_con_riassunto(self._riassumi_sessione(testo, scadenza))
         except ERRORI_GEMINI:
@@ -766,11 +832,19 @@ class Cervello:
         qualcuno aspetta una risposta", e finché `rispondi()` non è tornata
         chi ha appena parlato sta aspettando esattamente questo.
 
-        Fino a quattro richieste incatenate (trascrizione, estrazione
-        pendente, estrazione e riassunto del tetto): un solo budget di tempo
-        condiviso (`BUDGET_DOPO_IL_TURNO_S`) per tutta la catena, non uno per
-        richiesta, altrimenti un sovraccarico del modello terrebbe BMO sordo
-        per il tempo di quattro tentativi pieni invece di uno solo.
+        La trascrizione stessa di solito non fa più parte di questa catena
+        (#29 v2): arriva già dal primo giro di `rispondi()`, nella stessa
+        chiamata che elabora l'audio (`_TurnoSospeso.trascrizione_inline`).
+        La seconda chiamata dedicata (`_trascrivi_sicuro`, la prima versione)
+        resta come ripiego solo per quando il modello non ha scritto il
+        blocco `[TRASCRIZIONE]` — raro nelle prove dal vivo, ma non garantito.
+
+        Fino a tre richieste incatenate nel caso peggiore (trascrizione di
+        ripiego, estrazione pendente verso il diario, riassunto del tetto):
+        un solo budget di tempo condiviso (`BUDGET_DOPO_IL_TURNO_S`) per
+        tutta la catena, non uno per richiesta, altrimenti un sovraccarico
+        del modello terrebbe BMO sordo per il tempo di tre tentativi pieni
+        invece di uno solo.
 
         Non solleva mai: un problema qui costa al più un turno mancante
         nello storico o un'estrazione rimandata al turno successivo, mai un
@@ -781,9 +855,10 @@ class Cervello:
         sospeso, self._sospeso = self._sospeso, None
         if sospeso is None:
             return
-        trascrizione = (
-            sospeso.testo if sospeso.testo is not None else self._trascrivi_sicuro(sospeso.audio_wav, scadenza)
-        )
+        if sospeso.testo is not None:
+            trascrizione = sospeso.testo
+        else:
+            trascrizione = sospeso.trascrizione_inline or self._trascrivi_sicuro(sospeso.audio_wav, scadenza)
         # Un turno senza trascrizione non entra nello storico: non
         # aiuterebbe i turni successivi e sballerebbe il conteggio dei token
         # a vuoto (`aggiungi()` li registra insieme).
@@ -806,11 +881,13 @@ class Cervello:
             self._diario_letto = carica_diario(self.diario_percorso)
         return self._diario_letto
 
-    def _configurazione(self, riepilogo: bool = False) -> types.GenerateContentConfig:
+    def _configurazione(self, riepilogo: bool = False, chiedi_trascrizione: bool = False) -> types.GenerateContentConfig:
         istruzioni = [
             self.prompt_fisso,
             contesto_dinamico(self.orologio(), self.timer, self.inietta_ora, self.diario, self.sessione.riassunto),
         ]
+        if chiedi_trascrizione:
+            istruzioni.append(ISTRUZIONE_TRASCRIZIONE_INLINE)
         if riepilogo:
             istruzioni.append(ISTRUZIONE_RIEPILOGO)
         return types.GenerateContentConfig(
@@ -827,31 +904,47 @@ class Cervello:
         )
 
     def _genera(
-        self, contenuti: list[types.Content], scadenza: float, riepilogo: bool = False
+        self, contenuti: list[types.Content], scadenza: float, riepilogo: bool = False, chiedi_trascrizione: bool = False
     ) -> tuple[Any, str]:
         return self.cascata.genera(
             self.client,
             scadenza=scadenza,
             contents=contenuti,
-            config=self._configurazione(riepilogo),
+            config=self._configurazione(riepilogo, chiedi_trascrizione),
         )
 
     def _chiedi(
-        self, contenuti: list[types.Content], scadenza: float, riepilogo: bool = False
-    ) -> tuple[Any, str, int]:
+        self,
+        contenuti: list[types.Content],
+        scadenza: float,
+        riepilogo: bool = False,
+        chiedi_trascrizione: bool = False,
+    ) -> tuple[Any, str, int, str | None]:
         """Una richiesta al modello, ripetuta una volta se torna solo l'etichetta.
 
         Caso reale del 19/9: due timer risposero "[felice]" e basta, senza
         chiamare lo strumento. Restituisce anche quante ripetizioni sono servite.
+
+        `chiedi_trascrizione` chiede al primo giro del turno (#29 v2) di
+        anteporre `[TRASCRIZIONE] ...` a qualunque cosa faccia dopo — anche
+        una chiamata a uno strumento, vedi `ISTRUZIONE_TRASCRIZIONE_INLINE` —
+        una sola chiamata invece delle due della prima versione. Il blocco va
+        tolto **prima** di decidere se la risposta è vuota, altrimenti una
+        chiamata a strumento con solo la trascrizione davanti sembrerebbe
+        una risposta vera e verrebbe ripetuta per errore.
         """
-        risposta, modello = self._genera(contenuti, scadenza, riepilogo)
-        vuota = not (risposta.function_calls or []) and not separa_espressione(
-            testo_della_risposta(risposta)
-        )[1]
+        risposta, modello = self._genera(contenuti, scadenza, riepilogo, chiedi_trascrizione)
+        testo_grezzo = testo_della_risposta(risposta)
+        trascrizione = None
+        if chiedi_trascrizione:
+            trascrizione, testo_grezzo = separa_trascrizione(testo_grezzo)
+        vuota = not (risposta.function_calls or []) and not separa_espressione(testo_grezzo)[1]
         if not vuota:
-            return risposta, modello, 0
-        risposta, modello = self._genera(contenuti, scadenza, riepilogo)
-        return risposta, modello, 1
+            return risposta, modello, 0, trascrizione
+        risposta, modello = self._genera(contenuti, scadenza, riepilogo, chiedi_trascrizione)
+        if chiedi_trascrizione:
+            trascrizione, _ = separa_trascrizione(testo_della_risposta(risposta))
+        return risposta, modello, 1, trascrizione
 
     def rispondi(self, audio_wav: bytes | None = None, testo: str | None = None) -> Risposta:
         """Manda audio (o testo, utile per le prove) a Gemini ed esegue il loop agentico.
@@ -900,13 +993,22 @@ class Cervello:
         modello = ""
         ripetizioni = 0
         motivo_riepilogo: str | None = None
+        # La trascrizione (#29 v2) arriva solo dal primo giro, l'unico che
+        # vede davvero l'audio: i giri successivi rispondono a un risultato
+        # di uno strumento, non c'è niente di nuovo da trascrivere.
+        trascrizione_dal_modello: str | None = None
         try:
             for giro in range(self.max_giri):
                 if giro and self.cronometro() >= ultimo_inizio:
                     motivo_riepilogo = "tempo finito"
                     break
                 # Scadenza ridotta: un giro lento non può mangiarsi la riserva.
-                risposta, modello, ripetuto = self._chiedi(contenuti, ultimo_inizio)
+                chiedi_trascrizione = giro == 0 and audio_wav is not None
+                risposta, modello, ripetuto, trascrizione = self._chiedi(
+                    contenuti, ultimo_inizio, chiedi_trascrizione=chiedi_trascrizione
+                )
+                if trascrizione:
+                    trascrizione_dal_modello = trascrizione
                 ripetizioni += ripetuto
                 chiamate = risposta.function_calls or []
                 if not chiamate:
@@ -937,13 +1039,21 @@ class Cervello:
 
         if motivo_riepilogo:
             try:
-                risposta, modello, ripetuto = self._chiedi(contenuti, scadenza, riepilogo=True)
+                # Il riepilogo non chiede mai la trascrizione: se è servito è
+                # perché il primo giro l'aveva già scritta (o non poteva
+                # scriverla, testo=), non c'è niente di nuovo da trascrivere.
+                risposta, modello, ripetuto, _ = self._chiedi(contenuti, scadenza, riepilogo=True)
             except GeminiNonDisponibile:
                 self.faccia.mostra(STATO_ERRORE)
                 raise
             ripetizioni += ripetuto
 
         testo_grezzo = testo_della_risposta(risposta)
+        # Il blocco [TRASCRIZIONE] resta nel testo grezzo quando il primo
+        # giro è anche quello finale (nessuno strumento chiamato): va tolto
+        # prima delle etichette, altrimenti finirebbe letto ad alta voce.
+        # Innocuo quando non c'è (`separa_trascrizione` lo lascia intatto).
+        _, testo_grezzo = separa_trascrizione(testo_grezzo)
         espressione, lingua, testo_finale = separa_etichette(testo_grezzo)
         self.faccia.mostra(espressione or (STATO_PARLATO if testo_finale else STATO_ERRORE))
         # Storico di sessione (#29): non lo si scrive già qui. `dopo_il_turno()`
@@ -954,7 +1064,11 @@ class Cervello:
         if testo_finale:
             token_prompt = getattr(getattr(risposta, "usage_metadata", None), "prompt_token_count", None) or 0
             self._sospeso = _TurnoSospeso(
-                audio_wav=audio_wav, testo=testo, testo_grezzo=testo_grezzo, token_prompt=token_prompt
+                audio_wav=audio_wav,
+                testo=testo,
+                testo_grezzo=testo_grezzo,
+                token_prompt=token_prompt,
+                trascrizione_inline=trascrizione_dal_modello,
             )
         return Risposta(
             testo=testo_finale,

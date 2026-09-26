@@ -492,22 +492,40 @@ gestisce da solo, turno dopo turno:
 
 - **5 minuti di silenzio** chiudono la sessione: una richiesta silenziosa
   estrae i fatti utili verso il diario delle preferenze (#14, stesso file
-  `memoria.json`, `fonte="modello"`) e lo storico riparte vuoto.
+  `memoria.json`, `fonte="modello"`) e lo storico riparte vuoto. **Il diario
+  si aggiorna solo qui**, alla chiusura vera della conversazione — mai al
+  tetto di token qui sotto, che comprime soltanto: decisione esplicita del
+  26/9, per non scrivere nulla di permanente a metà di una conversazione
+  ancora in corso.
 - **60k token** in ingresso (letti da `usage_metadata.prompt_token_count`
   dell'ultima risposta, nessuna chiamata in più solo per contare) comprimono
-  la conversazione in un riassunto invece di chiuderla: la stessa estrazione
-  verso il diario, poi un riassunto che la fa proseguire. Il riassunto vive
-  nello strato STATO del prompt (`contesto_dinamico`, accanto a Diario e
-  Timer), non fra i `contents` della conversazione: due turni `user` di
-  fila lì non è una forma garantita dall'API multi-turno.
+  la conversazione in un riassunto invece di chiuderla, senza toccare il
+  diario. Il riassunto vive nello strato STATO del prompt
+  (`contesto_dinamico`, accanto a Diario e Timer), non fra i `contents`
+  della conversazione: due turni `user` di fila lì non è una forma garantita
+  dall'API multi-turno. Quel che c'è da ricordare in quella conversazione
+  arriva comunque al diario quando la sessione chiuderà per davvero — non è
+  perso, solo rimandato.
+- **L'estrazione è pensata per essere rara**, non un riassunto ad ogni
+  conversazione: il prompt (`ISTRUZIONE_ESTRAZIONE`) chiede esplicitamente
+  che `NIENTE` sia la risposta più frequente, elenca cosa non scrivere mai
+  (azioni occasionali come un timer o una ricerca, cose vaghe, doppioni
+  anche riformulati) e limita a 2 voci nuove per chiamata
+  (`MAX_VOCI_PER_ESTRAZIONE`). Le voci scritte a mano (`fonte="manuale"`,
+  via SCP) non vengono mai sfrattate dal tetto del diario — solo quelle
+  automatiche (`memoria.MAX_VOCI_AUTOMATICHE`).
 - Se l'estrazione fallisce (rete giù, quota) non si perde niente: il testo
   da estrarre resta da parte (`Cervello._estrazione_pendente`, separato
   dallo storico vivo apposta) e si ritenta al turno successivo, fino a un
   tetto di tentativi (`MAX_TENTATIVI_ESTRAZIONE`) oltre il quale si rinuncia.
 - Il testo di chi ha parlato è quello passato a `rispondi(testo=...)` quando
-  c'è già (prove, CLI); con l'audio serve una trascrizione — una richiesta
-  Gemini in più per turno, con un prompt minuscolo dedicato
-  (`ISTRUZIONE_TRASCRIZIONE`), voluta e accettata dall'issue.
+  c'è già (prove, CLI). Con l'audio, il **primo giro del turno scrive la
+  trascrizione nella stessa risposta** (`[TRASCRIZIONE] ... \n===`, prima di
+  qualunque altra cosa, anche prima di chiamare uno strumento) invece di una
+  seconda chiamata dedicata — provato dal vivo il 26/9: 6/6 fra chiamate a
+  strumento e risposte dirette, italiano e inglese. La seconda chiamata
+  dedicata (`ISTRUZIONE_TRASCRIZIONE`) resta solo come ripiego per quando il
+  blocco manca dalla risposta.
 
 **Nessuna di queste richieste gira da `rispondi()`.** L'issue lo vieta
 esplicitamente ("mai mentre qualcuno aspetta una risposta"), e finché

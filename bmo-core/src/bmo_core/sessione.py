@@ -20,6 +20,15 @@ accettato dall'issue ("se il processo si riavvia, una conversazione aperta
 si perde"): un ritardo di qualche minuto nel chiudere una sessione silenziosa
 non cambia niente in pratica, e non serve un thread in più che tocchi lo
 stesso stato di `Cervello` in concorrenza con un turno vero.
+
+**Il diario (#14) si aggiorna solo alla chiusura vera della sessione**
+(scadenza per inattività), mai al tetto di token (deciso il 26/9): a metà
+conversazione il tetto comprime soltanto (`sostituisci_con_riassunto`), non
+scrive nulla di permanente — quel che c'è da ricordare in quella
+conversazione, riassunto compreso, verrà comunque estratto quando la
+sessione chiuderà per davvero. Coerente col resto del disegno: l'estrazione
+è pensata per essere rara e selettiva (vedi `ISTRUZIONE_ESTRAZIONE`), non
+un'operazione che deve per forza succedere ogni volta che qualcosa scade.
 """
 from __future__ import annotations
 
@@ -45,20 +54,34 @@ TETTO_TOKEN_STORICO = 60_000
 MAX_TENTATIVI_ESTRAZIONE = 3
 
 # Tetto di tempo per l'intera catena di richieste silenziose di un
-# `dopo_il_turno()` (trascrizione, estrazione pendente, estrazione e
-# riassunto del tetto): un solo budget condiviso, non uno per chiamata,
-# altrimenti un sovraccarico del modello fa restare BMO sordo fino a
+# `dopo_il_turno()` (trascrizione di ripiego, estrazione pendente, riassunto
+# del tetto): un solo budget condiviso, non uno per chiamata, altrimenti un
+# sovraccarico del modello fa restare BMO sordo fino a
 # TENTATIVI_SDK × TIMEOUT_TENTATIVO_S per ciascuna delle richieste
-# incatenate (fino a 4). Se il budget finisce a metà catena, le richieste
+# incatenate (fino a 3). Se il budget finisce a metà catena, le richieste
 # successive falliscono con GeminiNonDisponibile("tempo", ...) e i loro
 # `except` già previsti si comportano come per qualunque altro errore.
-BUDGET_DOPO_IL_TURNO_S = 8.0
+#
+# **Deve restare sopra i 10 s**: il server Gemini rifiuta un deadline più
+# corto (visto dal vivo il 26/9, `python -m bmo_core.prova_frasi`:
+# "400 INVALID_ARGUMENT: Manually set deadline 6s is too short. Minimum
+# allowed deadline is 10s."). Con un valore vicino al minimo, la primissima
+# richiesta della catena finiva già sotto il tetto del server (i primi 8 s
+# qui, prima di questa correzione) — e la scriveva mai nel diario, in
+# silenzio, perché ERRORI_GEMINI la tratta come un errore di rete qualunque.
+# 30 s dà margine per la prima richiesta (fino a TIMEOUT_TENTATIVO_S = 15 s)
+# e lascia comunque più di 10 s a una seconda richiesta incatenata anche se
+# la prima ha impiegato qualche secondo.
+BUDGET_DOPO_IL_TURNO_S = 30.0
 
-# Al massimo tante voci nuove per estrazione: un'unica richiesta di
-# estrazione mal riuscita (o un modello che elenca ogni dettaglio invece dei
-# fatti degni di nota) non deve poter riempire da sola il diario e sfrattare
-# le voci più vecchie, comprese quelle scritte a mano (`memoria.MAX_VOCI`).
-MAX_VOCI_PER_ESTRAZIONE = 3
+# Al massimo tante voci nuove per estrazione (deciso il 26/9, abbassato da 3
+# a 2): un'unica richiesta di estrazione mal riuscita, o un modello che
+# elenca ogni dettaglio invece dei pochi fatti davvero degni di nota, non
+# deve poter riempire da sola il diario. Le voci scritte a mano non sono
+# comunque mai a rischio (`memoria.MAX_VOCI_AUTOMATICHE` conta solo quelle
+# automatiche), ma un diario che si allunga ad ogni conversazione è comunque
+# un diario che smette di essere utile: vedi anche `ISTRUZIONE_ESTRAZIONE`.
+MAX_VOCI_PER_ESTRAZIONE = 2
 
 # Il modello risponde con questa parola sola quando non c'è niente da
 # ricordare: più facile da riconoscere ed escludere di una riga vuota, che
@@ -79,16 +102,48 @@ riga vuota.
 """
 
 ISTRUZIONE_ESTRAZIONE = f"""\
-Rileggi questa conversazione fra una persona di casa e BMO. Estrai SOLO i fatti o
-le preferenze utili da ricordare per il futuro — gusti, abitudini, programmi,
-nomi ricorrenti — non il contenuto occasionale della chiacchierata.
-Al massimo {MAX_VOCI_PER_ESTRAZIONE} fatti, un fatto per riga, in italiano, in
-prosa, senza numerarli, senza punti elenco e senza altro testo intorno.
-Non scrivere informazioni personali delicate: salute, soldi, password o dati
-di accesso.
-Il diario ha già queste voci: non ripeterle, nemmeno riformulate. Se non c'è
-niente di nuovo e degno di essere ricordato, rispondi con la sola parola
-{NIENTE_DA_RICORDARE}.
+Rileggi questa conversazione fra una persona di casa e BMO. Il tuo compito è
+decidere se c'è qualcosa di DAVVERO degno di essere scritto per sempre nel
+diario di casa — non stai riassumendo la conversazione, stai giudicando se
+merita di sopravviverle. Nella maggior parte delle conversazioni la risposta
+corretta è che non c'è niente da scrivere: è normale, è l'esito atteso, non
+un fallimento dell'estrazione.
+
+Scrivi una voce SOLO se la conversazione contiene, in modo esplicito e
+chiaro (mai indovinato o dedotto con troppa libertà), un fatto DUREVOLE su
+chi vive in casa — un gusto alimentare, un'abitudine ricorrente, un impegno
+futuro con una data o un ricorrere fisso, un nome che tornerà utile,
+una preferenza dichiarata apertamente — qualcosa che, riletto fra un mese,
+aiuterebbe davvero BMO a rispondere meglio a chi vive lì.
+
+NON scrivere MAI una voce per:
+- un'azione occasionale già fatta o già eseguita da uno strumento (un timer
+  impostato, una ricerca, un calcolo, una barzelletta, l'ora, il meteo, una
+  radio accesa): è successo e basta, non è un fatto da portarsi dietro;
+- una domanda di cultura generale o una richiesta puntuale senza nulla di
+  personale dentro;
+- qualcosa di vago, ipotetico, detto per scherzo, o buttato lì senza essere
+  ripreso nella conversazione;
+- qualcosa che il diario contiene già, anche solo riformulato in modo
+  diverso — leggi bene le voci già presenti, elencate più sotto, prima di
+  scriverne una nuova.
+
+Nel dubbio, non scrivere niente: è sempre la scelta più sicura, molto meglio
+di una voce inutile o ridondante che resta nel diario per sempre.
+
+Se non c'è nulla che soddisfa questi criteri con chiarezza, rispondi con la
+sola parola {NIENTE_DA_RICORDARE} — deve essere la tua risposta più
+frequente, non l'eccezione.
+
+Solo quando c'è davvero qualcosa che lo merita: al massimo
+{MAX_VOCI_PER_ESTRAZIONE} fatti, un fatto per riga, in italiano, in prosa,
+breve e concreto, senza numerarli, senza punti elenco e senza altro testo
+intorno.
+
+Non scrivere MAI informazioni personali delicate — salute (comprese allergie,
+diete, malattie, terapie), soldi, password o dati di accesso — anche quando
+sembrano praticamente utili da ricordare: restano fuori comunque, senza
+eccezioni.
 """
 
 ISTRUZIONE_RIASSUNTO_SESSIONE = """\
@@ -153,10 +208,12 @@ class StoricoSessione:
         self.token_prompt = 0
 
     def sostituisci_con_riassunto(self, riassunto: str) -> None:
-        """Caso 2b: i turni letterali lasciano il posto a un solo riassunto.
+        """Caso 2 (tetto di token): i turni letterali lasciano il posto a un solo riassunto.
 
         La sessione resta attiva (`ultimo_turno` non cambia): non è una
-        chiusura, è una compressione a metà conversazione.
+        chiusura, è una compressione a metà conversazione — non scrive nel
+        diario (#14), quello succede solo quando la sessione chiude per
+        davvero (caso 1, scadenza per inattività).
         """
         self.turni = []
         self.riassunto = riassunto.strip() or None

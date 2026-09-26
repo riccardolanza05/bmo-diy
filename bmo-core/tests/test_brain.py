@@ -794,13 +794,14 @@ def test_estrazione_fallita_troppe_volte_rinuncia(tmp_path):
     assert carica_diario(diario) == []
 
 
-def test_tetto_di_token_comprime_lo_storico_in_un_riassunto(tmp_path):
+def test_tetto_di_token_comprime_lo_storico_senza_toccare_il_diario(tmp_path):
+    """Deciso il 26/9: la memoria persistente si aggiorna solo a fine
+    conversazione (caso 1), mai al tetto di token — qui solo compressione."""
     diario = tmp_path / "memoria.json"
     cervello, client = _cervello(
         [
             _risposta_testo_con_uso("Fatto!", brain_modulo.TETTO_TOKEN_STORICO),
-            _risposta_testo("Piace il calcio"),  # estrazione (caso 2a)
-            _risposta_testo("  Si parlava di sport.  "),  # riassunto (caso 2b)
+            _risposta_testo("  Si parlava di sport.  "),  # solo il riassunto, niente estrazione
             _risposta_testo("Certo."),
         ],
         diario_percorso=diario,
@@ -810,7 +811,7 @@ def test_tetto_di_token_comprime_lo_storico_in_un_riassunto(tmp_path):
 
     assert cervello.sessione.riassunto == "Si parlava di sport."
     assert cervello.sessione.turni == []
-    assert [v.testo for v in carica_diario(diario)] == ["Piace il calcio"]
+    assert carica_diario(diario) == []  # niente scritto: la sessione non è ancora chiusa
 
     cervello.rispondi(testo="Altra domanda")
     # Il riassunto non è un `Content`: due `user` di seguito (il riassunto,
@@ -852,10 +853,66 @@ def test_estrazione_al_massimo_un_tetto_di_voci_nuove(tmp_path):
     assert len(carica_diario(diario)) == brain_modulo.MAX_VOCI_PER_ESTRAZIONE
 
 
-def test_dopo_il_turno_trascrive_laudio_con_una_richiesta_dedicata():
+def test_config_del_primo_giro_ad_audio_chiede_la_trascrizione_inline():
+    """#29 v2: solo il primo giro con audio porta l'istruzione, mai un turno a testo."""
+    cervello, client = _cervello([_risposta_testo("Fatto!")])
+    cervello.rispondi(audio_wav=b"RIFF")
+    assert brain_modulo.ISTRUZIONE_TRASCRIZIONE_INLINE in client.richieste[0]["config"].system_instruction
+
+    cervello, client = _cervello([_risposta_testo("Fatto!")])
+    cervello.rispondi(testo="ciao")
+    assert brain_modulo.ISTRUZIONE_TRASCRIZIONE_INLINE not in client.richieste[0]["config"].system_instruction
+
+
+def test_trascrizione_inline_non_serve_una_seconda_chiamata():
+    """#29 v2: se il primo giro scrive già [TRASCRIZIONE], dopo_il_turno() non ne chiede un'altra."""
+    cervello, client = _cervello(
+        [_risposta_testo("[TRASCRIZIONE] Metti un timer di dieci minuti\n===\n[it][felice] Fatto!")]
+    )
+    risposta = cervello.rispondi(audio_wav=b"RIFF")
+    assert risposta.testo == "Fatto!"  # il blocco non finisce nella risposta parlata
+
+    cervello.dopo_il_turno()
+    assert len(client.richieste) == 1  # nessuna seconda chiamata dedicata
+    assert cervello.sessione.turni[0].utente == "Metti un timer di dieci minuti"
+    assert cervello.sessione.turni[0].bmo == "[it][felice] Fatto!"  # con le etichette, vedi test dedicato
+
+
+def test_trascrizione_inline_convive_con_la_chiamata_a_uno_strumento():
+    """La trascrizione precede la chiamata allo strumento nella stessa risposta (prova dal vivo del 26/9)."""
+    prima_parte = types.Part.from_text(text="[TRASCRIZIONE] Metti un timer di dieci minuti\n")
+    chiamata = types.Part(function_call=types.FunctionCall(name="imposta_timer", args={"minuti": 10, "etichetta": "timer"}))
+    risposta_mista = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[prima_parte, chiamata]))]
+    )
+    cervello, client = _cervello([risposta_mista, _risposta_testo("[it][felice] Fatto, dieci minuti!")])
+    risposta = cervello.rispondi(audio_wav=b"RIFF")
+    assert [(c.nome, c.argomenti) for c in risposta.chiamate] == [
+        ("imposta_timer", {"minuti": 10, "etichetta": "timer"})
+    ]
+    assert risposta.testo == "Fatto, dieci minuti!"
+
+    cervello.dopo_il_turno()
+    assert len(client.richieste) == 2  # niente terza chiamata per la trascrizione
+    assert cervello.sessione.turni[0].utente == "Metti un timer di dieci minuti"
+
+
+def test_trascrizione_inline_del_tutto_vuota_viene_riprovata():
+    """Se il primo giro scrive solo [TRASCRIZIONE] e nient'altro, è una risposta
+    vuota come le altre (#18/#19): si ritenta, non si accetta senza contenuto."""
+    solo_trascrizione = _risposta_testo("[TRASCRIZIONE] Ciao BMO\n")
+    cervello, client = _cervello([solo_trascrizione, _risposta_testo("[TRASCRIZIONE] Ciao BMO\n===\n[it][felice] Ciao!")])
+    risposta = cervello.rispondi(audio_wav=b"RIFF")
+    assert len(client.richieste) == 2  # la prima è stata considerata vuota e riprovata
+    assert risposta.testo == "Ciao!"
+    assert risposta.ripetizioni == 1
+
+
+def test_dopo_il_turno_ricorre_alla_trascrizione_dedicata_se_manca_il_blocco_inline():
+    """Ripiego (prima versione): se il modello non scrive [TRASCRIZIONE], una seconda chiamata dedicata."""
     cervello, client = _cervello([_risposta_testo("Fatto!"), _risposta_testo("Metti un timer di dieci minuti")])
     cervello.rispondi(audio_wav=b"RIFF")
-    assert len(client.richieste) == 1  # la trascrizione non è ancora partita
+    assert len(client.richieste) == 1  # la trascrizione di ripiego non è ancora partita
 
     cervello.dopo_il_turno()
     assert len(client.richieste) == 2
@@ -883,3 +940,69 @@ def test_estrazione_manda_le_voci_gia_note_del_diario(tmp_path):
     cervello._estrai_verso_diario(cervello.sessione.testo_per_estrazione())
     istruzioni = client.richieste[-1]["config"].system_instruction
     assert any("Piace la pizza" in strato for strato in istruzioni)
+
+
+def test_il_riassunto_del_tetto_arriva_comunque_allestrazione_finale(tmp_path):
+    """Niente si perde: quel che il tetto comprime, la scadenza per inattività lo estrae."""
+    diario = tmp_path / "memoria.json"
+    cervello, client = _cervello(
+        [
+            _risposta_testo_con_uso("Fatto!", brain_modulo.TETTO_TOKEN_STORICO),
+            _risposta_testo("Si parlava di sport."),  # solo riassunto (caso 2)
+            _risposta_testo("Ok."),  # secondo turno, dopo la compressione
+            _risposta_testo("Certo!"),  # terzo turno, quello che scopre la sessione scaduta
+            _risposta_testo("Piace il calcio"),  # estrazione finale (caso 1), in dopo_il_turno()
+        ],
+        diario_percorso=diario,
+    )
+    cervello.rispondi(testo="Ricordati che mi piace il calcio")
+    cervello.dopo_il_turno()
+    assert carica_diario(diario) == []  # non ancora: la sessione è solo compressa
+
+    cervello.rispondi(testo="Altra cosa")
+    cervello.dopo_il_turno()
+    assert carica_diario(diario) == []  # ancora attiva, non scaduta
+
+    cervello.cronometro.adesso += brain_modulo.INATTIVITA_SESSIONE_S
+    cervello.rispondi(testo="Ciao di nuovo")
+    cervello.dopo_il_turno()
+    voci = [v.testo for v in carica_diario(diario)]
+    assert voci == ["Piace il calcio"]
+    # Il testo mandato all'estrazione includeva il riassunto, non solo l'ultimo turno.
+    testo_estrazione = client.richieste[-1]["contents"][0].parts[0].text
+    assert "Si parlava di sport." in testo_estrazione
+
+
+def test_separa_trascrizione_gestisce_una_trascrizione_andata_a_capo():
+    """Se il modello spezza la trascrizione su più righe, il confine resta
+    la riga `===`, non la prima andata a capo — altrimenti un pezzo della
+    trascrizione finirebbe nella risposta parlata."""
+    testo = "[TRASCRIZIONE] Metti un timer\ndi dieci minuti\n===\n[it][felice] Fatto"
+    trascrizione, resto = brain_modulo.separa_trascrizione(testo)
+    assert trascrizione == "Metti un timer\ndi dieci minuti"
+    assert resto == "[it][felice] Fatto"
+
+
+def test_separa_trascrizione_senza_separatore_si_ferma_alla_prima_riga():
+    trascrizione, resto = brain_modulo.separa_trascrizione("[TRASCRIZIONE] Metti un timer\n")
+    assert trascrizione == "Metti un timer"
+    assert resto == ""
+
+
+def test_separa_trascrizione_senza_blocco_lascia_il_testo_intatto():
+    assert brain_modulo.separa_trascrizione("[it][felice] Ciao!") == (None, "[it][felice] Ciao!")
+
+
+def test_budget_dopo_il_turno_da_un_timeout_valido_per_gemini():
+    """Il server rifiuta un deadline sotto i 10 s (visto dal vivo il 26/9:
+    '...Manually set deadline 6s is too short. Minimum allowed deadline is
+    10s.'): il budget condiviso di dopo_il_turno() deve starne sopra anche
+    per la primissima richiesta della catena."""
+    cronometro = CronometroFinto()
+    client = ClientFinto([_risposta_testo("ok")], cronometro)
+    cascata = brain_modulo.CascataModelli(["gemini-3.5-flash-lite"], orologio=cronometro)
+    scadenza = cronometro() + brain_modulo.BUDGET_DOPO_IL_TURNO_S
+    cascata.genera(
+        client, scadenza=scadenza, contents=[], config=types.GenerateContentConfig(system_instruction="prova")
+    )
+    assert client.richieste[0]["config"].http_options.timeout >= 10_000
