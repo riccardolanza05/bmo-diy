@@ -35,6 +35,7 @@ a partire con Invio. `--wake-word` la sostituisce per la prova.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -52,7 +53,20 @@ FREQUENZA_HZ = 16000
 CAMPIONI_PER_FRAME = 1280
 BYTE_PER_FRAME = CAMPIONI_PER_FRAME * 2  # PCM a 16 bit
 
-MODELLO_PREDEFINITO = "hey_jarvis"
+# Due dei tre modelli «Hey BMO» che Riccardo ha addestrato lui stesso
+# (comunità openWakeWord, non pesi ufficiali): bmo1/bmo2, rinominati da lui,
+# `bmo-core/modelli-wake-word/`. Non è ancora chiaro a quale frase esatta
+# risponda ciascuno — vedi la nota nel README — ma insieme coprono diverse
+# pronunce di "Bimo"/"Beemo", in italiano e inglese, e caricarli entrambi
+# non costa nulla in più: basta che uno solo superi la soglia. Sostituiscono
+# `hey_jarvis` come predefinito: deciso il 26/9, Riccardo non lo usa.
+#
+# Un terzo modello (bmo3) esiste ma resta deliberatamente **fuori dal
+# repo**: Riccardo lo tiene solo in locale, sul suo BMO personale — mai
+# committato, per nessun motivo (deciso il 26/9). Chi vuole caricarlo lo fa
+# con `--modello-wake-word <percorso locale>`, in aggiunta a questi due.
+_CARTELLA_MODELLI_BMO = Path(__file__).resolve().parents[2] / "modelli-wake-word"
+MODELLI_PREDEFINITI = [str(_CARTELLA_MODELLI_BMO / f"bmo{i}.onnx") for i in (1, 2)]
 SOGLIA_PREDEFINITA = 0.5  # punto di partenza (§2.6), non una misura
 
 
@@ -136,7 +150,7 @@ class RichiamoWakeWord:
     def __init__(
         self,
         microfono: AudioInputAdapter | None = None,
-        modello: str | list[str] = MODELLO_PREDEFINITO,
+        modello: str | list[str] = MODELLI_PREDEFINITI,
         soglia: float = SOGLIA_PREDEFINITA,
         rilevatore: RilevatoreWakeWord | None = None,
     ) -> None:
@@ -190,7 +204,7 @@ def main() -> None:
     parser.add_argument("--soglia", type=float, default=SOGLIA_PREDEFINITA)
     parser.add_argument("--volte", type=int, default=5, help="quanti rilevamenti aspettare prima di uscire")
     argomenti = parser.parse_args()
-    modelli = argomenti.modello or [MODELLO_PREDEFINITO]
+    modelli = argomenti.modello or MODELLI_PREDEFINITI
 
     richiamo = RichiamoWakeWord(modello=modelli, soglia=argomenti.soglia)
     print(
