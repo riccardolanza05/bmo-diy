@@ -34,9 +34,21 @@ from .adapters import (
     crea_faccia,
 )
 from .config import FUSO_ORARIO
-from .memoria import Voce, carica_diario
+from .memoria import Voce, aggiungi_voce, carica_diario
 from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
 from .ricerca import cerca
+from .sessione import (
+    BUDGET_DOPO_IL_TURNO_S,
+    INATTIVITA_SESSIONE_S,
+    ISTRUZIONE_ESTRAZIONE,
+    ISTRUZIONE_RIASSUNTO_SESSIONE,
+    ISTRUZIONE_TRASCRIZIONE,
+    MAX_TENTATIVI_ESTRAZIONE,
+    MAX_VOCI_PER_ESTRAZIONE,
+    NIENTE_DA_RICORDARE,
+    TETTO_TOKEN_STORICO,
+    StoricoSessione,
+)
 from .strumenti import DICHIARAZIONI
 from .timer import ArchivioTimer, Timer
 from .vad import AGGRESSIVITA_PREDEFINITA, SILENZIO_MS_PREDEFINITO, Diagnostica
@@ -68,6 +80,11 @@ ESPRESSIONI = ("felice", "pensieroso", "sorpreso", "triste", "assonnato")
 LINGUE = ("it", "en")
 LINGUA_PREDEFINITA = "it"
 _ETICHETTA_INIZIALE = re.compile(r"^\s*\[([^\]\n]{1,30})\]\s*")
+
+# Un modello che elenca i fatti dell'estrazione (#29) quasi sempre li punta o
+# li numera, anche se il prompt chiede "senza punti elenco": si toglie il
+# prefisso invece di scartare la riga intera.
+_PREFISSO_ELENCO = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*")
 
 # Gli stati della faccia (STATO_ASCOLTO, STATO_PENSIERO, …) stanno in
 # adapters/base.py, accanto al Protocol: li usa anche la sveglia dei timer,
@@ -221,6 +238,21 @@ class Risposta:
     durata_s: float = 0.0  # quanto è durato il turno, per il tetto dei 20 s
 
 
+@dataclass
+class _TurnoSospeso:
+    """Cosa serve a `Cervello.dopo_il_turno()` (#29) per scrivere il turno nello storico.
+
+    `testo_grezzo` è la risposta di BMO *con* le etichette (vedi
+    `sessione.Turno.bmo`): `Risposta.testo` che torna a chi chiama `rispondi()`
+    resta invece ripulito, come sempre.
+    """
+
+    audio_wav: bytes | None
+    testo: str | None
+    testo_grezzo: str
+    token_prompt: int
+
+
 def _durata_parlata(secondi: int) -> str:
     ore, resto = divmod(max(secondi, 0), 3600)
     minuti, secondi = divmod(resto, 60)
@@ -235,12 +267,23 @@ def _durata_parlata(secondi: int) -> str:
 
 
 def contesto_dinamico(
-    ora: datetime, timer: list[Timer], inietta_ora: bool = True, diario: list[Voce] | None = None
+    ora: datetime,
+    timer: list[Timer],
+    inietta_ora: bool = True,
+    diario: list[Voce] | None = None,
+    riassunto: str | None = None,
 ) -> str:
     """Secondo strato del prompt (§2.3), rigenerato a ogni turno.
 
     `inietta_ora=False` serve solo all'esperimento della fase 0.3: senza
     l'ora il modello inventa, ed è la dimostrazione del perché questo strato esiste.
+
+    `riassunto` è la compressione della sessione in corso (#29, caso 2b):
+    sta qui e non fra i `contents` della conversazione perché due `Content`
+    di seguito con `role="user"` (il riassunto, poi il turno nuovo, quando
+    non ci sono ancora turni letterali dopo la compressione) non è una forma
+    garantita dall'API multi-turno — lo stesso motivo per cui Diario e Timer
+    sono qui e non turni di conversazione finti.
     """
     righe = []
     if inietta_ora:
@@ -263,10 +306,17 @@ def contesto_dinamico(
         righe.append("Diario: " + "; ".join(f'"{v.testo}"' for v in diario) + ".")
     else:
         righe.append("Diario: nessuna voce.")
+    if riassunto:
+        righe.append(f"Riassunto della conversazione fin qui, per proseguirla: {riassunto}")
     return "\n".join(righe)
 
 
 ERRORI_GEMINI = (GeminiNonDisponibile, errors.APIError, httpx.HTTPError)
+
+# Le richieste silenziose della #29 scrivono anche su disco (`aggiungi_voce`):
+# un filesystem in sola lettura (es. sul Pi) non deve far uscire l'eccezione
+# da `dopo_il_turno()`, che promette di non sollevare mai.
+ERRORI_SESSIONE = ERRORI_GEMINI + (OSError,)
 
 
 def descrivi_errore(errore: Exception) -> str:
@@ -411,6 +461,9 @@ class Cervello:
         inietta_ora: bool = True,
         prompt_fisso: str = PROMPT_FISSO,
         max_giri: int = MAX_GIRI,
+        sessione: StoricoSessione | None = None,
+        inattivita_sessione_s: float = INATTIVITA_SESSIONE_S,
+        tetto_token_storico: int = TETTO_TOKEN_STORICO,
     ) -> None:
         if client is None:
             from google import genai
@@ -444,6 +497,25 @@ class Cervello:
         self.inietta_ora = inietta_ora
         self.prompt_fisso = prompt_fisso
         self.max_giri = max_giri
+        # Storico di sessione in RAM (#29): vuoto per ogni Cervello nuovo, così
+        # i test restano indipendenti l'uno dall'altro senza doverlo passare
+        # esplicitamente. Persiste fra turni finché lo stesso Cervello resta
+        # in vita — `python -m bmo_core.brain --conversazione` e `Macchina`
+        # ne tengono uno solo per tutta la sessione di BMO.
+        self.sessione = sessione or StoricoSessione()
+        self.inattivita_sessione_s = inattivita_sessione_s
+        self.tetto_token_storico = tetto_token_storico
+        # Il turno appena concluso, in attesa che `dopo_il_turno()` lo scriva
+        # nello storico: mai da `rispondi()`, che deve restituire la risposta
+        # il prima possibile (l'issue #29 vieta esplicitamente le richieste
+        # silenziose "mentre qualcuno aspetta una risposta").
+        self._sospeso: _TurnoSospeso | None = None
+        # Il testo di una sessione scaduta per inattività, in attesa di
+        # essere estratto verso il diario (#14): tenuto a parte dallo storico
+        # vivo, così un'estrazione che fallisce non mescola mai una
+        # conversazione vecchia con quella nuova che comincia subito dopo.
+        self._estrazione_pendente: str | None = None
+        self._tentativi_estrazione_pendente: int = 0
         # I timer letti una volta sola per fase del turno: lo strato STATO non
         # deve cambiare da un giro all'altro, e non serve rileggere il file a
         # ogni richiesta.
@@ -542,6 +614,184 @@ class Cervello:
             return "no"
         return "boh"
 
+    # --- memoria di sessione (#29) -------------------------------------------
+
+    def _trascrivi(self, audio_wav: bytes, scadenza: float | None = None) -> str:
+        """La trascrizione dell'audio, per lo storico di sessione.
+
+        Sotto-dialogo a parte, come `classifica_risposta`: non è il turno di
+        conversazione vero, è il ripiego dell'issue quando il testo di chi ha
+        parlato non è già noto (una richiesta in più per turno, accettata
+        dall'issue: "nessuna attesa percepita" perché BMO ha già la sua
+        risposta pronta, questa serve solo a scrivere lo storico).
+        """
+        contenuti = [types.Content(role="user", parts=[types.Part.from_bytes(data=audio_wav, mime_type="audio/wav")])]
+        config = types.GenerateContentConfig(system_instruction=ISTRUZIONE_TRASCRIZIONE)
+        risposta, _ = self.cascata.genera(self.client, scadenza=scadenza, contents=contenuti, config=config)
+        return testo_della_risposta(risposta).strip()
+
+    def _trascrivi_sicuro(self, audio_wav: bytes, scadenza: float | None = None) -> str:
+        """Come `_trascrivi`, ma non fa fallire il turno se Gemini non risponde.
+
+        Una trascrizione persa costa solo un turno mancante nello storico
+        (`dopo_il_turno()` non lo aggiunge senza): meno grave di un turno
+        intero che fallisce per un problema che non lo riguarda, e la
+        risposta è comunque già stata data quando questo gira.
+        """
+        try:
+            return self._trascrivi(audio_wav, scadenza)
+        except ERRORI_GEMINI:
+            return ""
+
+    def _estrai_verso_diario(self, testo_conversazione: str, scadenza: float | None = None) -> None:
+        """Richiesta silenziosa: estrae fatti/preferenze e li scrive nel diario (#14).
+
+        Il diario attuale entra nel prompt (`Voci già nel diario`): senza,
+        il modello non ha modo di sapere cosa è già stato salvato e ripete lo
+        stesso fatto, riformulato, a ogni estrazione — il controllo lato
+        codice qui sotto coglie solo i doppioni identici (a meno di maiuscole).
+
+        Una riga per voce, come chiesto dal prompt (`ISTRUZIONE_ESTRAZIONE`),
+        con qualche pulizia perché un modello non segue mai il formato alla
+        lettera: si tolgono punti elenco e numerazione, si scarta il
+        sentinel `NIENTE_DA_RICORDARE`. Al massimo `MAX_VOCI_PER_ESTRAZIONE`
+        voci nuove per chiamata: una singola estrazione mal riuscita non deve
+        poter riempire da sola il diario e sfrattare voci più vecchie (anche
+        quelle scritte a mano, `memoria.MAX_VOCI`).
+
+        `fonte="modello"`, la stessa dello strumento `ricorda` — `memoria.py`
+        la prevede già per l'estrazione di fine sessione. A differenza di
+        `ricorda`, qui non c'è conferma vocale: è una richiesta pensata per
+        girare senza che nessuno la senta (l'issue lo dice: "mai mentre
+        qualcuno aspetta una risposta"), quindi non c'è nessuno a cui
+        chiederla.
+        """
+        diario_attuale = carica_diario(self.diario_percorso)
+        esistenti = {v.testo.strip().lower() for v in diario_attuale}
+        voci_note = "; ".join(f'"{v.testo}"' for v in diario_attuale) if diario_attuale else "nessuna"
+        contenuti = [types.Content(role="user", parts=[types.Part.from_text(text=testo_conversazione)])]
+        config = types.GenerateContentConfig(
+            system_instruction=[ISTRUZIONE_ESTRAZIONE, f"Voci già nel diario: {voci_note}."]
+        )
+        risposta, _ = self.cascata.genera(self.client, scadenza=scadenza, contents=contenuti, config=config)
+        oggi = self.orologio().strftime("%Y-%m-%d")
+        nuove = 0
+        for riga in testo_della_risposta(risposta).splitlines():
+            riga = _PREFISSO_ELENCO.sub("", riga).strip()
+            if not riga or riga.strip(".! ").upper() == NIENTE_DA_RICORDARE or riga.lower() in esistenti:
+                continue
+            if nuove >= MAX_VOCI_PER_ESTRAZIONE:
+                break
+            aggiungi_voce(self.diario_percorso, riga, oggi, fonte="modello")
+            esistenti.add(riga.lower())
+            nuove += 1
+
+    def _riassumi_sessione(self, testo_conversazione: str, scadenza: float | None = None) -> str:
+        """Richiesta silenziosa: comprime la conversazione in corso (caso 2b)."""
+        contenuti = [types.Content(role="user", parts=[types.Part.from_text(text=testo_conversazione)])]
+        config = types.GenerateContentConfig(system_instruction=ISTRUZIONE_RIASSUNTO_SESSIONE)
+        risposta, _ = self.cascata.genera(self.client, scadenza=scadenza, contents=contenuti, config=config)
+        return testo_della_risposta(risposta).strip()
+
+    def _gestisci_scadenza_sessione(self) -> None:
+        """Caso 1 dell'issue: 5 minuti di silenzio chiudono la sessione.
+
+        Controllato turno dopo turno (lo schema dell'issue lo disegna così),
+        non da un timer in background: si valuta qui, all'inizio del turno
+        successivo a quello che ha superato l'inattività, prima di costruire
+        la richiesta — una sessione scaduta non deve finire nello storico
+        del turno nuovo, che comincia una conversazione a sé.
+
+        Non fa nessuna richiesta a Gemini: la mette da parte
+        (`_estrazione_pendente`, tenuta separata dallo storico vivo apposta,
+        così un'estrazione che fallisce non mescola mai una conversazione
+        vecchia con quella nuova che comincia subito dopo) e la userà
+        `dopo_il_turno()`, a risposta già data.
+        """
+        if not self.sessione.scaduta(self.cronometro(), self.inattivita_sessione_s):
+            return
+        nuovo = self.sessione.testo_per_estrazione()
+        self._estrazione_pendente = f"{self._estrazione_pendente}\n{nuovo}" if self._estrazione_pendente else nuovo
+        self.sessione.svuota()
+
+    def _estrai_pendente_se_ce(self, scadenza: float | None = None) -> None:
+        """La parte silenziosa del caso 1: l'estrazione messa da parte da
+        `_gestisci_scadenza_sessione()`, tentata solo qui, a risposta già data."""
+        if self._estrazione_pendente is None:
+            return
+        try:
+            self._estrai_verso_diario(self._estrazione_pendente, scadenza)
+            self._estrazione_pendente = None
+            self._tentativi_estrazione_pendente = 0
+        except ERRORI_SESSIONE:
+            self._tentativi_estrazione_pendente += 1
+            if self._tentativi_estrazione_pendente >= MAX_TENTATIVI_ESTRAZIONE:
+                # Rinuncia (l'issue lo prevede): meglio perdere quanto non
+                # estratto che restare bloccati per sempre dietro un errore
+                # che non passa.
+                self._estrazione_pendente = None
+                self._tentativi_estrazione_pendente = 0
+
+    def _gestisci_tetto_sessione(self, scadenza: float | None = None) -> None:
+        """Caso 2 dell'issue: il tetto di token comprime senza chiudere.
+
+        Chiamato da `dopo_il_turno()`, dopo aver aggiunto il turno appena
+        concluso allo storico: "la compressione parte dopo che BMO ha
+        risposto al turno che ha superato il tetto" (l'issue), non prima.
+        """
+        if not self.sessione.oltre_tetto(self.tetto_token_storico):
+            return
+        testo = self.sessione.testo_per_estrazione()
+        try:
+            self._estrai_verso_diario(testo, scadenza)
+        except ERRORI_SESSIONE:
+            pass  # l'estrazione di questi turni si ritenta alla prossima scadenza per inattività (caso 1)
+        try:
+            self.sessione.sostituisci_con_riassunto(self._riassumi_sessione(testo, scadenza))
+        except ERRORI_GEMINI:
+            # Non si può comprimere adesso: tenere tutto farebbe ripetere lo
+            # stesso 429 a ogni turno finché la rete non torna. Si tiene solo
+            # l'ultimo turno, il minimo che permetta di restare sotto il
+            # tetto senza troncare a zero il filo della conversazione.
+            self.sessione.turni = self.sessione.turni[-1:]
+
+    def dopo_il_turno(self) -> None:
+        """Le richieste silenziose della #29: trascrizione, estrazione, riassunto.
+
+        Da chiamare a turno concluso, **dopo** che la voce ha già parlato
+        (`Macchina.turno()` lo fa subito dopo `self.voce(...)`; il comando a
+        riga di comando lo fa dopo aver stampato la risposta) — mai da
+        `rispondi()`, che deve restituire la `Risposta` il prima possibile:
+        l'issue vieta esplicitamente le richieste silenziose "mentre
+        qualcuno aspetta una risposta", e finché `rispondi()` non è tornata
+        chi ha appena parlato sta aspettando esattamente questo.
+
+        Fino a quattro richieste incatenate (trascrizione, estrazione
+        pendente, estrazione e riassunto del tetto): un solo budget di tempo
+        condiviso (`BUDGET_DOPO_IL_TURNO_S`) per tutta la catena, non uno per
+        richiesta, altrimenti un sovraccarico del modello terrebbe BMO sordo
+        per il tempo di quattro tentativi pieni invece di uno solo.
+
+        Non solleva mai: un problema qui costa al più un turno mancante
+        nello storico o un'estrazione rimandata al turno successivo, mai un
+        turno che sembra fallito a chi ha già sentito BMO rispondere.
+        """
+        scadenza = self.cronometro() + BUDGET_DOPO_IL_TURNO_S
+        self._estrai_pendente_se_ce(scadenza)
+        sospeso, self._sospeso = self._sospeso, None
+        if sospeso is None:
+            return
+        trascrizione = (
+            sospeso.testo if sospeso.testo is not None else self._trascrivi_sicuro(sospeso.audio_wav, scadenza)
+        )
+        # Un turno senza trascrizione non entra nello storico: non
+        # aiuterebbe i turni successivi e sballerebbe il conteggio dei token
+        # a vuoto (`aggiungi()` li registra insieme).
+        if not trascrizione:
+            return
+        self.sessione.aggiungi(trascrizione, sospeso.testo_grezzo, self.cronometro(), sospeso.token_prompt)
+        self._gestisci_tetto_sessione(scadenza)
+
     @property
     def timer(self) -> list[Timer]:
         """I timer attivi, letti dal file una volta per fase del turno."""
@@ -559,7 +809,7 @@ class Cervello:
     def _configurazione(self, riepilogo: bool = False) -> types.GenerateContentConfig:
         istruzioni = [
             self.prompt_fisso,
-            contesto_dinamico(self.orologio(), self.timer, self.inietta_ora, self.diario),
+            contesto_dinamico(self.orologio(), self.timer, self.inietta_ora, self.diario, self.sessione.riassunto),
         ]
         if riepilogo:
             istruzioni.append(ISTRUZIONE_RIEPILOGO)
@@ -615,12 +865,24 @@ class Cervello:
         """
         if audio_wav is None and testo is None:
             raise ValueError("serve audio_wav oppure testo")
+        # Turno precedente non ancora scritto nello storico (non dovrebbe
+        # succedere: chi chiama `rispondi()` due volte di seguito senza
+        # `dopo_il_turno()` in mezzo perde quel turno dallo storico, non la
+        # risposta). Vedi `dopo_il_turno()`.
+        self._sospeso = None
+        # Caso 1 della #29: una sessione rimasta inattiva per 5 minuti si
+        # chiude prima di cominciare il turno nuovo, che non deve ereditarla.
+        # Non fa nessuna richiesta a Gemini qui (vedi `_gestisci_scadenza_sessione`):
+        # l'estrazione vera parte da `dopo_il_turno()`, a risposta già data.
+        self._gestisci_scadenza_sessione()
         parti = []
         if audio_wav is not None:
             parti.append(types.Part.from_bytes(data=audio_wav, mime_type="audio/wav"))
         if testo is not None:
             parti.append(types.Part.from_text(text=testo))
-        contenuti = [types.Content(role="user", parts=parti)]
+        # Lo storico di sessione (#29) precede il turno nuovo: è vuoto per un
+        # Cervello appena creato, quindi non cambia niente per chi non lo usa.
+        contenuti = self.sessione.contenuti() + [types.Content(role="user", parts=parti)]
 
         partenza = self.cronometro()
         scadenza = partenza + TETTO_TURNO_S
@@ -681,8 +943,19 @@ class Cervello:
                 raise
             ripetizioni += ripetuto
 
-        espressione, lingua, testo_finale = separa_etichette(testo_della_risposta(risposta))
+        testo_grezzo = testo_della_risposta(risposta)
+        espressione, lingua, testo_finale = separa_etichette(testo_grezzo)
         self.faccia.mostra(espressione or (STATO_PARLATO if testo_finale else STATO_ERRORE))
+        # Storico di sessione (#29): non lo si scrive già qui. `dopo_il_turno()`
+        # farà le eventuali richieste silenziose (trascrizione, estrazione,
+        # riassunto) solo *dopo* che questa `Risposta` sarà arrivata a
+        # `Macchina` ed è già stata pronunciata — mai mentre chi ha appena
+        # parlato aspetta ancora, come chiede l'issue.
+        if testo_finale:
+            token_prompt = getattr(getattr(risposta, "usage_metadata", None), "prompt_token_count", None) or 0
+            self._sospeso = _TurnoSospeso(
+                audio_wav=audio_wav, testo=testo, testo_grezzo=testo_grezzo, token_prompt=token_prompt
+            )
         return Risposta(
             testo=testo_finale,
             chiamate=eseguite,
@@ -762,40 +1035,7 @@ class Cervello:
         }
 
 
-def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Un turno di dialogo con BMO dal microfono del PC.")
-    parser.add_argument("--durata", type=float, default=DURATA_ASCOLTO_S, help="secondi di ascolto")
-    parser.add_argument("--wav", type=Path, help="usa un file WAV invece del microfono")
-    parser.add_argument("--testo", help="manda testo invece di audio")
-    parser.add_argument("--senza-ora", action="store_true", help="non iniettare l'ora (esperimento 0.3)")
-    parser.add_argument("--prompt", type=Path, help="file di testo da usare come prompt fisso")
-    parser.add_argument(
-        "--max-giri",
-        type=int,
-        default=MAX_GIRI,
-        help=f"giri con gli strumenti prima del riepilogo forzato (predefinito {MAX_GIRI}); "
-        "con 1 il riepilogo scatta di sicuro, utile per provarlo",
-    )
-    argomenti = parser.parse_args()
-
-    cervello = Cervello(
-        faccia=crea_faccia(sul_terminale=True),
-        inietta_ora=not argomenti.senza_ora,
-        max_giri=argomenti.max_giri,
-        **prompt_da_file(argomenti.prompt),
-    )
-    audio = None
-    if argomenti.wav:
-        audio = argomenti.wav.read_bytes()
-    elif not argomenti.testo:
-        print(f"Parla per {argomenti.durata:g} secondi...")
-        audio = cervello.ascolta(argomenti.durata)
-    try:
-        risposta = cervello.rispondi(audio_wav=audio, testo=argomenti.testo)
-    except ERRORI_GEMINI as errore:
-        raise SystemExit(f"BMO non ci arriva: {descrivi_errore(errore)}") from None
+def _stampa_risposta(cervello: Cervello, risposta: Risposta) -> None:
     # Sempre esplicito, anche quando non c'è nessuna chiamata: nelle prove a
     # voce è l'unico modo di sapere se il timer è stato impostato davvero.
     if risposta.chiamate:
@@ -812,6 +1052,81 @@ def main() -> None:
     print(f"Tempo: {risposta.durata_s:.1f} s su {TETTO_TURNO_S:.0f}{riepilogo}")
     faccia = f" [faccia: {risposta.espressione}]" if risposta.espressione else ""
     print(f"BMO{faccia}: {risposta.testo or f'(risposta vuota: {risposta.motivo_vuota})'}")
+
+
+def _conversazione(cervello: Cervello, durata_s: float) -> None:
+    """Turni continui sullo stesso `Cervello`, per provare lo storico di sessione (#29).
+
+    A differenza del turno singolo di `main()`, qui il `Cervello` è uno solo
+    per tutta la conversazione: è la persistenza dello storico fra un
+    `rispondi()` e l'altro, non qualcosa di scriptato apposta per la prova.
+    """
+    print(
+        f"Conversazione continua: premi Invio e parla per {durata_s:g} secondi, Ctrl-D per uscire "
+        f"(sessione chiusa dopo {INATTIVITA_SESSIONE_S:g} s di silenzio)."
+    )
+    while True:
+        try:
+            input()
+        except EOFError:
+            print()
+            return
+        audio = cervello.ascolta(durata_s)
+        try:
+            risposta = cervello.rispondi(audio_wav=audio)
+        except ERRORI_GEMINI as errore:
+            print(f"BMO non ci arriva: {descrivi_errore(errore)}")
+            cervello.dopo_il_turno()  # un'estrazione in sospeso non aspetta questo turno
+            continue
+        _stampa_risposta(cervello, risposta)
+        cervello.dopo_il_turno()
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Un turno di dialogo con BMO dal microfono del PC.")
+    parser.add_argument("--durata", type=float, default=DURATA_ASCOLTO_S, help="secondi di ascolto")
+    parser.add_argument("--wav", type=Path, help="usa un file WAV invece del microfono")
+    parser.add_argument("--testo", help="manda testo invece di audio")
+    parser.add_argument("--senza-ora", action="store_true", help="non iniettare l'ora (esperimento 0.3)")
+    parser.add_argument("--prompt", type=Path, help="file di testo da usare come prompt fisso")
+    parser.add_argument(
+        "--max-giri",
+        type=int,
+        default=MAX_GIRI,
+        help=f"giri con gli strumenti prima del riepilogo forzato (predefinito {MAX_GIRI}); "
+        "con 1 il riepilogo scatta di sicuro, utile per provarlo",
+    )
+    parser.add_argument(
+        "--conversazione",
+        action="store_true",
+        help="turni continui (Invio → parli → BMO risponde) invece di uno solo, "
+        "per provare lo storico di sessione (#29) dal vivo",
+    )
+    argomenti = parser.parse_args()
+
+    cervello = Cervello(
+        faccia=crea_faccia(sul_terminale=True),
+        inietta_ora=not argomenti.senza_ora,
+        max_giri=argomenti.max_giri,
+        **prompt_da_file(argomenti.prompt),
+    )
+    if argomenti.conversazione:
+        _conversazione(cervello, argomenti.durata)
+        return
+    audio = None
+    if argomenti.wav:
+        audio = argomenti.wav.read_bytes()
+    elif not argomenti.testo:
+        print(f"Parla per {argomenti.durata:g} secondi...")
+        audio = cervello.ascolta(argomenti.durata)
+    try:
+        risposta = cervello.rispondi(audio_wav=audio, testo=argomenti.testo)
+    except ERRORI_GEMINI as errore:
+        raise SystemExit(f"BMO non ci arriva: {descrivi_errore(errore)}") from None
+    _stampa_risposta(cervello, risposta)
+    cervello.dopo_il_turno()
 
 
 if __name__ == "__main__":

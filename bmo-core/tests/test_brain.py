@@ -8,6 +8,7 @@ from google.genai import types
 
 import bmo_core.brain as brain_modulo
 from bmo_core.brain import FUSO_ORARIO, Cervello, contesto_dinamico
+from bmo_core.memoria import aggiungi_voce, carica_diario
 from bmo_core.modelli import TIMEOUT_TENTATIVO_S, GeminiNonDisponibile
 
 ORA = datetime(2026, 9, 8, 22, 14, tzinfo=FUSO_ORARIO)
@@ -16,6 +17,14 @@ ORA = datetime(2026, 9, 8, 22, 14, tzinfo=FUSO_ORARIO)
 def _risposta_testo(testo):
     return types.GenerateContentResponse(
         candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part.from_text(text=testo)]))]
+    )
+
+
+def _risposta_testo_con_uso(testo, prompt_token_count):
+    """Come `_risposta_testo`, con `usage_metadata` (il tetto della #29 lo legge da lì)."""
+    return types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part.from_text(text=testo)]))],
+        usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=prompt_token_count),
     )
 
 
@@ -645,3 +654,232 @@ def test_separa_etichette_prende_lingua_ed_espressione():
     # Un'etichetta sconosciuta si toglie comunque: il TTS non deve mai
     # leggere una parentesi quadra.
     assert brain_modulo.separa_etichette("[surprised] Hi") == (None, "it", "Hi")
+
+
+
+# --- memoria di sessione (#29) ------------------------------------------------
+#
+# Le richieste silenziose (trascrizione, estrazione, riassunto) girano solo
+# da `Cervello.dopo_il_turno()`, mai da `rispondi()`: nei test si chiama a
+# mano, come farebbe `Macchina.turno()` subito dopo aver parlato.
+
+
+def test_il_turno_successivo_riceve_lo_storico_del_precedente():
+    """Il criterio di uscita dell'issue: un riferimento al turno precedente."""
+    cervello, client = _cervello(
+        [
+            _risposta_testo("Va bene, dieci minuti."),
+            _risposta_testo("Ho capito, venti minuti."),
+        ]
+    )
+    cervello.rispondi(testo="Metti un timer di dieci minuti")
+    cervello.dopo_il_turno()
+    cervello.rispondi(testo="Mettilo a venti invece")
+
+    contenuti_secondo_turno = client.richieste[1]["contents"]
+    assert contenuti_secondo_turno[0] == types.Content(
+        role="user", parts=[types.Part.from_text(text="Metti un timer di dieci minuti")]
+    )
+    assert contenuti_secondo_turno[1] == types.Content(
+        role="model", parts=[types.Part.from_text(text="Va bene, dieci minuti.")]
+    )
+    assert contenuti_secondo_turno[2] == types.Content(
+        role="user", parts=[types.Part.from_text(text="Mettilo a venti invece")]
+    )
+
+
+def test_lo_storico_tiene_le_etichette_della_risposta():
+    """Senza, dal secondo turno il modello vedrebbe solo risposte già
+    spogliate delle etichette e smetterebbe di scriverle, imitando quello
+    che si vede scrivere nello storico (§2.3 le rende obbligatorie)."""
+    cervello, client = _cervello([_risposta_testo("[it][felice] Ciao!"), _risposta_testo("Bene.")])
+    cervello.rispondi(testo="Ciao BMO")
+    cervello.dopo_il_turno()
+    assert cervello.sessione.turni[0].bmo == "[it][felice] Ciao!"
+
+
+def test_un_turno_senza_risposta_non_entra_nello_storico():
+    """Un riepilogo vuoto (motivo_vuota) non aiuterebbe i turni successivi."""
+    vuota = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(role="model", parts=[]), finish_reason="STOP")]
+    )
+    cervello, client = _cervello(
+        [_risposta_chiamata("cerca_sul_web", query="meteo"), vuota, vuota],
+        max_giri=1,
+    )
+    risposta = cervello.rispondi(testo="Che tempo fa?")
+    assert risposta.testo == ""
+    cervello.dopo_il_turno()
+    assert cervello.sessione.turni == []
+
+
+def test_dopo_il_turno_senza_niente_in_sospeso_non_fa_niente():
+    cervello, client = _cervello([])
+    cervello.dopo_il_turno()  # non solleva, non consuma risposte
+    assert client.richieste == []
+
+
+def test_sessione_scaduta_per_inattivita_estrae_e_svuota_lo_storico(tmp_path):
+    diario = tmp_path / "memoria.json"
+    cervello, client = _cervello(
+        [
+            _risposta_testo("Ciao!"),  # turno 1
+            _risposta_testo("Certo!"),  # turno 2, su una sessione già svuotata
+            _risposta_testo("Piace la pizza margherita"),  # estrazione, in dopo_il_turno() del turno 2
+        ],
+        diario_percorso=diario,
+    )
+    cervello.rispondi(testo="Mi piace la pizza margherita, ricordatelo")
+    cervello.dopo_il_turno()
+    assert len(cervello.sessione.turni) == 1
+
+    cervello.cronometro.adesso += brain_modulo.INATTIVITA_SESSIONE_S
+    cervello.rispondi(testo="Ciao di nuovo")
+    # Il turno nuovo non eredita quello vecchio: la sessione era già stata
+    # svuotata all'inizio di rispondi(), prima di costruire la richiesta.
+    assert client.richieste[-1]["contents"][0] == types.Content(
+        role="user", parts=[types.Part.from_text(text="Ciao di nuovo")]
+    )
+    cervello.dopo_il_turno()
+
+    voci = carica_diario(diario)
+    assert [v.testo for v in voci] == ["Piace la pizza margherita"]
+    assert voci[0].fonte == "modello"
+    assert len(cervello.sessione.turni) == 1  # solo il turno nuovo
+
+
+def test_estrazione_fallita_non_perde_niente_e_ritenta(tmp_path):
+    diario = tmp_path / "memoria.json"
+    cervello, client = _cervello(
+        [
+            _risposta_testo("Ciao!"),  # turno 1
+            _risposta_testo("Certo!"),  # turno 2
+            httpx.ConnectError("rete giù"),  # 1° tentativo di estrazione: fallisce
+        ],
+        diario_percorso=diario,
+    )
+    cervello.rispondi(testo="Ricordati che amo il calcio")
+    cervello.dopo_il_turno()
+
+    cervello.cronometro.adesso += brain_modulo.INATTIVITA_SESSIONE_S
+    cervello.rispondi(testo="Altra cosa")
+    cervello.dopo_il_turno()
+
+    # Il turno nuovo è comunque nello storico: l'estrazione fallita non lo blocca.
+    assert len(cervello.sessione.turni) == 1
+    assert cervello._estrazione_pendente is not None
+    assert cervello._tentativi_estrazione_pendente == 1
+    assert carica_diario(diario) == []
+
+
+def test_estrazione_fallita_troppe_volte_rinuncia(tmp_path):
+    diario = tmp_path / "memoria.json"
+    risposte = [_risposta_testo("Ciao!")]
+    for i in range(brain_modulo.MAX_TENTATIVI_ESTRAZIONE):
+        risposte.append(_risposta_testo(f"Turno {i}"))
+        risposte.append(httpx.ConnectError("rete giù"))
+    cervello, client = _cervello(risposte, diario_percorso=diario)
+
+    cervello.rispondi(testo="Primo turno")
+    cervello.dopo_il_turno()
+    for _ in range(brain_modulo.MAX_TENTATIVI_ESTRAZIONE):
+        cervello.cronometro.adesso += brain_modulo.INATTIVITA_SESSIONE_S
+        cervello.rispondi(testo="altro turno")
+        cervello.dopo_il_turno()
+
+    # Dopo il tetto di tentativi si rinuncia.
+    assert cervello._estrazione_pendente is None
+    assert cervello._tentativi_estrazione_pendente == 0
+    assert len(cervello.sessione.turni) == 1  # solo l'ultimo turno
+    assert carica_diario(diario) == []
+
+
+def test_tetto_di_token_comprime_lo_storico_in_un_riassunto(tmp_path):
+    diario = tmp_path / "memoria.json"
+    cervello, client = _cervello(
+        [
+            _risposta_testo_con_uso("Fatto!", brain_modulo.TETTO_TOKEN_STORICO),
+            _risposta_testo("Piace il calcio"),  # estrazione (caso 2a)
+            _risposta_testo("  Si parlava di sport.  "),  # riassunto (caso 2b)
+            _risposta_testo("Certo."),
+        ],
+        diario_percorso=diario,
+    )
+    cervello.rispondi(testo="Ricordati che mi piace il calcio")
+    cervello.dopo_il_turno()
+
+    assert cervello.sessione.riassunto == "Si parlava di sport."
+    assert cervello.sessione.turni == []
+    assert [v.testo for v in carica_diario(diario)] == ["Piace il calcio"]
+
+    cervello.rispondi(testo="Altra domanda")
+    # Il riassunto non è un `Content`: due `user` di seguito (il riassunto,
+    # poi il turno nuovo, senza ancora turni letterali in mezzo) non è una
+    # forma garantita dall'API multi-turno.
+    contenuti = client.richieste[-1]["contents"]
+    assert contenuti == [types.Content(role="user", parts=[types.Part.from_text(text="Altra domanda")])]
+    istruzioni = client.richieste[-1]["config"].system_instruction
+    assert any("Si parlava di sport." in strato for strato in istruzioni)
+
+
+def test_estrazione_scarta_sentinel_punti_elenco_e_doppioni(tmp_path):
+    diario = tmp_path / "memoria.json"
+    aggiungi_voce(diario, "Piace la pizza", "2026-09-01", fonte="manuale")
+    cervello, client = _cervello(
+        [
+            _risposta_testo("Certo."),
+            _risposta_testo("- Piace la pizza\n* Piace il calcio\nNIENTE\n1. Piace il jazz"),
+        ],
+        diario_percorso=diario,
+    )
+    cervello.rispondi(testo="Ricordati alcune cose")
+    cervello.dopo_il_turno()
+    cervello._estrai_verso_diario(cervello.sessione.testo_per_estrazione())
+    voci = [v.testo for v in carica_diario(diario)]
+    # La voce già presente non si ripete, il sentinel e i punti elenco non ci finiscono dentro.
+    assert voci == ["Piace la pizza", "Piace il calcio", "Piace il jazz"]
+
+
+def test_estrazione_al_massimo_un_tetto_di_voci_nuove(tmp_path):
+    diario = tmp_path / "memoria.json"
+    cervello, client = _cervello(
+        [_risposta_testo("Certo."), _risposta_testo("Fatto uno\nFatto due\nFatto tre\nFatto quattro")],
+        diario_percorso=diario,
+    )
+    cervello.rispondi(testo="Ricordati tante cose")
+    cervello.dopo_il_turno()
+    cervello._estrai_verso_diario(cervello.sessione.testo_per_estrazione())
+    assert len(carica_diario(diario)) == brain_modulo.MAX_VOCI_PER_ESTRAZIONE
+
+
+def test_dopo_il_turno_trascrive_laudio_con_una_richiesta_dedicata():
+    cervello, client = _cervello([_risposta_testo("Fatto!"), _risposta_testo("Metti un timer di dieci minuti")])
+    cervello.rispondi(audio_wav=b"RIFF")
+    assert len(client.richieste) == 1  # la trascrizione non è ancora partita
+
+    cervello.dopo_il_turno()
+    assert len(client.richieste) == 2
+    assert client.richieste[1]["config"].system_instruction == brain_modulo.ISTRUZIONE_TRASCRIZIONE
+    assert client.richieste[1]["contents"][0].parts[0].inline_data.data == b"RIFF"
+    assert cervello.sessione.turni[0].utente == "Metti un timer di dieci minuti"
+    assert cervello.sessione.turni[0].bmo == "Fatto!"
+
+
+def test_trascrizione_fallita_non_solleva_e_non_scrive_il_turno():
+    cervello, client = _cervello([_risposta_testo("Fatto!"), httpx.ConnectError("rete giù")])
+    cervello.rispondi(audio_wav=b"RIFF")
+    cervello.dopo_il_turno()  # non deve sollevare
+    assert cervello.sessione.turni == []
+
+
+def test_estrazione_manda_le_voci_gia_note_del_diario(tmp_path):
+    diario = tmp_path / "memoria.json"
+    aggiungi_voce(diario, "Piace la pizza", "2026-09-01", fonte="manuale")
+    cervello, client = _cervello(
+        [_risposta_testo("Certo."), _risposta_testo("Piace il calcio")], diario_percorso=diario
+    )
+    cervello.rispondi(testo="Ricordati altre cose")
+    cervello.dopo_il_turno()
+    cervello._estrai_verso_diario(cervello.sessione.testo_per_estrazione())
+    istruzioni = client.richieste[-1]["config"].system_instruction
+    assert any("Piace la pizza" in strato for strato in istruzioni)

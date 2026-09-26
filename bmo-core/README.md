@@ -482,6 +482,51 @@ fa 2 tentativi per modello invece dei 5 predefiniti, per non aspettare 15 s prim
 di cambiare modello; dentro il tetto del turno (#18) il tempo per due tentativi
 non c'è quasi mai, quindi in pratica si passa subito alla riserva.
 
+## Memoria di sessione (issue #29)
+
+Prima di questa issue ogni turno partiva da zero: `rispondi()` mandava a
+Gemini solo l'audio appena registrato, e BMO non ricordava cosa si fosse
+detto un attimo prima. `sessione.py` tiene lo storico letterale dei turni
+recenti in RAM (`Cervello.sessione`), lo antepone a ogni richiesta e lo
+gestisce da solo, turno dopo turno:
+
+- **5 minuti di silenzio** chiudono la sessione: una richiesta silenziosa
+  estrae i fatti utili verso il diario delle preferenze (#14, stesso file
+  `memoria.json`, `fonte="modello"`) e lo storico riparte vuoto.
+- **60k token** in ingresso (letti da `usage_metadata.prompt_token_count`
+  dell'ultima risposta, nessuna chiamata in più solo per contare) comprimono
+  la conversazione in un riassunto invece di chiuderla: la stessa estrazione
+  verso il diario, poi un riassunto che la fa proseguire. Il riassunto vive
+  nello strato STATO del prompt (`contesto_dinamico`, accanto a Diario e
+  Timer), non fra i `contents` della conversazione: due turni `user` di
+  fila lì non è una forma garantita dall'API multi-turno.
+- Se l'estrazione fallisce (rete giù, quota) non si perde niente: il testo
+  da estrarre resta da parte (`Cervello._estrazione_pendente`, separato
+  dallo storico vivo apposta) e si ritenta al turno successivo, fino a un
+  tetto di tentativi (`MAX_TENTATIVI_ESTRAZIONE`) oltre il quale si rinuncia.
+- Il testo di chi ha parlato è quello passato a `rispondi(testo=...)` quando
+  c'è già (prove, CLI); con l'audio serve una trascrizione — una richiesta
+  Gemini in più per turno, con un prompt minuscolo dedicato
+  (`ISTRUZIONE_TRASCRIZIONE`), voluta e accettata dall'issue.
+
+**Nessuna di queste richieste gira da `rispondi()`.** L'issue lo vieta
+esplicitamente ("mai mentre qualcuno aspetta una risposta"), e finché
+`rispondi()` non è tornata la persona sta aspettando esattamente questo.
+Girano tutte da `Cervello.dopo_il_turno()`, da chiamare **dopo** che la voce
+ha già parlato — `Macchina.turno()` lo fa subito dopo `self.voce(...)`, che
+aspetta la fine della sintesi. Chi usa `Cervello` direttamente (CLI, prove)
+deve chiamarlo a mano dopo ogni `rispondi()`.
+
+Tutto qui sopra è **turno dopo turno**, non un timer in background: si
+valuta all'inizio del turno successivo a quello che ha superato la soglia
+(`rispondi()`) o subito dopo aver risposto (`dopo_il_turno()`), mai mentre
+non sta succedendo niente. Per provarlo dal vivo, sullo stesso `Cervello`
+per tutta la conversazione:
+
+```bash
+python -m bmo_core.brain --conversazione   # Invio → parli → BMO risponde, di seguito
+```
+
 ## Sviluppo
 
 ```bash
