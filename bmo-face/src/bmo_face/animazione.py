@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -128,9 +129,16 @@ _PERCORSI_FONT = (
 )
 
 
+@lru_cache(maxsize=8)
 def _font(dimensione: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
     """Liberation Mono se c'è (licenza permissiva, pacchetto comune su Linux);
-    il bitmap predefinito di PIL altrimenti — mai un font mancante che blocca BMO."""
+    il bitmap predefinito di PIL altrimenti — mai un font mancante che blocca BMO.
+
+    In cache: senza, il countdown del timer riaprirebbe e ricaricherebbe il
+    file TTF dal disco a ogni fotogramma (fino a 25 volte al secondo), un
+    costo di I/O per niente quando la dimensione richiesta è sempre la stessa
+    per un dato pannello.
+    """
     for percorso in _PERCORSI_FONT:
         if Path(percorso).exists():
             return ImageFont.truetype(percorso, dimensione)

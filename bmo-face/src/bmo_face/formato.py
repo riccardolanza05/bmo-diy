@@ -29,11 +29,12 @@ from __future__ import annotations
 
 import json
 import mmap
-import struct
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
+
+import numpy as np
 
 # Predefiniti solo per chi chiama `build_face.py` senza specificare altro: il
 # pannello vero (2.4", 3.5", o qualunque candidato finisca nel BOM, compreso
@@ -67,13 +68,16 @@ def rgb565(pixel_rgb: bytes) -> bytes:
     Stessa formula di `build_face.py` nel piano (§2.11): 5 bit di rosso, 6 di
     verde, 5 di blu — il formato che il bus SPI del display scrive senza
     conversioni a runtime.
+
+    Vettorizzato con numpy: la versione a ciclo Python su un fotogramma
+    intero (320×240 = 76.800 pixel) misurava decine di ms, troppo per i 25
+    fps che il renderer deve reggere (issue #23, "molto RAM efficient" vale
+    anche per il tempo, non solo per la memoria).
     """
-    uscita = bytearray(len(pixel_rgb) // 3 * 2)
-    for i in range(0, len(pixel_rgb), 3):
-        r, g, b = pixel_rgb[i], pixel_rgb[i + 1], pixel_rgb[i + 2]
-        valore = (r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3
-        struct.pack_into("<H", uscita, i // 3 * 2, valore)
-    return bytes(uscita)
+    arr = np.frombuffer(pixel_rgb, dtype=np.uint8).reshape(-1, 3).astype(np.uint16)
+    r, g, b = arr[:, 0], arr[:, 1], arr[:, 2]
+    valore = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+    return valore.astype("<u2").tobytes()
 
 
 def rgb888_da_565(dati: bytes) -> bytes:
@@ -83,16 +87,14 @@ def rgb888_da_565(dati: bytes) -> bytes:
     (è il formato che si vedrà davvero sul display fisico), quindi anche la
     finestra di prova deve leggerlo da lì e non dalle immagini sorgente
     originali — altrimenti la prova di leggibilità (criterio b, #23) non
-    misurerebbe la stessa qualità d'immagine dell'hardware vero.
+    misurerebbe la stessa qualità d'immagine dell'hardware vero. Vettorizzato
+    come `rgb565`, per lo stesso motivo di tempo per fotogramma.
     """
-    uscita = bytearray(len(dati) // 2 * 3)
-    for i in range(0, len(dati), 2):
-        valore = struct.unpack_from("<H", dati, i)[0]
-        r = (valore >> 8) & 0xF8
-        g = (valore >> 3) & 0xFC
-        b = (valore << 3) & 0xF8
-        uscita[i // 2 * 3 : i // 2 * 3 + 3] = bytes((r, g, b))
-    return bytes(uscita)
+    valore = np.frombuffer(dati, dtype="<u2")
+    r = ((valore >> 8) & 0xF8).astype(np.uint8)
+    g = ((valore >> 3) & 0xFC).astype(np.uint8)
+    b = ((valore << 3) & 0xF8).astype(np.uint8)
+    return np.stack([r, g, b], axis=-1).tobytes()
 
 
 @dataclass

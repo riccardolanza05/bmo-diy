@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 # è solo un promemoria di quella dipendenza esterna; il modulo che la importa
 # lo fa in modo lazy (import dentro la funzione), così il resto del pacchetto
 # (pipeline, renderer, server socket) resta usabile anche senza GTK.
-dependencies = ["pillow"]
+dependencies = ["pillow", "numpy"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
