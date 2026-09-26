@@ -20,8 +20,13 @@ persona ripete la frase e rovina la registrazione.
 Due pezzi restano isolati apposta dietro due funzioni, per ragioni ormai
 diverse — uno e' provvisorio, l'altro e' una scelta:
 
-- il **richiamo** e' Invio sulla tastiera; la wake word «Hey BMO» e' la #22 e
-  prendera' il posto di `richiamo_da_tastiera` senza toccare il resto;
+- il **richiamo** e' Invio sulla tastiera di default; `RichiamoWakeWord`
+  (#22, `richiamo.py`) ascolta «Hey Jarvis» col modello preaddestrato di
+  openWakeWord (§2.6: la wake word «Hey BMO» propria è una rifinitura
+  successiva, non un prerequisito) e si chiede con `--wake-word`. Resta
+  opt-in, deciso il 25/9 sullo stesso schema della voce sotto: la soglia è
+  «provvisoria» (l'issue lo dice nel titolo) finché non è stata sentita
+  funzionare dal vivo nella stanza vera;
 - la **voce** stampa il testo di default (`voce_sul_terminale`); `VoceTts`
   (#42) la sintetizza con edge-tts e la suona, e si chiede con
   `--voce-tts`. Resta opt-in finché non è stata sentita funzionare dal vivo:
@@ -80,6 +85,7 @@ from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, des
 from .config import FUSO_ORARIO
 from .memoria import aggiungi_voce
 from .radio import Radio
+from .richiamo import MODELLO_PREDEFINITO, SOGLIA_PREDEFINITA, RichiamoWakeWord
 from .suoni import Suoni, SuoniMuti
 from .sveglia import Sveglia
 from .tts import TtsNonDisponibile, sintetizza
@@ -478,7 +484,9 @@ class Macchina:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="BMO acceso: premi Invio per parlargli.")
+    parser = argparse.ArgumentParser(
+        description="BMO acceso: premi Invio per parlargli (--wake-word per «Hey Jarvis» invece di Invio)."
+    )
     parser.add_argument(
         "--senza-vad", action="store_true",
         help="registra per una durata fissa (--durata) invece di fermarsi da solo al silenzio",
@@ -500,6 +508,19 @@ def main() -> None:
         help="parla con edge-tts (#42) invece di scrivere sul terminale; serve la rete",
     )
     parser.add_argument("--senza-suoni", action="store_true", help="niente suono d'errore (#21)")
+    parser.add_argument(
+        "--wake-word", action="store_true",
+        help="richiamo a voce «Hey Jarvis» (#22, soglia provvisoria) invece di Invio; serve un microfono",
+    )
+    parser.add_argument(
+        "--modello-wake-word", action="append", default=None,
+        help="nome fra i preaddestrati di openWakeWord, o un file .onnx (con --wake-word); "
+        "ripetibile per caricarne più di uno insieme",
+    )
+    parser.add_argument(
+        "--soglia-wake-word", type=float, default=SOGLIA_PREDEFINITA,
+        help="soglia di rilevamento, 0-1: da tarare nella stanza vera (con --wake-word)",
+    )
     argomenti = parser.parse_args()
 
     faccia = crea_faccia(sul_terminale=True)
@@ -516,9 +537,41 @@ def main() -> None:
     # suonando, quindi non ci sono mai due mpv che si parlano sopra.
     altoparlante = crea_audio_output()
     voce = VoceTts(altoparlante=altoparlante) if argomenti.voce_tts else voce_sul_terminale
+    # Uno solo, condiviso col richiamo qui sotto: stesso altoparlante di voce
+    # ed errore, così due mpv non suonano mai uno sopra l'altro.
+    suoni_bmo = None if argomenti.senza_suoni else Suoni(altoparlante)
+    # Opt-in come la voce sopra: Invio resta il richiamo predefinito finché
+    # la soglia non è stata sentita funzionare dal vivo nella stanza vera
+    # (#22, §2.6 — la soglia qui è dichiaratamente provvisoria).
+    if argomenti.wake_word:
+        modelli_wake_word = argomenti.modello_wake_word or [MODELLO_PREDEFINITO]
+        rilevatore_vocale = RichiamoWakeWord(modello=modelli_wake_word, soglia=argomenti.soglia_wake_word)
+
+        def richiamo() -> bool:
+            # Segnale esplicito dello scatto, distinto dal generico
+            # "[faccia: ascolto]" che segue subito dopo (uguale per Invio):
+            # utile per una prova dal vivo, per vedere a colpo d'occhio che
+            # è stata la wake word e non un richiamo da tastiera. Il suono
+            # (stile Google Home/Alexa, ancora il tono di ripiego: non è
+            # stato scelto un file vero come per errore/timer, #21) suona
+            # per intero prima di continuare, come errore().
+            rilevata = rilevatore_vocale()
+            if rilevata:
+                print("(bmo ascolta)", flush=True)
+                if suoni_bmo is not None:
+                    suoni_bmo.ascolto()
+            return rilevata
+
+        print(
+            f"Wake word: {modelli_wake_word}, soglia {argomenti.soglia_wake_word} (provvisoria)",
+            flush=True,
+        )
+    else:
+        richiamo = richiamo_da_tastiera
     macchina = Macchina(
         cervello=cervello,
         faccia=faccia,
+        richiamo=richiamo,
         voce=voce,
         durata_ascolto_s=argomenti.durata,
         cap_ascolto_s=argomenti.cap_ascolto,
@@ -535,18 +588,25 @@ def main() -> None:
         # si sospende per la durata dell'ascolto e la si riprende subito
         # dopo. Radio.sospesa() non fa nulla se non sta suonando.
         sospendi_ascolto=radio.sospesa if radio is not None else None,
-        suoni=None if argomenti.senza_suoni else Suoni(altoparlante),
+        suoni=suoni_bmo,
     )
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche
         # mentre BMO sta ascoltando o pensando.
         sveglia = Sveglia(archivio=macchina.cervello.archivio, faccia=faccia)
         threading.Thread(target=sveglia.esegui, daemon=True).start()
-    print(
-        "BMO è sveglio. Premi Invio e parla; Ctrl-D per spegnerlo "
-        "(se radio o timer sono attivi resta acceso finché non finiscono da soli; Ctrl-C spegne comunque subito).",
-        flush=True,
-    )
+    if argomenti.wake_word:
+        # Niente Invio da premere, quindi niente Ctrl-D per uscire: con la
+        # tastiera fuori dal giro l'unica uscita resta Ctrl-C. Il testo non
+        # presume più "Hey Jarvis": con --modello-wake-word personalizzati
+        # sarebbe stato fuorviante durante una prova dal vivo.
+        print(f"BMO è sveglio. Di' una delle wake word configurate ({modelli_wake_word}); Ctrl-C per spegnerlo.", flush=True)
+    else:
+        print(
+            "BMO è sveglio. Premi Invio e parla; Ctrl-D per spegnerlo "
+            "(se radio o timer sono attivi resta acceso finché non finiscono da soli; Ctrl-C spegne comunque subito).",
+            flush=True,
+        )
     try:
         macchina.esegui()
     except KeyboardInterrupt:

@@ -142,6 +142,7 @@ python -m bmo_core.macchina --aggressivita 3       # VAD più aggressivo (utile 
 python -m bmo_core.macchina --senza-vad --durata 5 # torna all'ascolto a durata fissa (5 s)
 python -m bmo_core.macchina --senza-timer          # senza la sveglia dei timer
 python -m bmo_core.macchina --voce-tts             # BMO parla davvero invece di scrivere (#42)
+python -m bmo_core.macchina --wake-word            # richiamo a voce «Hey Jarvis» invece di Invio (#22)
 ```
 
 **L'ascolto si ferma da solo quando rileva silenzio**, non dopo una durata
@@ -170,8 +171,37 @@ richiami vengono ignorati e i timer suonano lo stesso. Lo strumento appartiene
 alla macchina, non al cervello, e si collega con `registra_strumento`.
 
 Due pezzi sono ancora provvisori e isolati apposta in due funzioni: il
-**richiamo** è Invio sulla tastiera (la wake word «Hey BMO» è la #22) e la
+**richiamo** è Invio sulla tastiera se non si passa `--wake-word` (#22) e la
 **voce** stampa il testo se non si passa `--voce-tts` (#42).
+
+## Il richiamo a voce: «Hey Jarvis» (issue #22)
+
+`--wake-word` sostituisce Invio con `RichiamoWakeWord` (`richiamo.py`):
+ascolta in continuo dal microfono e fa scattare il turno quando riconosce la
+parola, restando bloccante come `richiamo_da_tastiera` — `Macchina` non sa la
+differenza, prende entrambi come `Callable[[], bool]`.
+
+**Modello preaddestrato, non ancora «Hey BMO».** Il piano (§2.6) sceglie di
+proposito `hey_jarvis` di [openWakeWord](https://github.com/dscripka/openWakeWord)
+per lo sviluppo: addestrare un modello «Hey BMO» proprio è una rifinitura
+successiva (Colab ufficiale, dati sintetici), non un prerequisito. Gira
+interamente in locale via ONNX Runtime — nessun account, nessuna chiave,
+nessuna rete — con i modelli preaddestrati già dentro il pacchetto pip, senza
+download separati.
+
+**Soglia provvisoria** (il titolo della #22 lo dice esplicitamente): il
+cancello vero — tarato nella stanza reale, con la TV accesa, ≥ 9/10 a 3 m,
+< 1 falso positivo al giorno — resta alla fase 4.4, sul microfono del HAT
+montato sul Pi. Per tararla nel frattempo:
+
+```bash
+python -m bmo_core.richiamo                                  # 5 rilevamenti, hey_jarvis, soglia 0.5
+python -m bmo_core.richiamo --soglia 0.6 --volte 10
+python -m bmo_core.macchina --wake-word --soglia-wake-word 0.6
+```
+
+`--modello-wake-word` accetta anche un percorso a un file `.onnx`: il punto
+in cui si innesterà il modello «Hey BMO» custom, senza toccare il codice.
 
 ## La voce di BMO (issue #42)
 

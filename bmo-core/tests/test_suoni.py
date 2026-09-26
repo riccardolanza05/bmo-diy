@@ -1,6 +1,6 @@
 import pytest
 
-from bmo_core.suoni import BIP_ERRORE, CARTELLA_PACCHETTO, Suoni, SuoniMuti, trova_suono
+from bmo_core.suoni import BIP_ASCOLTO, BIP_ERRORE, CARTELLA_PACCHETTO, Suoni, SuoniMuti, trova_suono
 
 
 class AltoparlanteFinto:
@@ -24,6 +24,7 @@ class AltoparlanteFinto:
 def senza_variabili(monkeypatch):
     monkeypatch.delenv("BMO_SUONO_ERRORE", raising=False)
     monkeypatch.delenv("BMO_SUONO_TIMER", raising=False)
+    monkeypatch.delenv("BMO_SUONO_ASCOLTO", raising=False)
 
 
 def test_l_errore_incluso_nel_pacchetto_e_breve_e_ha_la_licenza():
@@ -72,5 +73,23 @@ def test_mpv_assente_non_blocca():
     Suoni(AltoparlanteFinto(errore=FileNotFoundError("mpv"))).errore()
 
 
+def test_ascolto_usa_il_tono_di_ripiego_di_default():
+    """Nessun file scelto ancora (a differenza di errore/timer, #21): è il tono."""
+    assert trova_suono("ascolto", BIP_ASCOLTO) == BIP_ASCOLTO
+
+
+def test_ascolto_suona_e_aspetta_la_fine():
+    altoparlante = AltoparlanteFinto()
+    Suoni(altoparlante).ascolto()
+    (azione, sorgente, filtro), attesa = altoparlante.eventi
+    assert azione == "riproduci" and sorgente == BIP_ASCOLTO and filtro is None
+    assert attesa[0] == "attendi" and attesa[1] is not None  # con un tetto
+
+
+def test_mpv_assente_non_blocca_ascolto():
+    Suoni(AltoparlanteFinto(errore=FileNotFoundError("mpv"))).ascolto()
+
+
 def test_i_suoni_muti_non_fanno_niente():
     SuoniMuti().errore()
+    SuoniMuti().ascolto()
