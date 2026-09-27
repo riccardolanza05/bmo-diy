@@ -356,6 +356,41 @@ def test_diario_riletto_a_ogni_turno_non_a_ogni_giro(tmp_path):
         assert '"ceno alle 20"' in richiesta["config"].system_instruction[1]
 
 
+def test_senza_file_persone_il_prompt_fisso_non_cambia():
+    cervello, client = _cervello([_risposta_testo("ok")])
+    cervello.rispondi(testo="ciao")
+    assert client.richieste[0]["config"].system_instruction[0] == cervello.prompt_fisso
+
+
+def test_cervello_inietta_le_persone_lette_dal_file(tmp_path):
+    import json
+
+    percorso = tmp_path / "persone.json"
+    percorso.write_text(json.dumps(["Finn", "Jake"]), encoding="utf-8")
+    cervello, client = _cervello([_risposta_testo("ok")], persone_percorso=percorso)
+    cervello.rispondi(testo="ciao")
+    fisso = client.richieste[0]["config"].system_instruction[0]
+    assert "Finn, Jake" in fisso
+    # Lo strato dinamico resta al suo indice: aggiungere le persone non deve
+    # spostarlo (i test del diario lo indicizzano per posizione).
+    assert client.richieste[0]["config"].system_instruction[1] == contesto_dinamico(
+        ORA, cervello.timer, diario=cervello.diario, riassunto=cervello.sessione.riassunto
+    )
+
+
+def test_persone_rilette_a_ogni_turno_non_a_ogni_giro(tmp_path):
+    import json
+
+    percorso = tmp_path / "persone.json"
+    cervello, client = _cervello(
+        [_risposta_chiamata("elenca_timer"), _risposta_testo("ok")], persone_percorso=percorso
+    )
+    percorso.write_text(json.dumps(["Marceline"]), encoding="utf-8")
+    cervello.rispondi(testo="ciao")
+    for richiesta in client.richieste:
+        assert "Marceline" in richiesta["config"].system_instruction[0]
+
+
 @pytest.mark.parametrize(
     "testo_modello,atteso",
     [("si", "si"), ("Sì.", "si"), ("no", "no"), ("No, grazie.", "no"), ("boh", "boh"), ("non ho capito", "boh")],
