@@ -664,3 +664,25 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+## Quanta RAM occupa BMO (issue #58)
+
+`bmo_core.misura_ram` campiona ogni mezzo secondo la memoria di tutti i
+processi di BMO (bmo-core, bmo-face, mpv, arecord) leggendo
+`/proc/<pid>/smaps_rollup`, scrive un CSV e alla fine stampa i picchi. Solo
+libreria standard: gira identico sul PC e sul Pi.
+
+```bash
+python -m bmo_core.misura_ram --radice <PID>            # tutti i discendenti di un processo
+python -m bmo_core.misura_ram --cerca bmo_core.macchina # per riga di comando
+python -m bmo_core.misura_ram --radice <PID> --csv misura.csv --riepilogo riepilogo.txt
+```
+
+Si ferma con Ctrl-C, con SIGTERM o quando la radice termina. Il numero da
+guardare è il **picco PSS totale**, non la somma delle RSS: la PSS divide fra
+i processi le librerie condivise (libc, libpython, numpy…) invece di
+contarle una volta per processo, quindi somma bene. È quello da confrontare
+col budget del Pi (fase 2.3 del piano).
+
+Le misure sul Pi vero e gli script che le ripetono sono in
+[`../docs/note-issue-58.md`](../docs/note-issue-58.md).
