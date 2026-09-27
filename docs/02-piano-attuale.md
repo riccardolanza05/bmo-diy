@@ -429,6 +429,8 @@ Sul free tier **Google può usare i dati inviati**: si sviluppa sul free tier, s
 
 ### 2.8 Bilancio della RAM — il numero che decide tutto
 
+> **Aggiornamento 2026-09-27 — misurato sul Pi vero (#58).** Le stime qui sotto erano ottimiste su due voci. Dopo l'irrobustimento (#25) il Pi lascia **331 MB** disponibili a riposo (non ~495). `bmo-core` com'è oggi occupa **248 MB** (non ~120): `openwakeword` importa scikit-learn e scipy (+92 MB) che servono solo ad addestrare, e onnxruntime tiene un'arena per ogni sessione. Con due ritocchi a `richiamo.py` scende a **108 MB**, con punteggi della wake word identici. `bmo-face` senza GTK misura **33 MB**, in linea con la stima. Numeri e script in [`note-issue-58.md`](note-issue-58.md); analisi di Alpine e di una riscrittura in Rust nella issue #58.
+
 | Voce | RAM | Nota |
 |---|---|---|
 | Raspberry Pi OS Lite arm64 a riposo | ~90 MB | senza desktop, senza avahi, journald volatile |
