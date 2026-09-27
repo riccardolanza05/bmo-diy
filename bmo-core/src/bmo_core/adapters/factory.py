@@ -6,7 +6,9 @@ sviluppare sul PC (omarchy) e spostarsi sul Pi cambiando solo questo file.
 """
 from __future__ import annotations
 
-from ..config import Ambiente, rileva_ambiente
+import os
+
+from ..config import Ambiente, percorso_socket, rileva_ambiente
 from .audio_input import ArecordAdapter
 from .audio_output import MpvAdapter
 from .base import (
@@ -18,7 +20,7 @@ from .base import (
     VolumeAdapter,
 )
 from .camera import LibcameraAdapter, WebcamV4L2Adapter
-from .faccia import FacciaMuta, FacciaTerminale
+from .faccia import FacciaMuta, FacciaSocket, FacciaTerminale
 from .lettore import LettoreMpv
 from .volume import VolumeAlsa, VolumePipeWire
 
@@ -42,12 +44,17 @@ def crea_audio_input(ambiente: Ambiente | None = None) -> AudioInputAdapter:
 def crea_faccia(ambiente: Ambiente | None = None, sul_terminale: bool = False) -> FacciaAdapter:
     """La faccia di BMO.
 
-    Finche' la #23 non la disegna davvero non c'e' niente da accendere in
-    nessuno dei due ambienti, quindi la predefinita e' muta. `sul_terminale`
-    la fa scrivere sullo standard error: serve alle prove sul PC, dove
-    altrimenti non si vede che BMO sta elaborando.
+    `BMO_FACCIA=socket` la collega a `bmo-face` (issue #23) sul socket Unix
+    di `percorso_socket()`: e' un opt-in esplicito, non la predefinita,
+    perche' bmo-face e' un processo a parte che deve essere avviato a mano
+    (`python -m bmo_face.finestra`, §2.2) — senza, `FacciaSocket` scriverebbe
+    a vuoto in silenzio (fallisce in silenzio di proposito, vedi la classe).
+    Senza quella variabile, `sul_terminale` sceglie fra le due implementazioni
+    provvisorie di prima: muta, o sullo standard error per le prove sul PC.
     """
-    del ambiente  # la faccia vera non dipende ancora dall'hardware
+    if os.environ.get("BMO_FACCIA") == "socket":
+        return FacciaSocket(percorso_socket(ambiente))
+    del ambiente  # le due implementazioni provvisorie non dipendono dall'hardware
     return FacciaTerminale() if sul_terminale else FacciaMuta()
 
 

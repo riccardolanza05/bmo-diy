@@ -70,3 +70,30 @@ def percorso_dati(ambiente: Ambiente | None = None) -> Path:
         return Path("/var/lib/bmo")
     stato = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
     return Path(stato) / "bmo"
+
+
+def percorso_socket(ambiente: Ambiente | None = None) -> Path:
+    """Dove sta il socket Unix verso `bmo-face` (§2.2, issue #23).
+
+    **Non** si basa su `ambiente` (a differenza di `percorso_dati()`): la
+    domanda qui non e' "PC o Pi", e' "posso scrivere in /run", che su un
+    servizio systemd senza `RuntimeDirectory=`/root puo' essere falso anche
+    sul Pi. Basarsi solo sull'ambiente aveva creato un difetto reale: questo
+    modulo sceglieva sempre `/run/bmo.sock` sul Pi, mentre
+    `bmo_face.servitore.percorso_socket()` (calcolato in modo indipendente,
+    bmo-face e' un pacchetto a se' — isolamento dei guasti) controllava
+    davvero la scrivibilita' e poteva scegliere un percorso diverso: due
+    processi in ascolto su socket diversi, senza che nessuno se ne accorgesse
+    (`FacciaSocket` fallisce in silenzio). Stesso identico algoritmo in
+    entrambi i pacchetti ora — se cambia qui, va cambiato anche li'.
+    """
+    del ambiente  # tenuto solo per compatibilita' della firma, non usato piu'
+    forzato = os.environ.get("BMO_SOCKET")
+    if forzato:
+        return Path(forzato)
+    if Path("/run").is_dir() and os.access("/run", os.W_OK):
+        return Path("/run/bmo.sock")
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return Path(runtime) / "bmo.sock"
+    return Path(os.environ.get("TMPDIR", "/tmp")) / "bmo.sock"

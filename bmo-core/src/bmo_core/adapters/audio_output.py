@@ -113,18 +113,27 @@ class MpvAdapter:
     def __init__(self) -> None:
         self._processo: subprocess.Popen | None = None
 
-    def riproduci(self, sorgente: Path | str, *, filtro: str | None = None) -> None:
+    def riproduci(self, sorgente: Path | str, *, filtro: str | None = None, volume: int | None = None) -> None:
         """Suona `sorgente`, eventualmente attraverso una catena di filtri.
 
         `filtro` e' una catena per `--af` (vedi `FILTRI_VOCE`), ed e' un
         argomento della singola riproduzione e non dell'adapter di proposito:
         lo stesso `MpvAdapter` suona anche il tono della sveglia, che non deve
         diventare robotico solo perche' la voce lo e'.
+
+        `volume` (issue successiva alla #23, volumi indipendenti per
+        sorgente) e' lo stesso genere di argomento: il volume **di mpv**
+        (`--volume`, 0-100, interno a questo processo), non quello di
+        sistema. Chi chiama (`VoceTts`, `Suoni`) tiene il proprio livello e
+        lo passa qui a ogni riproduzione, cosi' regolare "la voce" non tocca
+        "il timer" ne' il volume dell'altoparlante nel suo complesso.
         """
         self.ferma()
         comando = ["mpv", "--no-video", "--really-quiet"]
         if filtro:
             comando.append(f"--af=lavfi=[{filtro}]")
+        if volume is not None:
+            comando.append(f"--volume={int(volume)}")
         comando.append(str(sorgente))
         self._processo = subprocess.Popen(comando)
 

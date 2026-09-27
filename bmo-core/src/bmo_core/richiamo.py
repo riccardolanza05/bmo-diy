@@ -75,6 +75,8 @@ class RilevatoreWakeWord(Protocol):
 
     def predict(self, x: np.ndarray) -> dict[str, float]: ...
 
+    def reset(self) -> None: ...
+
 
 def attendi_wake_word(
     frame_pcm,
@@ -173,8 +175,19 @@ class RichiamoWakeWord:
 
         Sta separato da `__call__` per il comando di taratura (`main()`
         sotto), che deve poter stampare il numero vero, non solo sì/no.
+
+        **`rilevatore.reset()` prima di ogni ascolto**: `openwakeword.Model`
+        tiene un `prediction_buffer` interno (le ultime ~30 finestre di
+        punteggio) che sopravvive fra una chiamata e l'altra finché lo stesso
+        `Model` resta in vita — ed `esegui()` (`macchina.py`) lo riusa per
+        ogni giro, mai un `Model` nuovo. Senza azzerarlo, il buffer arriva
+        "caldo" da chi ha appena fatto scattare il richiamo: un rumore di
+        fondo o la radio accesa subito dopo possono far risuperare la soglia
+        quasi subito, con una cascata di richiami e turni — il loop trovato
+        dal vivo il 26/9 che esauriva i limiti dell'API in fretta.
         """
         rilevatore = self._rilevatore_pronto()
+        rilevatore.reset()
         flusso = self.microfono.flusso_pcm()
         try:
             frame = vad.ritaglia_in_frame(flusso, BYTE_PER_FRAME)

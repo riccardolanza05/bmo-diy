@@ -119,6 +119,15 @@ FRASI = [
     _f("musica", "Quali radio ho salvato?", usa("elenca_stazioni")),
     _f("volume", "Alza il volume al settanta percento", usa("regola_volume", percentuale=70)),
     _f("volume", "Abbassa un po' il volume", usa("regola_volume")),
+    # Canali indipendenti (dopo l'issue #23 di bmo-face, volumi.py): un
+    # canale esplicito quando la frase nomina radio/voce/timer, "sistema" (o
+    # nessun canale) quando non lo fa — non basta "abbassa" da solo a far
+    # scegliere "voce" o "radio" per sbaglio.
+    _f("volume", "Abbassa la radio", usa("regola_volume", canale="radio")),
+    _f("volume", "Alza il volume della radio al sessanta percento", usa("regola_volume", percentuale=60, canale="radio")),
+    _f("volume", "Parla un po' più piano", usa("regola_volume", canale="voce")),
+    _f("volume", "Alza il volume della tua voce", usa("regola_volume", canale="voce")),
+    _f("volume", "Abbassa il volume della sveglia del timer", usa("regola_volume", canale="timer")),
     _f("pausa", "Smetti di ascoltare per un'ora", usa("metti_in_pausa_l_ascolto", minuti=60)),
     # Web: meteo e fatti che cambiano nel tempo.
     _f("web", "Che tempo fa a Roma?", usa("cerca_sul_web", query="roma")),

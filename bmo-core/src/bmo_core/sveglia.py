@@ -25,6 +25,7 @@ from .adapters import (
 )
 from .suoni import trova_suono
 from .timer import ArchivioTimer, Timer
+from .volumi import leggi_volume
 
 # Ripiego sempre disponibile: mpv genera il tono da solo, senza bisogno di
 # nessun file. È quello che suona su una macchina appena installata.
@@ -80,8 +81,11 @@ class Sveglia:
             return []
         self.faccia.mostra(STATO_TIMER)
         # Un tono solo anche se scadono insieme: mpv ne riproduce uno per
-        # volta e il secondo interromperebbe il primo.
-        self.altoparlante.riproduci(self.tono)
+        # volta e il secondo interromperebbe il primo. Il volume si rilegge
+        # qui, non in __init__: `sveglia.py` gira per ore, e "abbassa il
+        # volume del timer" deve valere dal prossimo squillo, non solo da un
+        # riavvio (volumi.py — il canale "timer" del volume indipendente).
+        self.altoparlante.riproduci(self.tono, volume=leggi_volume("timer"))
         for timer in scaduti:
             quando = timer.scadenza.strftime("%H:%M")
             if dopo_una_pausa:

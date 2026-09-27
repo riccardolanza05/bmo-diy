@@ -16,9 +16,13 @@ class RilevatoreFinto:
 
     def __init__(self, punteggi):
         self._punteggi = list(punteggi)
+        self.reset_chiamato = 0
 
     def predict(self, x):
         return self._punteggi.pop(0)
+
+    def reset(self):
+        self.reset_chiamato += 1
 
 
 def _frame(n):
@@ -88,6 +92,22 @@ def test_richiamo_wake_word_non_rilevata_restituisce_false():
     microfono = MicrofonoFinto(_frame(1))
     richiamo = RichiamoWakeWord(microfono=microfono, rilevatore=rilevatore, soglia=0.5)
     assert richiamo() is False
+
+
+def test_ogni_ascolto_azzera_il_buffer_del_rilevatore():
+    """Bug reale trovato dal vivo il 26/9: openwakeword.Model tiene un
+    prediction_buffer che sopravvive fra un ascolto e l'altro finché lo
+    stesso Model resta in vita (esegui() lo riusa per ogni giro). Senza
+    azzerarlo, un punteggio residuo dal richiamo appena sentito poteva far
+    scattare una cascata di richiami — rumore di fondo o radio bastavano a
+    superare di nuovo la soglia quasi subito."""
+    rilevatore = RilevatoreFinto([{"hey_jarvis": 0.9}, {"hey_jarvis": 0.9}])
+    microfono = MicrofonoFinto(_frame(2))
+    richiamo = RichiamoWakeWord(microfono=microfono, rilevatore=rilevatore)
+    richiamo()
+    assert rilevatore.reset_chiamato == 1
+    richiamo()
+    assert rilevatore.reset_chiamato == 2
 
 
 def test_carica_rilevatore_normalizza_una_stringa_in_lista(monkeypatch):
