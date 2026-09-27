@@ -59,11 +59,12 @@ class FacciaAdapter(Protocol):
     Serve soprattutto nei secondi in cui tace, che altrimenti non si
     distinguono da un guasto.
 
-    I cinque metodi ricalcano uno a uno i cinque comandi del socket Unix
-    verso bmo-face (piano, §2.2): `mostra` è `state`, gli altri quattro sono
+    I sei metodi ricalcano uno a uno i sei comandi del socket Unix verso
+    bmo-face (piano, §2.2): `mostra` è `state`, gli altri cinque sono
     facoltativi da implementare per davvero (le implementazioni provvisorie
     qui sotto li ignorano) ma fanno parte del contratto da quando esiste un
-    ascoltatore vero (`FacciaSocket`, issue #23).
+    ascoltatore vero (`FacciaSocket`, issue #23). `immagine` è il più recente
+    (issue #51): un JPEG arbitrario al posto della faccia per qualche secondo.
     """
 
     def mostra(self, stato: str) -> None: ...
@@ -75,6 +76,8 @@ class FacciaAdapter(Protocol):
     def parla(self, inviluppo: list[float], fps: float = 25.0) -> None: ...
 
     def timer(self, rimanente: int, etichetta: str | None = None) -> None: ...
+
+    def immagine(self, dati: bytes, ttl: float = 6.0) -> None: ...
 
 
 class AudioOutputAdapter(Protocol):

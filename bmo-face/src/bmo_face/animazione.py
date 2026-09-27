@@ -13,6 +13,7 @@ questo oggetto, chi disegna lo legge soltanto.
 from __future__ import annotations
 
 import hashlib
+import io
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -109,6 +110,13 @@ class ComandoFaccia:
     inviluppo: list[float] | None = None
     inviluppo_fps: float = 25.0
     inviluppo_inizio: float | None = None
+    # Dal comando `immagine` (§2.2, issue #51): un JPEG arbitrario (una foto
+    # di scatta_foto, #24) da mostrare al posto della faccia finché non scade
+    # `immagine_scadenza` (tempo assoluto, come `espressione_scadenza`), poi
+    # si torna da soli allo stato corrente — non serve nessun comando che
+    # dica "basta", esattamente come l'espressione.
+    immagine: bytes | None = None
+    immagine_scadenza: float | None = None
 
 
 def livello_bocca(comando: ComandoFaccia, t: float) -> float:
@@ -166,6 +174,15 @@ class Renderer:
 
     def disegna(self, comando: ComandoFaccia, t: float) -> Image.Image:
         m = self.manifesto
+        # La foto (issue #51) sostituisce tutta la faccia finché non scade:
+        # non un overlay come l'espressione, occupa l'intero pannello. Prima
+        # di ogni altra cosa, anche dello stato sconosciuto qui sotto.
+        if (
+            comando.immagine is not None
+            and comando.immagine_scadenza is not None
+            and t < comando.immagine_scadenza
+        ):
+            return _immagine_da_jpeg(comando.immagine, m.larghezza, m.altezza)
         # Uno stato sconosciuto (un bug altrove, una versione di bmo-core più
         # nuova che manda uno stato nuovo, o — il caso reale trovato dal vivo
         # il 26/9 — un'espressione mandata per sbaglio dove ci si aspettava
@@ -267,3 +284,35 @@ def quantizza_come_pannello(immagine: Image.Image) -> Image.Image:
     """
     w, h = immagine.size
     return Image.frombytes("RGB", (w, h), rgb888_da_565(rgb565(immagine.convert("RGB").tobytes())))
+
+
+def _adatta_a_pannello(immagine: Image.Image, larghezza: int, altezza: int) -> Image.Image:
+    """Scala `immagine` per stare dentro larghezza×altezza mantenendo le
+    proporzioni, centrata su uno sfondo pieno (issue #51).
+
+    La webcam scatta 4:3 (640×480), il pannello è tipicamente più stretto e
+    più alto (240×320, ritratto): i due formati quasi mai combaciano, quindi
+    si ridimensiona per intero (mai ritagliata) e si riempie il resto con
+    `SFONDO`, non si deforma per riempire il pannello.
+    """
+    immagine = immagine.convert("RGB")
+    scala = min(larghezza / immagine.width, altezza / immagine.height)
+    nuova_larghezza = max(1, round(immagine.width * scala))
+    nuova_altezza = max(1, round(immagine.height * scala))
+    ridimensionata = immagine.resize((nuova_larghezza, nuova_altezza))
+    tela = Image.new("RGB", (larghezza, altezza), SFONDO)
+    tela.paste(ridimensionata, ((larghezza - nuova_larghezza) // 2, (altezza - nuova_altezza) // 2))
+    return tela
+
+
+@lru_cache(maxsize=4)
+def _immagine_da_jpeg(dati: bytes, larghezza: int, altezza: int) -> Image.Image:
+    """Decodifica `dati` (un JPEG) e lo adatta al pannello una sola volta.
+
+    In cache per bytes esatti: senza, un fotogramma a 25 fps per qualche
+    secondo di visualizzazione decodificherebbe e ridimensionerebbe la
+    stessa foto decine di volte per niente (issue #51, stesso motivo della
+    cache sul font in `_font`).
+    """
+    immagine = Image.open(io.BytesIO(dati))
+    return quantizza_come_pannello(_adatta_a_pannello(immagine, larghezza, altezza))

@@ -128,6 +128,14 @@ Con `--voce-tts` (macchina.py, #42) la bocca durante `parlato` segue
 l'inviluppo RMS vero della voce sintetizzata (`bmo_core.inviluppo`), calcolato
 in un thread a parte per non aggiungere latenza percepita alla risposta.
 
+`scatta_foto` (#24) mostra anche la foto appena scattata al posto della
+faccia per qualche secondo (issue #51): `Cervello._scatta_foto` chiama
+`faccia.immagine(dati)` subito dopo lo scatto, indipendentemente da cosa
+risponde poi Gemini. La foto — 4:3 come la webcam, quasi mai come le
+proporzioni del pannello — viene ridimensionata per intero e centrata su
+uno sfondo pieno (mai deformata né ritagliata), poi torna da sola alla
+faccia normale una volta scaduto il tempo, esattamente come l'espressione.
+
 ## Struttura del pacchetto
 
 | Modulo | Cosa fa |
@@ -136,7 +144,7 @@ in un thread a parte per non aggiungere latenza percepita alla risposta.
 | `arte_placeholder.py` | L'arte geometrica placeholder, parametrica su risoluzione |
 | `build_face.py` | La pipeline: arte → `faces.bin` + `faces.json` |
 | `animazione.py` | `Renderer`: funzione pura del tempo e dei comandi → fotogramma |
-| `protocollo.py` | I cinque messaggi del socket (§2.2): analisi e applicazione |
+| `protocollo.py` | I sei messaggi del socket (§2.2): analisi e applicazione |
 | `servitore.py` | Il server del socket Unix, un thread per connessione |
 | `dimensione_fisica.py` | Il calcolo mm↔px per la finestra a dimensione fisica |
 | `finestra.py` | La finestra GTK4 che lega tutto insieme |

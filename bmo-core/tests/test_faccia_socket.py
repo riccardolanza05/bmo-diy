@@ -1,3 +1,4 @@
+import base64
 import json
 import socket
 import threading
@@ -38,6 +39,7 @@ def test_manda_i_messaggi_giusti_per_ciascun_metodo(tmp_path):
         faccia.livello(0.42)
         faccia.parla([0.1, 0.2], fps=10)
         faccia.timer(120, "pasta")
+        faccia.immagine(b"jpeg-vero", ttl=8.0)
         faccia._socket.close()  # forza il flush lato client prima di leggere
     finally:
         time.sleep(0.2)
@@ -48,6 +50,7 @@ def test_manda_i_messaggi_giusti_per_ciascun_metodo(tmp_path):
         {"cmd": "level", "value": 0.42},
         {"cmd": "speak", "envelope": [0.1, 0.2], "fps": 10},
         {"cmd": "timer", "remaining": 120, "label": "pasta"},
+        {"cmd": "immagine", "data": base64.b64encode(b"jpeg-vero").decode("ascii"), "ttl": 8.0},
     ]
 
 

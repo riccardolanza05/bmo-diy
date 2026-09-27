@@ -1230,6 +1230,11 @@ class Cervello:
         # sullo stesso schema di `registra_strumento`.
         if self._al_scatto is not None:
             self._al_scatto()
+        # Mostrata anche sullo schermo di bmo-face (issue #51), non solo
+        # mandata a Gemini: chi guarda BMO vede la stessa foto che sta
+        # descrivendo, non solo il testo. Indipendente dal resto del turno —
+        # anche se Gemini poi non risponde, la foto è già stata scattata davvero.
+        self.faccia.immagine(dati)
         return {"stato": "ok"}
 
     def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:

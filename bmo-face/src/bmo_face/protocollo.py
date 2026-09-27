@@ -1,4 +1,4 @@
-"""I cinque messaggi del socket Unix bmo-core → bmo-face (piano, §2.2).
+"""I sei messaggi del socket Unix bmo-core → bmo-face (piano, §2.2).
 
 ```
 {"cmd":"state",      "value":"listening"}
@@ -6,7 +6,14 @@
 {"cmd":"expression", "value":"felice", "ttl":3.0}
 {"cmd":"timer",      "remaining":312, "label":"pasta"}
 {"cmd":"level",      "value":0.34}
+{"cmd":"immagine",   "data":"<jpeg in base64>", "ttl":6.0}
 ```
+
+`immagine` è più recente degli altri cinque (issue #51): mostra un JPEG
+arbitrario (una foto di `scatta_foto`, #24) al posto della faccia per `ttl`
+secondi, poi torna da sola allo stato corrente. A differenza degli altri
+comandi non arriva da bmo-core a ogni fotogramma né rappresenta uno stato
+persistente: è un'interruzione temporanea, scade da sola come `expression`.
 
 Con una correzione rispetto al piano: `state.value` qui sono le stesse
 stringhe di `adapters.base.STATO_*` di bmo-core (`"ascolto"`, non
@@ -20,6 +27,7 @@ processo, e il renderer lo legge in sola lettura mentre disegna.
 """
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
@@ -75,6 +83,16 @@ def applica(comando: ComandoFaccia, messaggio: dict[str, Any], ora: float) -> No
         valore = messaggio.get("value")
         if isinstance(valore, (int, float)):
             comando.livello = float(valore)
+    elif cmd == "immagine":
+        dati_b64 = messaggio.get("data")
+        if isinstance(dati_b64, str) and dati_b64:
+            try:
+                grezzi = base64.b64decode(dati_b64, validate=True)
+            except (ValueError, TypeError):
+                pass  # base64 corrotto: si ignora, stesso principio degli altri comandi
+            else:
+                comando.immagine = grezzi
+                comando.immagine_scadenza = ora + float(messaggio.get("ttl", 6.0))
     # Un `cmd` sconosciuto o mancante si ignora: un bmo-core più recente che
     # manda un comando nuovo non deve rompere un bmo-face più vecchio, lo
     # stesso principio del riepilogo forzato che ignora strumenti sconosciuti.
@@ -98,3 +116,8 @@ def messaggio_timer(rimanente: int, etichetta: str | None = None) -> str:
 
 def messaggio_level(valore: float) -> str:
     return json.dumps({"cmd": "level", "value": valore}) + "\n"
+
+
+def messaggio_immagine(dati: bytes, ttl: float = 6.0) -> str:
+    codificato = base64.b64encode(dati).decode("ascii")
+    return json.dumps({"cmd": "immagine", "data": codificato, "ttl": ttl}) + "\n"

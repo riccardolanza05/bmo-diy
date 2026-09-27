@@ -100,12 +100,16 @@ class FacciaFinta:
     def __init__(self):
         self.stati = []
         self.espressioni = []
+        self.immagini = []
 
     def mostra(self, stato: str) -> None:
         self.stati.append(stato)
 
     def esprimi(self, espressione: str, ttl: float = 3.0) -> None:
         self.espressioni.append(espressione)
+
+    def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
+        self.immagini.append(dati)
 
 
 def _ricerca_finta(query):
@@ -505,6 +509,8 @@ def test_scatta_foto_scatta_e_mette_da_parte_il_jpeg():
     assert esito.risultato == {"stato": "ok"}
     assert cervello._foto_pendente == b"jpeg-vero"
     assert len(camera.chiamate) == 1
+    # Mostrata anche sullo schermo di bmo-face (issue #51), non solo mandata a Gemini.
+    assert cervello.faccia.immagini == [b"jpeg-vero"]
 
 
 def test_scatta_foto_fallita_risponde_errore_senza_foto_pendente():
@@ -512,6 +518,8 @@ def test_scatta_foto_fallita_risponde_errore_senza_foto_pendente():
     [esito] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
     assert esito.risultato["stato"] == "errore"
     assert cervello._foto_pendente is None
+    # Niente da mostrare: la fotocamera non ha prodotto nessuna immagine.
+    assert cervello.faccia.immagini == []
 
 
 def test_scatta_foto_riuscita_suona_l_otturatore_se_collegato():
