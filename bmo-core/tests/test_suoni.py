@@ -91,16 +91,35 @@ def test_mpv_assente_non_blocca_ascolto():
     Suoni(AltoparlanteFinto(errore=FileNotFoundError("mpv"))).ascolto()
 
 
-def test_scatto_usa_il_rumore_bianco_di_ripiego_di_default():
-    """Nessun file scelto ancora (a differenza di errore/timer, #21): è il rumore bianco."""
+def test_lo_scatto_incluso_nel_pacchetto_e_breve_e_ha_la_licenza():
+    """Uno scatto vero (Olympus, CC0), non più il rumore bianco sintetizzato."""
+    import subprocess
+
+    percorso = CARTELLA_PACCHETTO / "scatto.ogg"
+    assert percorso.exists()
+    assert "CC0" in (CARTELLA_PACCHETTO / "LICENZE.md").read_text()
+    assert trova_suono("scatto", BIP_SCATTO) == str(percorso)
+    try:
+        durata = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(percorso)],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("ffprobe non disponibile")
+    assert float(durata) < 2.0
+
+
+def test_scatto_usa_il_rumore_bianco_solo_se_il_file_vero_manca(tmp_path, monkeypatch):
+    """BIP_SCATTO resta il ripiego finale (issue #54), non più la scelta di default."""
+    monkeypatch.setattr("bmo_core.suoni.CARTELLA_PACCHETTO", tmp_path)
     assert trova_suono("scatto", BIP_SCATTO) == BIP_SCATTO
 
 
-def test_scatto_suona_e_aspetta_la_fine():
+def test_scatto_suona_lo_scatto_vero_e_aspetta_la_fine():
     altoparlante = AltoparlanteFinto()
     Suoni(altoparlante).scatto()
     (azione, sorgente, filtro), attesa = altoparlante.eventi
-    assert azione == "riproduci" and sorgente == BIP_SCATTO and filtro is None
+    assert azione == "riproduci" and sorgente.endswith("scatto.ogg") and filtro is None
     assert attesa[0] == "attendi" and attesa[1] is not None  # con un tetto
 
 

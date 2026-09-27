@@ -42,14 +42,19 @@ ATTESA_MAX_ERRORE_S = 2.0
 BIP_ASCOLTO = "av://lavfi:sine=frequency=880:duration=0.1"
 ATTESA_MAX_ASCOLTO_S = 1.0
 
-# L'ultimo ripiego per lo scatto della fotocamera (issue #54): un breve
-# scoppio di rumore bianco, non un tono puro come gli altri due — un sine
-# non somiglia per niente a un otturatore, il rumore bianco molto di più.
-# 0,04 s (la prima versione) risultava impercettibile in prova dal vivo,
-# specialmente a confronto dei 0,1-0,12 s degli altri due: portato a 0,09 s
-# e al volume massimo di ampiezza, ancora breve ma davvero udibile.
+# L'ultimo ripiego per lo scatto della fotocamera (issue #54), per quando
+# manca anche il file vero nel pacchetto (`audio/scatto.ogg`, sotto): un
+# breve scoppio di rumore bianco, non un tono puro come gli altri due — un
+# sine non somiglia per niente a un otturatore, il rumore bianco un po' di
+# più, ma resta un ripiego. Le prime prove dal vivo (rumore sintetizzato,
+# nessun file vero) avevano mostrato due difetti: non somiglia a un vero
+# scatto, e a 0,04 s era anche troppo debole per notarlo — per questo, oltre
+# ad aggiungere il file vero, questa costante resta comunque a 0,09 s e
+# volume massimo.
 BIP_SCATTO = "av://lavfi:anoisesrc=d=0.09:c=white:a=1.0"
-ATTESA_MAX_SCATTO_S = 1.0
+# Il file vero (~1,6 s) è più lungo del ripiego: il tetto deve coprire
+# entrambi, altrimenti taglierebbe lo scatto vero a metà.
+ATTESA_MAX_SCATTO_S = 2.0
 
 
 def cartella_suoni() -> Path:
