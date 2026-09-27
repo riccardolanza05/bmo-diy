@@ -39,6 +39,7 @@ from .adapters import (
 from .config import FUSO_ORARIO
 from .memoria import Voce, aggiungi_voce, carica_diario
 from .modelli import TENTATIVI_SDK, TIMEOUT_TENTATIVO_S, CascataModelli, GeminiNonDisponibile
+from .persone import carica_persone
 from .ricerca import cerca
 from .sessione import (
     BUDGET_DOPO_IL_TURNO_S,
@@ -178,6 +179,29 @@ QUANDO UNO STRUMENTO NON FUNZIONA:
   senza scusarti e senza inventare cause.
 - Non fingere mai di esserci riuscito: non dire "accendo la radio" se la radio non è partita.
 """
+
+
+def _riga_persone(persone: list[str]) -> str:
+    """Aggiunta al primo strato del prompt con l'elenco delle persone di casa (#15).
+
+    Vuota quando il file di configurazione (`persone.carica_persone`) manca o
+    è vuoto: meglio un prompt che non ne parla affatto che uno che elenca una
+    casa vuota. Senza riconoscimento vocale (V1) il rischio concreto non è
+    dimenticare i nomi, è il contrario: un modello con una lista di nomi in
+    mano tende a indovinare chi sta parlando o a salutare per nome di sua
+    iniziativa, quindi l'istruzione lo vieta esplicitamente.
+    """
+    if not persone:
+        return ""
+    elenco = ", ".join(persone)
+    return (
+        "\n\nCON CHI VIVI:\n"
+        f"- In questa casa vivono: {elenco}.\n"
+        "- Non sai chi di preciso ti sta parlando in un dato momento: non indovinare, non "
+        "salutare né chiamare nessuno per nome di tua iniziativa. Usa un nome solo se chi "
+        "parla si presenta lui stesso o te lo dice esplicitamente."
+    )
+
 
 # Terzo strato, solo per la richiesta di riepilogo (#18). Senza una spiegazione
 # il modello si trova gli strumenti vietati e non sa perché: la prova del 19/9
@@ -521,6 +545,7 @@ class Cervello:
         camera: CameraAdapter | None = None,
         archivio: ArchivioTimer | None = None,
         diario_percorso: Path | None = None,
+        persone_percorso: Path | None = None,
         ricerca: Callable[[str], dict[str, Any]] | None = None,
         modelli: list[str] | None = None,
         orologio: Callable[[], datetime] | None = None,
@@ -562,6 +587,9 @@ class Cervello:
         # calcolato all'importazione del modulo precederebbe BMO_DATI nei test
         # (stesso motivo di ArchivioTimer, vedi timer.py).
         self.diario_percorso = diario_percorso
+        # Stesso motivo del diario: il percorso si risolve dentro
+        # carica_persone(), non qui (issue #15).
+        self.persone_percorso = persone_percorso
         self.inietta_ora = inietta_ora
         self.prompt_fisso = prompt_fisso
         self.max_giri = max_giri
@@ -583,6 +611,10 @@ class Cervello:
         # dopo la functionResponse breve dello stesso giro. Vive solo dentro
         # un turno: azzerato a ogni rispondi() e consumato appena riletto.
         self._foto_pendente: bytes | None = None
+        # Il rumore dell'otturatore (#54): nessuno finché Macchina non lo
+        # collega con registra_al_scatto (Cervello non possiede un
+        # altoparlante), esattamente come i timer/il diario per registra_strumento.
+        self._al_scatto: Callable[[], None] | None = None
         # Il testo di una sessione scaduta per inattività, in attesa di
         # essere estratto verso il diario (#14): tenuto a parte dallo storico
         # vivo, così un'estrazione che fallisce non mescola mai una
@@ -596,6 +628,10 @@ class Cervello:
         # Stesso motivo dei timer: il diario non deve cambiare a metà turno,
         # e non serve rileggere il file a ogni giro del loop agentico.
         self._diario_letto: list[Voce] | None = None
+        # Idem: l'elenco delle persone di casa (#15), riletto una volta per
+        # turno, così un file modificato via SCP a metà giornata si vede al
+        # turno successivo senza riavviare BMO.
+        self._persone_lette: list[str] | None = None
         # Sostituibile nei test, e il giorno del piano a pagamento diventa
         # google_search senza toccare altro (#6).
         self.ricerca = ricerca or cerca
@@ -616,6 +652,15 @@ class Cervello:
         separate.
         """
         self._esecutori[nome] = esecutore
+
+    def registra_al_scatto(self, callback: Callable[[], None]) -> None:
+        """Collega il suono da fare quando `scatta_foto` scatta davvero (#54).
+
+        Stesso motivo di `registra_strumento`: `Cervello` non possiede un
+        altoparlante (lo possiede `Macchina`), quindi non può suonare da
+        solo — chi lo costruisce collega qui `Suoni.scatto()`.
+        """
+        self._al_scatto = callback
 
     def ascolta(self, durata_s: float = DURATA_ASCOLTO_S) -> bytes:
         """Registra `durata_s` secondi dal microfono e restituisce il WAV.
@@ -892,9 +937,17 @@ class Cervello:
             self._diario_letto = carica_diario(self.diario_percorso)
         return self._diario_letto
 
+    @property
+    def persone(self) -> list[str]:
+        """I nomi delle persone di casa (#15), letti dal file una volta per turno."""
+        if self._persone_lette is None:
+            self._persone_lette = carica_persone(self.persone_percorso)
+        return self._persone_lette
+
     def _configurazione(self, riepilogo: bool = False, chiedi_trascrizione: bool = False) -> types.GenerateContentConfig:
+        prompt_fisso = self.prompt_fisso + _riga_persone(self.persone)
         istruzioni = [
-            self.prompt_fisso,
+            prompt_fisso,
             contesto_dinamico(self.orologio(), self.timer, self.inietta_ora, self.diario, self.sessione.riassunto),
         ]
         if chiedi_trascrizione:
@@ -999,6 +1052,7 @@ class Cervello:
         self.faccia.mostra(STATO_PENSIERO)
         self._timer_letti = None  # i timer possono essere cambiati dal turno scorso
         self._diario_letto = None  # idem: il file può essere stato modificato via SCP
+        self._persone_lette = None  # idem: l'elenco delle persone di casa (#15)
 
         eseguite: list[ChiamataStrumento] = []
         risposta = None
@@ -1169,6 +1223,13 @@ class Cervello:
         if not dati:
             return {"stato": "errore", "motivo": "la fotocamera non ha prodotto nessuna immagine"}
         self._foto_pendente = dati
+        # Il rumore dell'otturatore (issue #54): un segnale che BMO ha
+        # scattato davvero qualcosa, non solo silenzio. `Cervello` non
+        # possiede un altoparlante (non lo ha mai posseduto, per disegno):
+        # `Macchina` collega qui `Suoni.scatto()` con `registra_al_scatto`,
+        # sullo stesso schema di `registra_strumento`.
+        if self._al_scatto is not None:
+            self._al_scatto()
         # Mostrata anche sullo schermo di bmo-face (issue #51), non solo
         # mandata a Gemini: chi guarda BMO vede la stessa foto che sta
         # descrivendo, non solo il testo. Indipendente dal resto del turno —

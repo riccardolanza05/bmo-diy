@@ -65,9 +65,13 @@ class CervelloFinto:
         self.audio_classificati = []
         self.diario_percorso = None
         self.archivio = ArchivioFinto()
+        self.al_scatto = None
 
     def registra_strumento(self, nome, esecutore):
         self.strumenti_registrati[nome] = esecutore
+
+    def registra_al_scatto(self, callback):
+        self.al_scatto = callback
 
     def ascolta(self, durata_s):
         # Serve a controllare che la faccia cambi PRIMA di registrare.
@@ -327,6 +331,11 @@ def test_ricorda_registrato_come_strumento():
     assert cervello.strumenti_registrati["ricorda"] == macchina._ricorda
 
 
+def test_suono_dello_scatto_collegato_al_cervello():
+    macchina, _, cervello, _ = _macchina([])
+    assert cervello.al_scatto == macchina.suoni.scatto
+
+
 def test_turno_con_vad_usa_ascolta_fino_al_silenzio_e_il_cap_giusto():
     macchina, _, cervello, dette = _macchina(
         [Risposta(testo="Ciao!")], usa_vad=True, diagnostiche=[Diagnostica(1.2, True, 3, "silenzio")]
@@ -456,6 +465,9 @@ class SuoniFinti:
 
     def errore(self):
         self.errori.append(len(self.dette))  # quante frasi erano già state dette
+
+    def scatto(self):
+        pass
 
 
 def test_rete_giu_il_suono_d_errore_suona_prima_della_frase():
