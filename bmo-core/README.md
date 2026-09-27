@@ -130,7 +130,9 @@ senza riavviare BMO.
 Il prompt aggiunge solo l'elenco e un'istruzione esplicita a non indovinare
 né salutare per nome di propria iniziativa: senza riconoscimento vocale, una
 lista di nomi in mano al modello rischia di fargli assumere di sapere chi ha
-davanti, e non è così.
+davanti, e non è così. Se invece qualcuno chiede direttamente "chi vive qui?"
+BMO può rispondere: è una decisione aperta, non presa da questo codice —
+vedi `docs/decisioni-issue-15.md` nel repository principale.
 
 ## Il tetto del turno e il riepilogo forzato (issue #18)
 

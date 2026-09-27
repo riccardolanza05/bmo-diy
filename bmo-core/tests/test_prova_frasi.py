@@ -7,10 +7,11 @@ def _risposta(*chiamate, testo="ok"):
 
 
 def test_ogni_frase_ha_i_suoi_attesi_e_non_si_ripete():
-    # 43 e' il banco storico della #19, quello su cui si misura il 90%: deve
-    # restare stabile anche quando si aggiungono categorie a parte.
+    # 48 e' il banco storico attuale (43 della #19 + le 5 di "volume" del 26/9,
+    # issue #48), quello su cui si misura il 90%: deve restare stabile anche
+    # quando si aggiungono categorie a parte.
     storiche = [f for f in FRASI if f.categoria not in CATEGORIE_A_PARTE]
-    assert len(storiche) == 43
+    assert len(storiche) == 48
     assert all(f.attesi for f in FRASI)
     assert len({f.testo for f in FRASI}) == len(FRASI)
 
