@@ -399,9 +399,9 @@ Con `--voce-tts` ogni risposta stampa sullo stderr i due tempi della voce:
 Sono separati apposta: il primo è l'attesa di rete, il secondo è l'avvio di
 mpv (si cura tenendo un processo pronto). Sommati non si distinguerebbero più.
 
-## I suoni: errore e timer (issue #21)
+## I suoni: errore, timer e scatto (issue #21, #54)
 
-Due suoni senza parole, trovati per nome da `suoni.py`, nell'ordine:
+Tre suoni senza parole, trovati per nome da `suoni.py`, nell'ordine:
 `BMO_SUONO_<NOME>`, un file `<nome>.{opus,mp3,ogg,wav}` in
 `<cartella dati>/suoni/`, un file incluso nel pacchetto (solo CC0), un tono
 generato da mpv.
@@ -411,9 +411,15 @@ generato da mpv.
   0,14 s): vedi `src/bmo_core/audio/LICENZE.md`.
 - **timer**: il file in `suoni/timer.opus` (sul PC, John Pork); `BMO_TONO`
   resta il nome storico della variabile.
+- **scatto** (#54): suona quando `scatta_foto` scatta davvero. Nessun file
+  scelto ancora: il ripiego è un breve scoppio di rumore bianco (non un tono
+  puro come gli altri — un sine non somiglia per niente a un otturatore).
+  `Cervello` non possiede un altoparlante: `Macchina` collega
+  `cervello.registra_al_scatto(self.suoni.scatto)` allo stesso modo di
+  `registra_strumento` per `ricorda`/`metti_in_pausa_l_ascolto`.
 
 Voce e suoni passano per lo stesso `MpvAdapter`: non ci sono mai due mpv che
-si parlano sopra. `--senza-suoni` spegne l'errore.
+si parlano sopra. `--senza-suoni` spegne errore e scatto.
 
 Non c'è un suono di attesa: provato e scartato all'ascolto il 25/9, perché un
 suono prima di ogni risposta non aveva senso.

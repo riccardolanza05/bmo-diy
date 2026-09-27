@@ -514,6 +514,29 @@ def test_scatta_foto_fallita_risponde_errore_senza_foto_pendente():
     assert cervello._foto_pendente is None
 
 
+def test_scatta_foto_riuscita_suona_l_otturatore_se_collegato():
+    chiamate = []
+    cervello, _ = _cervello([], camera=CameraFinta(dati=b"jpeg-vero"))
+    cervello.registra_al_scatto(lambda: chiamate.append(1))
+    cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
+    assert chiamate == [1]
+
+
+def test_scatta_foto_fallita_non_suona_l_otturatore():
+    chiamate = []
+    cervello, _ = _cervello([], camera=CameraFinta(fallisce=True))
+    cervello.registra_al_scatto(lambda: chiamate.append(1))
+    cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
+    assert chiamate == []
+
+
+def test_scatta_foto_senza_niente_collegato_non_solleva():
+    """Predefinito (nessuna Macchina di mezzo): niente suono, niente eccezione."""
+    cervello, _ = _cervello([], camera=CameraFinta(dati=b"jpeg-vero"))
+    [esito] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
+    assert esito.risultato == {"stato": "ok"}
+
+
 def test_scatta_foto_accoda_il_jpeg_come_content_a_parte_dopo_la_risposta_breve():
     camera = CameraFinta(dati=b"jpeg-vero")
     cervello, client = _cervello(
