@@ -411,12 +411,15 @@ generato da mpv.
   0,14 s): vedi `src/bmo_core/audio/LICENZE.md`.
 - **timer**: il file in `suoni/timer.opus` (sul PC, John Pork); `BMO_TONO`
   resta il nome storico della variabile.
-- **scatto** (#54): suona quando `scatta_foto` scatta davvero. Nessun file
-  scelto ancora: il ripiego è un breve scoppio di rumore bianco (non un tono
-  puro come gli altri — un sine non somiglia per niente a un otturatore).
-  `Cervello` non possiede un altoparlante: `Macchina` collega
-  `cervello.registra_al_scatto(self.suoni.scatto)` allo stesso modo di
-  `registra_strumento` per `ricorda`/`metti_in_pausa_l_ascolto`.
+- **scatto** (#54): suona quando `scatta_foto` scatta davvero. Nel pacchetto
+  c'è "Camera Shutter Click" di Kodack (Freesound.org, CC0, uno scatto pulito
+  da una fotocamera Olympus, ~1,6 s): vedi `src/bmo_core/audio/LICENZE.md`.
+  Il ripiego se anche quel file mancasse è un breve scoppio di rumore bianco
+  sintetizzato (mai un tono puro come gli altri — un sine non somiglia per
+  niente a un otturatore, il rumore bianco un po' di più, ma un file vero
+  molto meglio di entrambi). `Cervello` non possiede un altoparlante:
+  `Macchina` collega `cervello.registra_al_scatto(self.suoni.scatto)` allo
+  stesso modo di `registra_strumento` per `ricorda`/`metti_in_pausa_l_ascolto`.
 
 Voce e suoni passano per lo stesso `MpvAdapter`: non ci sono mai due mpv che
 si parlano sopra. `--senza-suoni` spegne errore e scatto.
