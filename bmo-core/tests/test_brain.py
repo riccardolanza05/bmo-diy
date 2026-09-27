@@ -113,6 +113,26 @@ def _ricerca_finta(query):
     return {"stato": "non_disponibile", "motivo": "ricerca finta"}
 
 
+class CameraFinta:
+    """Sostituto di CameraAdapter: nessun test deve chiamare ffmpeg/libcamera-still davvero.
+
+    `fallisce=True` simula una fotocamera assente o un comando che fallisce
+    (`OSError`/`subprocess.CalledProcessError`, catturati da `_scatta_foto`).
+    """
+
+    def __init__(self, dati: bytes = b"\xff\xd8jpeg-finto", fallisce: bool = False):
+        self.dati = dati
+        self.fallisce = fallisce
+        self.chiamate: list[Path] = []
+
+    def scatta_foto(self, destinazione: Path) -> Path:
+        self.chiamate.append(destinazione)
+        if self.fallisce:
+            raise OSError("fotocamera finta rotta")
+        destinazione.write_bytes(self.dati)
+        return destinazione
+
+
 def _cervello(risposte, costo_s=0.0, **opzioni):
     cronometro = CronometroFinto()
     client = ClientFinto(risposte, cronometro, costo_s)
@@ -121,6 +141,7 @@ def _cervello(risposte, costo_s=0.0, **opzioni):
         microfono=MicrofonoFinto(),
         ricerca=opzioni.pop("ricerca", _ricerca_finta),
         faccia=opzioni.pop("faccia", FacciaFinta()),
+        camera=opzioni.pop("camera", CameraFinta()),
         orologio=lambda: ORA,
         cronometro=cronometro,
         **opzioni,
@@ -434,9 +455,58 @@ def test_tutti_gli_strumenti_della_2_4_dichiarati():
 
 
 def test_strumenti_non_ancora_pronti_rispondono_non_disponibile():
+    # riproduci_musica (radio.py) e gli altri strumenti radio si collegano solo
+    # tramite Radio.collega(cervello): un Cervello nudo, come qui, non li ha.
     cervello, _ = _cervello([])
-    [esito] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
+    [esito] = cervello.strumenti([types.FunctionCall(name="riproduci_musica", args={})])
     assert esito.risultato["stato"] == "non_disponibile"
+
+
+def test_scatta_foto_scatta_e_mette_da_parte_il_jpeg():
+    camera = CameraFinta(dati=b"jpeg-vero")
+    cervello, _ = _cervello([], camera=camera)
+    [esito] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "guardare il tavolo"})])
+    # La functionResponse resta breve (piano §2.4): il JPEG non ci finisce dentro.
+    assert esito.risultato == {"stato": "ok"}
+    assert cervello._foto_pendente == b"jpeg-vero"
+    assert len(camera.chiamate) == 1
+
+
+def test_scatta_foto_fallita_risponde_errore_senza_foto_pendente():
+    cervello, _ = _cervello([], camera=CameraFinta(fallisce=True))
+    [esito] = cervello.strumenti([types.FunctionCall(name="scatta_foto", args={"motivo": "x"})])
+    assert esito.risultato["stato"] == "errore"
+    assert cervello._foto_pendente is None
+
+
+def test_scatta_foto_accoda_il_jpeg_come_content_a_parte_dopo_la_risposta_breve():
+    camera = CameraFinta(dati=b"jpeg-vero")
+    cervello, client = _cervello(
+        [_risposta_chiamata("scatta_foto", motivo="guardare il tavolo"), _risposta_testo("[felice] C'è un gatto.")],
+        camera=camera,
+    )
+    risposta = cervello.rispondi(testo="Cosa vedi?")
+    assert risposta.testo == "C'è un gatto."
+    # Il secondo giro porta sia la functionResponse breve sia il JPEG a parte
+    # (piano §2.4, passo 2), non un giro in più solo per la foto.
+    assert len(client.richieste) == 2
+    risposta_funzione, foto = client.richieste[1]["contents"][-2:]
+    assert risposta_funzione.parts[0].function_response.name == "scatta_foto"
+    assert risposta_funzione.parts[0].function_response.response == {"stato": "ok"}
+    assert foto.role == "user"
+    assert foto.parts[0].inline_data.mime_type == "image/jpeg"
+    assert foto.parts[0].inline_data.data == b"jpeg-vero"
+
+
+def test_scatta_foto_fallita_non_accoda_nessun_content_in_piu():
+    cervello, client = _cervello(
+        [_risposta_chiamata("scatta_foto", motivo="x"), _risposta_testo("[triste] Non ci vedo.")],
+        camera=CameraFinta(fallisce=True),
+    )
+    cervello.rispondi(testo="Cosa vedi?")
+    # Solo la functionResponse d'errore, nessun Content in più con l'immagine.
+    assert len(client.richieste[1]["contents"][-1].parts) == 1
+    assert client.richieste[1]["contents"][-1].parts[0].function_response.response["stato"] == "errore"
 
 
 def test_annulla_ed_elenca_timer():

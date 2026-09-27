@@ -13,6 +13,7 @@ l'issue #20.
 from __future__ import annotations
 
 import re
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -29,8 +30,10 @@ from .adapters import (
     STATO_PARLATO,
     STATO_PENSIERO,
     AudioInputAdapter,
+    CameraAdapter,
     FacciaAdapter,
     crea_audio_input,
+    crea_camera,
     crea_faccia,
 )
 from .config import FUSO_ORARIO
@@ -515,6 +518,7 @@ class Cervello:
         client: Any = None,
         microfono: AudioInputAdapter | None = None,
         faccia: FacciaAdapter | None = None,
+        camera: CameraAdapter | None = None,
         archivio: ArchivioTimer | None = None,
         diario_percorso: Path | None = None,
         ricerca: Callable[[str], dict[str, Any]] | None = None,
@@ -545,6 +549,7 @@ class Cervello:
         # scrivere niente. Il comando a riga di comando chiede quella sul
         # terminale, l'unico "schermo" che c'è oggi sul PC.
         self.faccia = faccia or crea_faccia()
+        self.camera = camera or crea_camera()
         # Un solo orologio monotono per il turno e per la cascata, altrimenti
         # la scadenza passata a `genera` sarebbe su un'altra scala.
         self.cronometro = cronometro
@@ -573,6 +578,11 @@ class Cervello:
         # il prima possibile (l'issue #29 vieta esplicitamente le richieste
         # silenziose "mentre qualcuno aspetta una risposta").
         self._sospeso: _TurnoSospeso | None = None
+        # Il JPEG appena scattato da scatta_foto (§2.4), in attesa che il loop
+        # di rispondi() lo accodi come Content a parte con inlineData, subito
+        # dopo la functionResponse breve dello stesso giro. Vive solo dentro
+        # un turno: azzerato a ogni rispondi() e consumato appena riletto.
+        self._foto_pendente: bytes | None = None
         # Il testo di una sessione scaduta per inattività, in attesa di
         # essere estratto verso il diario (#14): tenuto a parte dallo storico
         # vivo, così un'estrazione che fallisce non mescola mai una
@@ -594,6 +604,7 @@ class Cervello:
             "annulla_timer": self._annulla_timer,
             "elenca_timer": self._elenca_timer,
             "cerca_sul_web": self._cerca_sul_web,
+            "scatta_foto": self._scatta_foto,
         }
 
     def registra_strumento(self, nome: str, esecutore: Callable[..., dict[str, Any]]) -> None:
@@ -963,6 +974,7 @@ class Cervello:
         # `dopo_il_turno()` in mezzo perde quel turno dallo storico, non la
         # risposta). Vedi `dopo_il_turno()`.
         self._sospeso = None
+        self._foto_pendente = None
         # Caso 1 della #29: una sessione rimasta inattiva per 5 minuti si
         # chiude prima di cominciare il turno nuovo, che non deve ereditarla.
         # Non fa nessuna richiesta a Gemini qui (vedi `_gestisci_scadenza_sessione`):
@@ -1025,6 +1037,19 @@ class Cervello:
                         ],
                     )
                 )
+                if self._foto_pendente is not None:
+                    # Piano §2.4, passo 2: la functionResponse resta breve
+                    # (solo {"stato": "ok"}), il JPEG viaggia in un Content
+                    # separato di ruolo "user" con inlineData, nello stesso
+                    # giro — non un secondo giro apposta, che sul cloud
+                    # costerebbe un'altra richiesta intera per niente.
+                    contenuti.append(
+                        types.Content(
+                            role="user",
+                            parts=[types.Part.from_bytes(data=self._foto_pendente, mime_type="image/jpeg")],
+                        )
+                    )
+                    self._foto_pendente = None
             else:
                 # I giri sono finiti e l'ultimo chiedeva ancora strumenti.
                 giri = "giro" if self.max_giri == 1 else "giri"
@@ -1121,6 +1146,30 @@ class Cervello:
 
     def _cerca_sul_web(self, query: str) -> dict[str, Any]:
         return self.ricerca(query)
+
+    def _scatta_foto(self, motivo: str) -> dict[str, Any]:
+        """Fase 1.7 (issue #24): scatta e mette da parte il JPEG per rispondi().
+
+        `motivo` serve solo al modello per decidere se chiamare lo strumento
+        (§2.4 lo dichiara obbligatorio per lo stesso motivo di `ricorda`):
+        qui non cambia cosa viene scattato. La foto non entra in questo
+        dict — che resta la `functionResponse` breve del piano — ma in
+        `self._foto_pendente`, che il loop di `rispondi()` accoda subito
+        dopo come Content separato con inlineData.
+        """
+        del motivo
+        cartella = Path("/dev/shm") if Path("/dev/shm").is_dir() else Path(tempfile.gettempdir())
+        with tempfile.NamedTemporaryFile(suffix=".jpg", dir=cartella) as file:
+            percorso = Path(file.name)
+            try:
+                self.camera.scatta_foto(percorso)
+                dati = percorso.read_bytes()
+            except (OSError, subprocess.CalledProcessError) as errore:
+                return {"stato": "errore", "motivo": f"la fotocamera non ha funzionato ({type(errore).__name__})"}
+        if not dati:
+            return {"stato": "errore", "motivo": "la fotocamera non ha prodotto nessuna immagine"}
+        self._foto_pendente = dati
+        return {"stato": "ok"}
 
     def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:
         # "Un'ora e un quarto" arrivò come ore 1 e minuti 75 (prova del 19/9):
