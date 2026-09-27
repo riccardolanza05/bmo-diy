@@ -45,7 +45,10 @@ ATTESA_MAX_ASCOLTO_S = 1.0
 # L'ultimo ripiego per lo scatto della fotocamera (issue #54): un breve
 # scoppio di rumore bianco, non un tono puro come gli altri due — un sine
 # non somiglia per niente a un otturatore, il rumore bianco molto di più.
-BIP_SCATTO = "av://lavfi:anoisesrc=d=0.04:c=white:a=0.6"
+# 0,04 s (la prima versione) risultava impercettibile in prova dal vivo,
+# specialmente a confronto dei 0,1-0,12 s degli altri due: portato a 0,09 s
+# e al volume massimo di ampiezza, ancora breve ma davvero udibile.
+BIP_SCATTO = "av://lavfi:anoisesrc=d=0.09:c=white:a=1.0"
 ATTESA_MAX_SCATTO_S = 1.0
 
 
@@ -105,7 +108,7 @@ class Suoni:
         """Il rumore dell'otturatore quando `scatta_foto` scatta davvero (#54).
 
         Come gli altri due: suona per intero prima di continuare, dura
-        pochissimo (0,04 s di default) apposta per non aggiungere latenza
+        pochissimo (0,09 s di default) apposta per non aggiungere latenza
         percepibile fra lo scatto vero e la risposta di BMO.
         """
         try:
