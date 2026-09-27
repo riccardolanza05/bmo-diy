@@ -120,6 +120,59 @@ def test_renderer_e_puro_stesso_input_stesso_risultato():
     assert a == b
 
 
+def _jpeg_a_tinta_unita(larghezza, altezza, colore):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (larghezza, altezza), colore).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_renderer_mostra_limmagine_al_posto_della_faccia():
+    dati, manifesto = costruisci(48, 32)
+    renderer = Renderer(manifesto, dati)
+    jpeg = _jpeg_a_tinta_unita(64, 48, (200, 40, 40))
+    comando = ComandoFaccia(stato="idle", immagine=jpeg, immagine_scadenza=10.0)
+    immagine = renderer.disegna(comando, 0.0)
+    senza_immagine = renderer.disegna(ComandoFaccia(stato="idle"), 0.0)
+    assert immagine.size == (48, 32)
+    assert immagine.tobytes() != senza_immagine.tobytes()
+
+
+def test_renderer_immagine_rispetta_le_proporzioni_con_letterbox():
+    # La webcam è 4:3, il pannello è tipicamente un ritratto stretto: i due
+    # formati non combaciano quasi mai (issue #51). Un JPEG 4:3 su un
+    # pannello stretto e alto deve avere una fascia di sfondo sopra e sotto,
+    # non essere deformato per riempire tutto lo spazio.
+    from bmo_face.arte_placeholder import SFONDO
+
+    dati, manifesto = costruisci(24, 32)  # pannello stretto e alto, come 240x320
+    renderer = Renderer(manifesto, dati)
+    jpeg = _jpeg_a_tinta_unita(640, 480, (200, 40, 40))  # 4:3, come la webcam
+    comando = ComandoFaccia(stato="idle", immagine=jpeg, immagine_scadenza=10.0)
+    immagine = renderer.disegna(comando, 0.0)
+    angolo = immagine.getpixel((0, 0))
+    centro = immagine.getpixel((immagine.width // 2, immagine.height // 2))
+    assert angolo != centro  # l'angolo è sfondo (letterbox), il centro è la foto
+    # Lo sfondo, dopo il giro di quantizzazione RGB565, resta vicino a SFONDO
+    # (non identico: la quantizzazione arrotonda ogni canale).
+    assert all(abs(a - b) <= 8 for a, b in zip(angolo, SFONDO))
+
+
+def test_renderer_immagine_scaduta_torna_allo_stato_normale():
+    dati, manifesto = costruisci(48, 32)
+    renderer = Renderer(manifesto, dati)
+    jpeg = _jpeg_a_tinta_unita(64, 48, (200, 40, 40))
+    comando = ComandoFaccia(stato="idle", immagine=jpeg, immagine_scadenza=1.0)
+    con_immagine = renderer.disegna(comando, 0.5)
+    dopo_scadenza = renderer.disegna(comando, 1.5)
+    senza_immagine = renderer.disegna(ComandoFaccia(stato="idle"), 1.5)
+    assert con_immagine.tobytes() != dopo_scadenza.tobytes()
+    assert dopo_scadenza.tobytes() == senza_immagine.tobytes()
+
+
 def test_renderer_stato_sconosciuto_non_va_in_crash():
     # Trovato dal vivo il 26/9: brain.py mandava per sbaglio un'espressione
     # ("felice") a mostra() invece che a esprimi() — FacciaSocket la

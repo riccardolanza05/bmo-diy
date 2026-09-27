@@ -9,6 +9,7 @@ schermo, una che scrive lo stato sul terminale per le prove a voce, e
 """
 from __future__ import annotations
 
+import base64
 import json
 import socket
 import sys
@@ -34,6 +35,9 @@ class FacciaMuta:
 
     def timer(self, rimanente: int, etichetta: str | None = None) -> None:
         del rimanente, etichetta
+
+    def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
+        del dati, ttl
 
 
 class FacciaTerminale:
@@ -61,6 +65,9 @@ class FacciaTerminale:
 
     def timer(self, rimanente: int, etichetta: str | None = None) -> None:
         del rimanente, etichetta  # idem: la sveglia (timer.py) lo stampa gia' per conto suo
+
+    def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
+        print(f"[faccia: immagine, {len(dati)} byte per {ttl:g}s]", file=self.uscita, flush=True)
 
 
 class FacciaSocket:
@@ -129,3 +136,7 @@ class FacciaSocket:
 
     def timer(self, rimanente: int, etichetta: str | None = None) -> None:
         self._manda({"cmd": "timer", "remaining": rimanente, "label": etichetta})
+
+    def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
+        codificato = base64.b64encode(dati).decode("ascii")
+        self._manda({"cmd": "immagine", "data": codificato, "ttl": ttl})

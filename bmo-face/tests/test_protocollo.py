@@ -1,5 +1,7 @@
+import base64
+
 from bmo_face.animazione import ComandoFaccia
-from bmo_face.protocollo import analizza_riga, applica
+from bmo_face.protocollo import analizza_riga, applica, messaggio_immagine
 
 
 def test_analizza_riga_vuota_o_rotta_e_none():
@@ -45,6 +47,31 @@ def test_applica_level():
     comando = ComandoFaccia()
     applica(comando, {"cmd": "level", "value": 0.34}, ora=0.0)
     assert comando.livello == 0.34
+
+
+def test_applica_immagine_decodifica_il_base64_e_imposta_scadenza_assoluta():
+    comando = ComandoFaccia()
+    dati_b64 = base64.b64encode(b"jpeg-finto").decode("ascii")
+    applica(comando, {"cmd": "immagine", "data": dati_b64, "ttl": 4.0}, ora=10.0)
+    assert comando.immagine == b"jpeg-finto"
+    assert comando.immagine_scadenza == 14.0
+
+
+def test_applica_immagine_con_base64_corrotto_non_solleva_e_non_tocca_niente():
+    comando = ComandoFaccia(immagine=None, immagine_scadenza=None)
+    applica(comando, {"cmd": "immagine", "data": "!!! non e' base64 valido !!!", "ttl": 4.0}, ora=10.0)
+    assert comando.immagine is None
+    assert comando.immagine_scadenza is None
+
+
+def test_messaggio_immagine_si_analizza_e_si_applica_correttamente():
+    riga = messaggio_immagine(b"jpeg-vero", ttl=8.0)
+    messaggio = analizza_riga(riga)
+    assert messaggio["cmd"] == "immagine"
+    comando = ComandoFaccia()
+    applica(comando, messaggio, ora=0.0)
+    assert comando.immagine == b"jpeg-vero"
+    assert comando.immagine_scadenza == 8.0
 
 
 def test_applica_comando_sconosciuto_non_tocca_niente():
