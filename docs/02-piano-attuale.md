@@ -410,7 +410,7 @@ Quindi: **TTS in cloud come motore primario** (`gemini-3.1-flash-tts-preview`, P
 - **openWakeWord** con modello «Hey BMO» dal Colab ufficiale su dati sintetici. In sviluppo si usa `hey_jarvis` preaddestrato: l'addestramento è rifinitura, non prerequisito.
 - **La soglia si tara nella stanza vera, con la TV accesa.** Tarata in silenzio è inutile.
 - **Sistema a 64 bit** (Raspberry Pi OS Lite arm64). Il 32 bit consumerebbe ~30 MB in meno, ma `onnxruntime` non pubblica ruote ufficiali armv7l e le `tflite-runtime` per ARM 32 bit sono un campo minato. **Questa decisione è chiusa**: arm64 per la disponibilità delle ruote onnxruntime, non da riaprire.
-- **`zram` invece di swap su SD.** `zram-tools` con 256 MB in zstd dà margine **senza scrivere un byte sulla scheda**.
+- **`zram` invece di swap su SD.** Swap compresso in RAM (zstd) dà margine **senza scrivere un byte sulla scheda**. Su Raspberry Pi OS trixie c'è già di serie (`rpi-swap`), non va installato `zram-tools` — vedi fase 2.1 e #25.
 - **Porcupine come piano B se la RAM stringe**: qualche MB invece di ~110. L'obiezione precedente ("BMO deve svegliarsi anche col router giù") **con questa architettura non esiste più**: col router giù BMO non può fare nulla comunque.
 
 ### 2.7 Le due conseguenze scomode del "solo voce"
@@ -560,7 +560,17 @@ Tutto gira con `BMO_ENV=dev-linux`: `WebcamV4L2Adapter` per la foto, `ArecordAda
 
 Il bring-up è fatto (settembre 2026): Raspberry Pi OS a 64 bit (Debian 13 trixie), SSH a sola chiave pubblica, Wi-Fi configurato. Senza HAT audio né display, il Pi basta già per misurare quello che conta davvero: RAM, stabilità, tempi.
 
-**2.1 · Irrobustimento per il 24/7.** L'immagine installata è quella **con desktop** (`graphical.target`, ~187 MB occupati a riposo su 415 MB visibili): è la prima cosa da togliere. `sudo systemctl set-default multi-user.target` (oppure riflashare la versione Lite), poi `systemctl disable dphys-swapfile`; `apt install zram-tools` con 256 MB in zstd; `Storage=volatile` in `journald.conf`; `dtparam=watchdog=on` + `RuntimeWatchdogSec=15`; `gpu_mem=16`; `dtparam=spi=on`. *Uscita*: `free -m` intorno a 90 MB usati, 0 di swap su disco; `vcgencmd get_throttled` = `0x0`.
+**2.1 · Irrobustimento per il 24/7.** L'immagine installata è quella **con desktop** (`graphical.target`, ~187 MB occupati a riposo su 415 MB visibili): è la prima cosa da togliere. *Fatto (#25)*, con lo script idempotente [`pi/irrobustisci.sh`](../pi/irrobustisci.sh) (`servizi` → riavvio → `avvio` → riavvio → `verifica`): `multi-user.target`, servizi del desktop disabilitati (non disinstallati), `RuntimeWatchdogSec=15`, `dtparam=spi=on`, `dtparam=watchdog=on`, `gpu_mem=16`, e **`cgroup_enable=memory`** in `cmdline.txt`. In più rispetto al piano: niente stack grafico KMS (`vc4-kms-v3d` commentato: la faccia va su SPI, non su HDMI) e niente Bluetooth (`dtoverlay=disable-bt`), niente login automatico sulla console (teneva in piedi pipewire anche senza desktop). Risultato: **331 MB disponibili per BMO a riposo**, contro i 227 di partenza.
+
+> **Trixie non è bookworm.** Questa fase era scritta per Raspberry Pi OS bookworm. Su trixie (Debian 13, quello installato) tre passi erano già fatti e uno mancava:
+> - **niente `dphys-swapfile` né `zram-tools`**: lo swap è già zram (`rpi-swap` + `systemd-zram-generator`, zstd, dimensionato sulla RAM, configurabile in `/etc/rpi/swap.conf`). Installare `zram-tools` metterebbe due gestori zram in conflitto;
+> - **journald è già volatile** (drop-in di sistema `40-rpi-volatile-storage.conf`), e rsyslog non è installato: niente log scritti sulla scheda;
+> - il watchdog hardware era già attivo, ma a 1 minuto invece di 15 s;
+> - **il firmware aggiunge `cgroup_disable=memory` alla riga di comando del kernel**: senza il contrordine in `cmdline.txt` i `MemoryMax=` della fase 2.2 e `systemd-cgtop` della 2.3 non limitano né misurano nulla. Non era nel piano.
+>
+> **avahi resta acceso**: senza, `clanker.local` non si risolve e SSH dal PC andrebbe fatto per indirizzo IP. Il bilancio della §2.8, che lo dava per tolto, ne tiene conto. Scelte e alternative in [`decisioni-issue-25.md`](decisioni-issue-25.md), misure prima/dopo in [`note-issue-25.md`](note-issue-25.md).
+
+*Uscita*: `free -m` intorno a 90 MB usati, 0 di swap su disco; `vcgencmd get_throttled` = `0x0`. Esito misurato in [`note-issue-25.md`](note-issue-25.md).
 
 **2.2 · Deploy a un comando.** Uno script che dal PC di sviluppo sincronizza `bmo-core` e `bmo-face` sul Pi e riavvia i servizi. Socket Unix, due servizi systemd con `Restart=always` e `MemoryMax=`.
 

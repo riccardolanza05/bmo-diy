@@ -42,6 +42,9 @@ bmo-core/                             Logica di dialogo, in sviluppo sul PC (oma
     ├── prova_frasi.py                 il banco di prova a frasi del prompt di sistema
     ├── config.py                      rileva l'ambiente: PC di sviluppo o Raspberry Pi
     └── adapters/                      confine hardware: stessa logica, implementazione diversa
+
+pi/
+└── irrobustisci.sh                   prepara il Raspberry Pi per il 24/7 (issue #25): idempotente
 ```
 
 ## Per chi vuole ricostruire BMO da zero
