@@ -42,9 +42,13 @@ Misure del 27/9/2026. L'analisi e gli spunti stanno nel testo della issue
 | dopo 24 s di ascolto e `Cervello` | 114 | | **108** |
 | — con 1 modello invece di 3 | 112 | | 106 |
 
-I punteggi della wake word sulla stessa finestra audio sono identici con e
-senza alleggerimento (verificato sul PC: `bmo1` 0,000709, `bmo2` 0,000853,
-`bmo3` 0,000732 in entrambi i casi).
+I punteggi della wake word sono **identici fino alla nona cifra decimale**
+con e senza alleggerimento. Verificato sul PC su 12 clip di parlato vero
+(10 risposte di BMO dalla cache della voce e 2 frasi «Hey BMO» sintetizzate
+con edge-tts), confrontando per ogni modello sia il punteggio massimo sia
+la somma su tutte le finestre da 80 ms. Nelle due clip «Hey BMO» `bmo3`
+arriva a 0,73 e 0,57, sopra la soglia di 0,5: il confronto copre anche il
+caso in cui la wake word scatta, non solo il silenzio.
 
 ## bmo-face sul Pi (senza GTK)
 
@@ -66,6 +70,20 @@ openwakeword + le arene ONNX. I numeri del PC sono più alti di quelli del
 Pi (Python 3.14 contro 3.13, x86_64 contro aarch64, librerie diverse): per
 il budget valgono **le misure sul Pi**, il PC serve per confrontare prima e
 dopo una modifica.
+
+Prova di fumo di `./avvia_demo.sh --misura-ram` (tutto BMO, ~25 s con un
+paio di turni veri): picco **380 MB PSS** in totale, di cui bmo-core 267,
+bmo-face 67 (con GTK), mpv 52, arecord 3.
+
+## Cosa non è ancora misurato sul Pi
+
+- **mpv**: non è installato sul Pi. Il bilancio usa i ~35 MB stimati dal
+  piano, ma sul PC mpv ha toccato 52 MB. Il margine di ~150 MB calcolato
+  nella issue per bmo-core alleggerito dipende da questo numero.
+- **I picchi di un turno**: audio registrato, risposta JSON, foto, voce
+  decodificata. Tutto sopra è misurato a riposo in ascolto. La fase 2.3 (con
+  l'audio letto da WAV) è il posto per misurarli, con `bmo_core.misura_ram`.
+- **bmo-face con l'uscita SPI**, che arriva alla fase 4.7.
 
 ## CPU della wake word
 
