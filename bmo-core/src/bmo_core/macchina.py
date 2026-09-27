@@ -327,6 +327,9 @@ class Macchina:
         # Idem per la scrittura del diario (#14.2): serve chiedi_conferma, che
         # è della macchina, non del cervello.
         cervello.registra_strumento("ricorda", self._ricorda)
+        # Il rumore dell'otturatore (#54): il cervello non possiede un
+        # altoparlante, lo possiede la macchina (stesso `Suoni` di errore/ascolto).
+        cervello.registra_al_scatto(self.suoni.scatto)
 
     # --- strumento della §2.4 ------------------------------------------------
 

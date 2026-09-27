@@ -42,6 +42,12 @@ ATTESA_MAX_ERRORE_S = 2.0
 BIP_ASCOLTO = "av://lavfi:sine=frequency=880:duration=0.1"
 ATTESA_MAX_ASCOLTO_S = 1.0
 
+# L'ultimo ripiego per lo scatto della fotocamera (issue #54): un breve
+# scoppio di rumore bianco, non un tono puro come gli altri due — un sine
+# non somiglia per niente a un otturatore, il rumore bianco molto di più.
+BIP_SCATTO = "av://lavfi:anoisesrc=d=0.04:c=white:a=0.6"
+ATTESA_MAX_SCATTO_S = 1.0
+
 
 def cartella_suoni() -> Path:
     return percorso_dati() / "suoni"
@@ -95,6 +101,20 @@ class Suoni:
             return
         self.altoparlante.attendi(timeout_s=ATTESA_MAX_ASCOLTO_S)
 
+    def scatto(self) -> None:
+        """Il rumore dell'otturatore quando `scatta_foto` scatta davvero (#54).
+
+        Come gli altri due: suona per intero prima di continuare, dura
+        pochissimo (0,04 s di default) apposta per non aggiungere latenza
+        percepibile fra lo scatto vero e la risposta di BMO.
+        """
+        try:
+            self.altoparlante.riproduci(trova_suono("scatto", BIP_SCATTO))
+        except OSError as errore:  # mpv assente: meglio muto che fermo
+            print(f"[suoni: scatto non riprodotto — {errore}]", file=sys.stderr)
+            return
+        self.altoparlante.attendi(timeout_s=ATTESA_MAX_SCATTO_S)
+
 
 class SuoniMuti:
     """Il predefinito di `Macchina`: i test e `prova_frasi` non lanciano mpv."""
@@ -103,6 +123,9 @@ class SuoniMuti:
         pass
 
     def ascolto(self) -> None:
+        pass
+
+    def scatto(self) -> None:
         pass
 
 
@@ -118,6 +141,7 @@ def main() -> None:
     scelti = {
         "errore": trova_suono("errore", BIP_ERRORE),
         "ascolto": trova_suono("ascolto", BIP_ASCOLTO),
+        "scatto": trova_suono("scatto", BIP_SCATTO),
         "timer": tono_predefinito(),
     }
     altoparlante = None if argomenti.solo_elenco else crea_audio_output()

@@ -1,6 +1,6 @@
 import pytest
 
-from bmo_core.suoni import BIP_ASCOLTO, BIP_ERRORE, CARTELLA_PACCHETTO, Suoni, SuoniMuti, trova_suono
+from bmo_core.suoni import BIP_ASCOLTO, BIP_ERRORE, BIP_SCATTO, CARTELLA_PACCHETTO, Suoni, SuoniMuti, trova_suono
 
 
 class AltoparlanteFinto:
@@ -25,6 +25,7 @@ def senza_variabili(monkeypatch):
     monkeypatch.delenv("BMO_SUONO_ERRORE", raising=False)
     monkeypatch.delenv("BMO_SUONO_TIMER", raising=False)
     monkeypatch.delenv("BMO_SUONO_ASCOLTO", raising=False)
+    monkeypatch.delenv("BMO_SUONO_SCATTO", raising=False)
 
 
 def test_l_errore_incluso_nel_pacchetto_e_breve_e_ha_la_licenza():
@@ -90,6 +91,24 @@ def test_mpv_assente_non_blocca_ascolto():
     Suoni(AltoparlanteFinto(errore=FileNotFoundError("mpv"))).ascolto()
 
 
+def test_scatto_usa_il_rumore_bianco_di_ripiego_di_default():
+    """Nessun file scelto ancora (a differenza di errore/timer, #21): è il rumore bianco."""
+    assert trova_suono("scatto", BIP_SCATTO) == BIP_SCATTO
+
+
+def test_scatto_suona_e_aspetta_la_fine():
+    altoparlante = AltoparlanteFinto()
+    Suoni(altoparlante).scatto()
+    (azione, sorgente, filtro), attesa = altoparlante.eventi
+    assert azione == "riproduci" and sorgente == BIP_SCATTO and filtro is None
+    assert attesa[0] == "attendi" and attesa[1] is not None  # con un tetto
+
+
+def test_mpv_assente_non_blocca_scatto():
+    Suoni(AltoparlanteFinto(errore=FileNotFoundError("mpv"))).scatto()
+
+
 def test_i_suoni_muti_non_fanno_niente():
     SuoniMuti().errore()
     SuoniMuti().ascolto()
+    SuoniMuti().scatto()

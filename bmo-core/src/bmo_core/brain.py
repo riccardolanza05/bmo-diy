@@ -611,6 +611,10 @@ class Cervello:
         # dopo la functionResponse breve dello stesso giro. Vive solo dentro
         # un turno: azzerato a ogni rispondi() e consumato appena riletto.
         self._foto_pendente: bytes | None = None
+        # Il rumore dell'otturatore (#54): nessuno finché Macchina non lo
+        # collega con registra_al_scatto (Cervello non possiede un
+        # altoparlante), esattamente come i timer/il diario per registra_strumento.
+        self._al_scatto: Callable[[], None] | None = None
         # Il testo di una sessione scaduta per inattività, in attesa di
         # essere estratto verso il diario (#14): tenuto a parte dallo storico
         # vivo, così un'estrazione che fallisce non mescola mai una
@@ -648,6 +652,15 @@ class Cervello:
         separate.
         """
         self._esecutori[nome] = esecutore
+
+    def registra_al_scatto(self, callback: Callable[[], None]) -> None:
+        """Collega il suono da fare quando `scatta_foto` scatta davvero (#54).
+
+        Stesso motivo di `registra_strumento`: `Cervello` non possiede un
+        altoparlante (lo possiede `Macchina`), quindi non può suonare da
+        solo — chi lo costruisce collega qui `Suoni.scatto()`.
+        """
+        self._al_scatto = callback
 
     def ascolta(self, durata_s: float = DURATA_ASCOLTO_S) -> bytes:
         """Registra `durata_s` secondi dal microfono e restituisce il WAV.
@@ -1210,6 +1223,13 @@ class Cervello:
         if not dati:
             return {"stato": "errore", "motivo": "la fotocamera non ha prodotto nessuna immagine"}
         self._foto_pendente = dati
+        # Il rumore dell'otturatore (issue #54): un segnale che BMO ha
+        # scattato davvero qualcosa, non solo silenzio. `Cervello` non
+        # possiede un altoparlante (non lo ha mai posseduto, per disegno):
+        # `Macchina` collega qui `Suoni.scatto()` con `registra_al_scatto`,
+        # sullo stesso schema di `registra_strumento`.
+        if self._al_scatto is not None:
+            self._al_scatto()
         return {"stato": "ok"}
 
     def _imposta_timer(self, etichetta: str, ore: int = 0, minuti: int = 0, secondi: int = 0) -> dict[str, Any]:
