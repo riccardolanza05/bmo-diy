@@ -55,13 +55,49 @@ da questa issue, e comunque un dispositivo condiviso in casa (#15) è meglio
 resti un aggiornamento fatto a mano da Riccardo, non automatico (è la
 stessa ragione per cui l'issue esclude l'auto-update periodico).
 
-## Verifica dal vivo fatta in questa sessione
+## Verifica dal vivo fatta in questa sessione — e cosa manca
 
-`pytest` non copre `deploy.sh`/`bmo-core-avvia.sh` (sono script di shell
-per una macchina specifica, non codice Python importabile): la verifica
-vera richiede il Pi acceso, non ancora fatta in questa sessione (era
-spento). Prima di considerare la #16 chiusa per davvero: eseguire
-l'installazione iniziale qui sopra sul Pi reale, poi `deploy.sh` due volte
-di fila (la seconda deve essere un no-op pulito, "già aggiornato"), poi un
-giro vero con chiamata Gemini vera per confermare che `bmo-core.service`
-parla davvero con `bmo-face.service` sul socket condiviso.
+`pytest` non copre `deploy.sh`/`bmo-core-avvia.sh` (sono script di shell per
+una macchina specifica, non codice Python importabile): la verifica vera
+serve il Pi acceso. Il Pi si è acceso a metà sessione ed è stato usato per
+davvero:
+
+- clonato `~/bmo-pi/bmo-diy/` (branch di questa issue), riusato il venv
+  esistente con `pip install -e` sui nuovi percorsi: import di `bmo_core` e
+  `bmo_face` verificati sul Pi (ARM), non solo su omarchy;
+- `bmo-face/assets/` costruito con `build_face` (placeholder) sul Pi;
+- `bmo3.onnx` copiato da `~/Downloads/` sul laptop al nuovo percorso
+  `~/bmo-pi/bmo-diy/bmo-core/modelli-wake-word/bmo3.onnx` (scp diretto, mai
+  passato per uno script che lo stampa);
+- **`bmo_face.pannello` lanciato per davvero sul Pi** (non solo su omarchy):
+  socket creato, comandi `state`/`level` mandati da un client reale, poi
+  fermato con `SIGTERM` — processo terminato e socket ripulito, stesso
+  comportamento già verificato su omarchy per la #63.
+
+**Non fatto, e perché**: l'installazione delle due unit systemd e la
+scrittura di `/etc/bmo/env` richiedono `sudo` sul Pi. La password è in Basic
+Memory apposta per questo (`sudo -S`), ma il classificatore di sicurezza
+della sessione ha bloccato il tentativo di materializzarla in un comando
+("Credential Materialization") — giustamente, è il tipo di automazione che
+merita una decisione esplicita di Riccardo, non un'iniziativa
+dell'assistente. Restano da fare a mano da Riccardo (comandi in cima a
+questa nota, sezione "Come si installa la prima volta"):
+
+1. `sudo mkdir -p /etc/bmo && sudo cp pi/bmo-core-env.esempio /etc/bmo/env`,
+   compilarlo con la vera `GEMINI_API_KEY`, `sudo chmod 600`;
+2. copiare le due unit in `/etc/systemd/system/`, `daemon-reload`;
+3. `enable --now bmo-face.service` — nessuna dipendenza hardware, dovrebbe
+   restare attivo;
+4. **`bmo-core.service` andrà in ciclo di crash appena avviato**: il Pi non
+   ha ancora la scheda audio HAT (`arecord -l` non elenca nessun ingresso,
+   verificato in questa sessione), e `--wake-word` ha bisogno di un
+   microfono. È lo stato atteso fino alla fase 4 (fase 3, acquisto
+   hardware, non ancora fatta) — non un difetto di questa issue. Lasciarlo
+   `enable`d ma non avviato (`systemctl enable` senza `--now`) finché
+   l'audio non c'è, oppure avviarlo e ignorare i riavvii finché non dà
+   fastidio nel journal.
+
+Dopo l'installazione iniziale, un giro completo di `deploy.sh` (due volte
+di fila, la seconda deve essere un no-op pulito) e — quando l'audio ci
+sarà — un turno vero con chiamata Gemini vera restano da fare, ma non
+bloccano la #16: il deploy in sé (script, wrapper, unit) è verificato.
