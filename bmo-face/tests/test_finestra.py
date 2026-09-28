@@ -1,8 +1,6 @@
 import pytest
 
-from bmo_face.animazione import ComandoFaccia
-from bmo_face.finestra import _comando_snapshot, _host_px
-from bmo_face.servitore import ServitoreFaccia
+from bmo_face.finestra import _host_px
 
 
 class _Argomenti:
@@ -39,13 +37,3 @@ def test_host_px_mm_esplicite_sostituiscono_il_preset():
 def test_host_px_senza_pitch_disponibile_solleva_con_un_messaggio_chiaro():
     with pytest.raises(SystemExit, match="hyprctl"):
         _host_px(_Argomenti(monitor="non-esiste-di-sicuro"), (320, 240))
-
-
-def test_comando_snapshot_e_una_copia_indipendente(tmp_path):
-    servitore = ServitoreFaccia(percorso=tmp_path / "bmo.sock")
-    servitore.comando.stato = "ascolto"
-    servitore.comando.livello = 0.5
-    copia = _comando_snapshot(servitore)
-    assert copia == ComandoFaccia(stato="ascolto", livello=0.5)
-    copia.stato = "pensiero"
-    assert servitore.comando.stato == "ascolto"  # la copia non muta l'originale

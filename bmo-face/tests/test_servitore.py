@@ -1,6 +1,7 @@
 import socket
 import time
 
+from bmo_face.animazione import ComandoFaccia
 from bmo_face.servitore import ServitoreFaccia
 
 
@@ -58,3 +59,13 @@ def test_avvia_rimuove_un_socket_lasciato_da_un_avvio_precedente(tmp_path):
     finally:
         servitore.ferma()
     assert not percorso.exists()  # ferma() pulisce anche lei
+
+
+def test_comando_snapshot_e_una_copia_indipendente(tmp_path):
+    servitore = ServitoreFaccia(percorso=tmp_path / "bmo.sock")
+    servitore.comando.stato = "ascolto"
+    servitore.comando.livello = 0.5
+    copia = servitore.comando_snapshot()
+    assert copia == ComandoFaccia(stato="ascolto", livello=0.5)
+    copia.stato = "pensiero"
+    assert servitore.comando.stato == "ascolto"  # la copia non muta l'originale
