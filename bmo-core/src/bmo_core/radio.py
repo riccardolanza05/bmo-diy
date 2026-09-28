@@ -31,6 +31,7 @@ from typing import Any, Callable, Iterator
 
 from .adapters import LettoreAdapter, VolumeAdapter, crea_lettore, crea_volume
 from .config import percorso_dati
+from .volumi import leggi_volume
 from .volumi import regola_volume as regola_volume_canale
 
 # Elenco pubblico di radio online: nessuna chiave, nessun account.
@@ -150,8 +151,10 @@ class Radio:
         volume: VolumeAdapter | None = None,
         percorso: Path | None = None,
         cercatore: Callable[..., list[Stazione]] = cerca_stazioni,
+        percorso_volumi: Path | None = None,
     ) -> None:
         self.lettore = lettore or crea_lettore()
+        self.percorso_volumi = percorso_volumi
         self.volume = volume or crea_volume()
         self.percorso = Path(percorso) if percorso else percorso_dati() / "radio.json"
         self.cercatore = cercatore
@@ -166,6 +169,10 @@ class Radio:
         cervello.registra_strumento("salva_stazione", self.salva_stazione)
         cervello.registra_strumento("elenca_stazioni", self.elenca_stazioni)
         cervello.registra_strumento("regola_volume", self.regola_volume)
+        # Nello STATO del prompt (#60): senza sapere che la radio suona e a
+        # che volume è, "abbassa il volume" finiva sul canale "sistema" e
+        # "un po' più bassa" era un numero tirato a caso.
+        cervello.registra_stato(self.descrivi_stato)
 
     # --- stato interno -------------------------------------------------------
 
@@ -196,9 +203,26 @@ class Radio:
         finally:
             self.lettore.riprendi()
 
+    def descrivi_stato(self) -> str:
+        """La riga della radio nello STATO del prompt (#60)."""
+        volume = leggi_volume("radio", self.percorso_volumi)
+        # Anche voce e timer: "parla più piano" è relativo quanto "abbassa la radio".
+        altri = (
+            f" Volume della voce di BMO {leggi_volume('voce', self.percorso_volumi)}%,"
+            f" del suono dei timer {leggi_volume('timer', self.percorso_volumi)}%."
+        )
+        stazione = self.in_ascolto
+        if stazione is None or not self.lettore.in_riproduzione():
+            return f"Radio: spenta (quando si accende parte al {volume}% di volume).{altri}"
+        return f'Radio: accesa su "{stazione.nome}", volume della radio {volume}%.{altri}'
+
     def _sintonizza(self, posizione: int) -> dict[str, Any]:
         self.posizione = posizione
         stazione = self.elenco[posizione]
+        # Il volume PRIMA della stazione (#60): mpv appena acceso è al 100%,
+        # e impostarlo dopo farebbe partire la radio a tutto volume per un
+        # istante.
+        self.lettore.imposta_volume(leggi_volume("radio", self.percorso_volumi))
         self.lettore.riproduci([stazione.url])
         risultato = {
             "stato": "ok",
@@ -303,4 +327,5 @@ class Radio:
             canale,
             imposta_radio=self.lettore.imposta_volume,
             imposta_sistema=self.volume.imposta,
+            percorso_file=self.percorso_volumi,
         )

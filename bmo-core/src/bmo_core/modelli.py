@@ -46,6 +46,15 @@ TIMEOUT_TENTATIVO_S = 15.0
 # che scade a metà costa comunque l'attesa e non produce niente (issue #18).
 MINIMO_RICHIESTA_S = 1.0
 
+# Il timeout dell'SDK viene mandato anche a Gemini come scadenza lato server,
+# e Gemini rifiuta con 400 INVALID_ARGUMENT qualunque scadenza sotto i 10 s
+# ("Minimum allowed deadline is 10s", visto dal vivo il 28/9). Senza questo
+# minimo il riepilogo forzato (#18), che parte per costruzione con meno di
+# RISERVA_RIEPILOGO_S = 6 s rimasti, falliva SEMPRE proprio quando Gemini era
+# lento: BMO restava senza risposta. Il prezzo: in quel caso raro il turno può
+# sforare il tetto di qualche secondo — meglio una risposta tardiva che nessuna.
+MINIMO_TIMEOUT_SERVER_S = 10.0
+
 
 class GeminiNonDisponibile(Exception):
     """Tutti i modelli della cascata hanno fallito.
@@ -117,7 +126,7 @@ class CascataModelli:
             return richiesta
         tentativi = TENTATIVI_SDK if rimasto >= TENTATIVI_SDK * TIMEOUT_TENTATIVO_S else 1
         opzioni = types.HttpOptions(
-            timeout=int(min(TIMEOUT_TENTATIVO_S, rimasto) * 1000),
+            timeout=int(max(min(TIMEOUT_TENTATIVO_S, rimasto), MINIMO_TIMEOUT_SERVER_S) * 1000),
             retry_options=types.HttpRetryOptions(attempts=tentativi),
         )
         return {**richiesta, "config": config.model_copy(update={"http_options": opzioni})}

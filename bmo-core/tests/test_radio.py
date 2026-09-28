@@ -299,3 +299,45 @@ def test_sospesa_riprende_anche_se_il_blocco_solleva(tmp_path):
             raise ValueError("boom")
 
     assert lettore.azioni == ["pausa", "riprendi"]
+
+
+# --- volume della radio (#60) --------------------------------------------------
+
+
+def test_la_radio_parte_al_40_per_cento_prima_di_suonare(tmp_path):
+    radio, lettore, _ = _radio(tmp_path)
+    ordine = []
+    lettore.imposta_volume = lambda p: ordine.append(("volume", p))
+    riproduci = lettore.riproduci
+    lettore.riproduci = lambda tracce: (ordine.append(("suona", tracce[0])), riproduci(tracce))
+    radio.riproduci("jazz")
+    assert ordine[0] == ("volume", 40)
+    assert ordine[1][0] == "suona"
+
+
+def test_il_volume_della_radio_resta_per_le_stazioni_successive(tmp_path):
+    radio, lettore, _ = _radio(tmp_path)
+    radio.riproduci("jazz")
+    radio.regola_volume(25, "radio")
+    assert lettore.volume == 25
+    lettore.volume = 100  # come un mpv appena riacceso
+    radio.controllo("successivo")
+    assert lettore.volume == 25
+
+
+def test_lo_stato_dice_se_la_radio_suona_e_a_che_volume(tmp_path):
+    radio, _, _ = _radio(tmp_path)
+    assert "spenta" in radio.descrivi_stato() and "40%" in radio.descrivi_stato()
+    radio.riproduci("jazz")
+    radio.regola_volume(30, "radio")
+    assert radio.descrivi_stato().startswith('Radio: accesa su "Radio Jazz Italia", volume della radio 30%.')
+    assert "voce di BMO 100%" in radio.descrivi_stato()
+
+
+def test_lo_stato_della_radio_finisce_nel_prompt(tmp_path):
+    radio, _, _ = _radio(tmp_path)
+    cervello = Cervello(client=object(), microfono=object())
+    radio.registra(cervello)
+    radio.riproduci("jazz")
+    stato = cervello._configurazione().system_instruction[1]
+    assert 'Radio: accesa su "Radio Jazz Italia", volume della radio 40%.' in stato

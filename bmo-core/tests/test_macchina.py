@@ -70,6 +70,9 @@ class CervelloFinto:
     def registra_strumento(self, nome, esecutore):
         self.strumenti_registrati[nome] = esecutore
 
+    def registra_stato(self, descrizione):
+        pass
+
     def registra_al_scatto(self, callback):
         self.al_scatto = callback
 
