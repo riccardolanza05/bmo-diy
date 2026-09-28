@@ -2,3 +2,6 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
+# bmo3.onnx (issue #16/#58): mai committato, solo sul BMO personale di
+# Riccardo — deploy.sh si limita ad avvisare se manca, mai a generarlo.
+modelli-wake-word/bmo3.onnx

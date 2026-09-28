@@ -1,0 +1,23 @@
+# Modello per /etc/bmo/env sul Pi (issue #16). NON è /etc/bmo/env stesso:
+# questo file è versionato apposta senza segreti, da copiare a mano e
+# compilare una volta sola:
+#
+#   sudo mkdir -p /etc/bmo
+#   sudo cp bmo-core-env.esempio /etc/bmo/env
+#   sudo chmod 600 /etc/bmo/env
+#   sudo "$EDITOR" /etc/bmo/env
+#
+# systemd (`EnvironmentFile=`, bmo-core.service) lo legge come processo
+# root prima di abbassare i privilegi a `clanker_home`: un file 600
+# root:root resta leggibile dal servizio senza bisogno che clanker_home
+# possa leggerlo direttamente. Mai stampare questo file né incollarne il
+# contenuto da nessuna parte.
+
+# Obbligatoria: senza, bmo-core si ferma al primo turno (brain.py).
+GEMINI_API_KEY=
+
+# Facoltative — di default bmo-core usa i valori già scelti nel codice
+# (modelli.py, tts.py). Scommentare solo per cambiarli sul Pi senza
+# toccare bmo-core.service:
+# BMO_GEMINI_MODELLI=gemini-3.5-flash-lite,gemini-3.1-flash-lite
+# BMO_VOCE=it-IT-DiegoNeural
