@@ -1,0 +1,41 @@
+# bmo-core — il cervello di BMO sul Pi (issue #16).
+#
+# Installazione (da `deploy.sh`):
+#   sudo cp bmo-core.service /etc/systemd/system/
+#   sudo cp bmo-core-env.esempio /etc/bmo/env   # una volta sola, poi editarlo
+#   sudo chmod 600 /etc/bmo/env
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bmo-core.service
+#
+# `After=bmo-face.service` (in aggiunta al `Before=` che bmo-face.service
+# già dichiara dal suo lato, issue #63): la faccia deve essere in piedi
+# prima che bmo-core provi ad aprire il socket verso di lei. `RuntimeDirectory`
+# è lo stesso nome (`bmo`) di bmo-face.service: systemd condivide la cartella
+# fra le due unit invece di crearne una a testa.
+[Unit]
+Description=bmo-core - il cervello di BMO
+After=network-online.target bmo-face.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=clanker_home
+WorkingDirectory=/home/clanker_home/bmo-pi/bmo-diy/bmo-core
+Environment=PYTHONPATH=/home/clanker_home/bmo-pi/bmo-diy/bmo-core/src
+Environment=BMO_ENV=pi
+Environment=BMO_FACCIA=socket
+Environment=BMO_SOCKET=/run/bmo/bmo.sock
+# GEMINI_API_KEY e le altre variabili opzionali di tuning (BMO_VOCE,
+# BMO_GEMINI_MODELLI, ...) stanno qui, mai in questo file versionato — vedi
+# pi/bmo-core-env.esempio e docs/decisioni-issue-16.md.
+EnvironmentFile=/etc/bmo/env
+RuntimeDirectory=bmo
+RuntimeDirectoryMode=0770
+StateDirectory=bmo
+ExecStart=/home/clanker_home/bmo-pi/bmo-diy/pi/bmo-core-avvia.sh
+Restart=always
+RestartSec=2
+MemoryMax=280M
+
+[Install]
+WantedBy=multi-user.target

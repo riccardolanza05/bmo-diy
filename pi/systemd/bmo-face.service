@@ -17,12 +17,12 @@ Before=bmo-core.service
 [Service]
 Type=simple
 User=clanker_home
-WorkingDirectory=/home/clanker_home/bmo-pi/bmo-face
-Environment=PYTHONPATH=/home/clanker_home/bmo-pi/bmo-face/src
+WorkingDirectory=/home/clanker_home/bmo-pi/bmo-diy/bmo-face
+Environment=PYTHONPATH=/home/clanker_home/bmo-pi/bmo-diy/bmo-face/src
 Environment=BMO_SOCKET=/run/bmo/bmo.sock
 RuntimeDirectory=bmo
 RuntimeDirectoryMode=0770
-ExecStart=/home/clanker_home/bmo-pi/venv/bin/python -m bmo_face.pannello --assets /home/clanker_home/bmo-pi/bmo-face/assets --uscita nulla
+ExecStart=/home/clanker_home/bmo-pi/venv/bin/python -m bmo_face.pannello --assets /home/clanker_home/bmo-pi/bmo-diy/bmo-face/assets --uscita nulla
 Restart=always
 RestartSec=2
 MemoryMax=80M
