@@ -100,43 +100,26 @@ def attendi_wake_word(
     return None
 
 
-def _percorso_modello(nome: str) -> str:
-    """Un nome fra i preaddestrati di openWakeWord, o un percorso a un file .onnx.
-
-    Il secondo caso è già pensato per quando arriverà il modello «Hey BMO»
-    custom (§2.6): basterà puntare `--modello-wake-word` (o `--modello` del
-    comando di taratura) al file .onnx addestrato, senza toccare il codice.
-    """
-    if nome.endswith(".onnx"):
-        return nome
-    import openwakeword
-
-    try:
-        return openwakeword.models[nome]["model_path"]
-    except KeyError as errore:
-        disponibili = ", ".join(sorted(openwakeword.models))
-        raise ValueError(
-            f"modello wake word {nome!r} sconosciuto; preaddestrati disponibili: {disponibili}, "
-            "oppure un percorso che finisce per .onnx"
-        ) from errore
-
-
 def _carica_rilevatore(modelli: str | list[str]) -> RilevatoreWakeWord:
     """Uno o più modelli caricati insieme: basta che uno solo superi la soglia.
 
     `attendi_wake_word` prende già il massimo fra tutti i punteggi restituiti
     da `predict()` (dizionario con una chiave per modello caricato): caricare
-    più file qui non richiede nessuna modifica alla logica di rilevamento,
-    solo la lista di percorsi da passare a `Model`.
+    più file qui non richiede nessuna modifica alla logica di rilevamento.
+
+    `RilevatoreLeggero` (`wake_word.py`, #58) e non `openwakeword.Model`: gli
+    stessi punteggi, ma senza importare scikit-learn e scipy e senza le arene
+    di onnxruntime — sul Pi bmo-core passa da ~248 a ~108 MB. Un nome senza
+    `.onnx` è un modello preaddestrato di openWakeWord (es. `hey_jarvis`).
     """
-    # Importato qui, non in testa al modulo: openwakeword/onnxruntime pesano
-    # sull'avvio (§2.8, ~110 MB) e servono solo a chi chiede --wake-word,
-    # stesso principio di ddgs ed edge-tts (pyproject.toml).
-    from openwakeword.model import Model
+    # Importato qui, non in testa al modulo: onnxruntime pesa sull'avvio e
+    # serve solo a chi chiede --wake-word, stesso principio di ddgs ed
+    # edge-tts (pyproject.toml).
+    from .wake_word import RilevatoreLeggero
 
     if isinstance(modelli, str):
         modelli = [modelli]
-    return Model(wakeword_model_paths=[_percorso_modello(m) for m in modelli])
+    return RilevatoreLeggero(modelli)
 
 
 class RichiamoWakeWord:

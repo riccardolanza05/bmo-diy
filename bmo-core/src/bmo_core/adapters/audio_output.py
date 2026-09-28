@@ -4,6 +4,27 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+# Opzioni comuni a ogni mpv di BMO (#58): niente file di configurazione
+# dell'utente, niente script Lua (OSC, youtube-dl, statistiche, console),
+# niente video né sottotitoli. BMO suona solo audio, e ogni istanza costa
+# così ~10 MB in meno (PSS 37 -> 27 MB, misurato sul PC con mpv 0.41).
+# Tutte opzioni presenti da mpv 0.32 in poi: Debian trixie ne ha di più
+# recenti. Un'opzione sconosciuta farebbe fallire mpv all'avvio.
+OPZIONI_MPV_LEGGERE = [
+    "--no-config",
+    "--load-scripts=no",
+    "--ytdl=no",
+    "--osc=no",
+    "--input-default-bindings=no",
+    "--load-stats-overlay=no",
+    "--load-console=no",
+    "--load-auto-profiles=no",
+    "--vid=no",
+    "--sid=no",
+    "--audio-display=no",
+    "--hwdec=no",
+]
+
 # Catene di filtri per dare a BMO una voce robotica (#42). mpv le applica
 # **in riproduzione**, quindi non costano ne' un passaggio ffmpeg, ne' un
 # file intermedio, ne' latenza: misurato il 23/9, il picco di memoria di mpv
@@ -129,7 +150,7 @@ class MpvAdapter:
         "il timer" ne' il volume dell'altoparlante nel suo complesso.
         """
         self.ferma()
-        comando = ["mpv", "--no-video", "--really-quiet"]
+        comando = ["mpv", "--no-video", "--really-quiet", *OPZIONI_MPV_LEGGERE]
         if filtro:
             comando.append(f"--af=lavfi=[{filtro}]")
         if volume is not None:

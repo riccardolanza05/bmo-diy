@@ -19,6 +19,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .audio_output import OPZIONI_MPV_LEGGERE
+
 
 def percorso_socket() -> Path:
     cartella = os.environ.get("XDG_RUNTIME_DIR") or "/dev/shm"
@@ -74,6 +76,18 @@ class LettoreMpv:
                 "--really-quiet",
                 "--no-terminal",
                 f"--input-ipc-server={self.socket_path}",
+                *OPZIONI_MPV_LEGGERE,
+                # La cache di una radio in streaming (#58). Coi valori
+                # predefiniti mpv tiene fino a 50 MiB di audio GIÀ ASCOLTATO,
+                # per poter tornare indietro, più fino a 150 MiB in avanti,
+                # con cache-secs di mille ore: una radio a 256 kbit/s riempie
+                # i 50 MiB in meno di mezz'ora, e sul Pi acceso 24/7 non
+                # tornano più. Una radio non si riavvolge: 10 s in avanti
+                # bastano per i buchi della rete, niente all'indietro.
+                "--cache=yes",
+                "--cache-secs=10",
+                "--demuxer-max-bytes=1MiB",
+                "--demuxer-max-back-bytes=0",
             ]
         )
         # mpv crea il socket dopo qualche decina di millisecondi: senza questa
