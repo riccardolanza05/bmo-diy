@@ -241,6 +241,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _ferma)
 
     riepilogo = Riepilogo()
+    componente_per_pid: dict[int, str] = {}
     file_csv = None
     scrittore = None
     if argomenti.csv:
@@ -269,7 +270,12 @@ def main() -> None:
                 testo = _leggi(PROC / str(pid) / "smaps_rollup")
                 if not testo:
                     continue
-                nome = componente_di(riga_comando(pid))
+                # Ricordato per pid: un processo che sta uscendo ha già la
+                # riga di comando vuota, e finirebbe fra gli "altro" proprio
+                # nel suo ultimo campione (trovato nella prova di carico).
+                nome = componente_per_pid.get(pid) or componente_di(riga_comando(pid))
+                if nome != "altro":
+                    componente_per_pid[pid] = nome
                 per_componente.setdefault(nome, Memoria())
                 per_componente[nome] += leggi_smaps_rollup(testo)
                 quanti[nome] = quanti.get(nome, 0) + 1
