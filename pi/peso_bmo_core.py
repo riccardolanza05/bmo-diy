@@ -1,7 +1,9 @@
 """Peso di bmo-core a tappe, com'è oggi o alleggerito (--leggero). Issue #58.
 
---leggero: openwakeword senza il suo custom_verifier_model (sklearn/scipy)
-e sessioni ONNX senza arena, a un thread. Nessuna chiamata di rete: la
+Senza opzioni misura bmo-core com'è: dal #58 la wake word usa
+`wake_word.RilevatoreLeggero`, senza importare openwakeword. `--leggero` è
+rimasto per compatibilità e ora aggiunge solo, per confronto, il peso del
+vecchio `import openwakeword`. Nessuna chiamata di rete: la
 chiave API è finta, serve solo a costruire il client.
 
 Sul Pi, con le dipendenze di bmo-core in un venv e bmo-core copiato accanto:
@@ -52,23 +54,11 @@ import onnxruntime as ort  # noqa: E402
 
 tappa("numpy + onnxruntime")
 if LEGGERO:
-    _originale = ort.InferenceSession.__init__
+    # Da #58 il rilevatore di BMO (wake_word.RilevatoreLeggero) non importa
+    # più openwakeword: questa tappa misura il vecchio percorso, per confronto.
+    import openwakeword  # noqa: E402,F401
 
-    def _init(self, percorso, sess_options=None, *a, **k):
-        opzioni = sess_options or ort.SessionOptions()
-        opzioni.enable_cpu_mem_arena = False
-        opzioni.enable_mem_pattern = False
-        opzioni.intra_op_num_threads = 1
-        opzioni.inter_op_num_threads = 1
-        _originale(self, percorso, opzioni, *a, **k)
-
-    ort.InferenceSession.__init__ = _init
-    finto = types.ModuleType("openwakeword.custom_verifier_model")
-    finto.train_custom_verifier = None
-    sys.modules["openwakeword.custom_verifier_model"] = finto
-import openwakeword  # noqa: E402,F401
-
-tappa("openwakeword" + (" (senza sklearn/scipy)" if LEGGERO else ""))
+    tappa("openwakeword (vecchio percorso, per confronto)")
 import google.genai  # noqa: E402,F401
 
 tappa("google.genai")
@@ -90,3 +80,5 @@ tappa("Cervello costruito (client Gemini)")
 for _ in range(250):
     modello.predict(np.zeros(1280, dtype=np.int16))
 tappa("dopo altre 250 finestre (20 s)")
+pesanti = [m for m in ("openwakeword", "sklearn", "scipy") if m in sys.modules]
+print(f"moduli pesanti caricati: {', '.join(pesanti) or 'nessuno'}")

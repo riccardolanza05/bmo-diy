@@ -1,96 +1,101 @@
 # Decisioni aperte — issue #58 (RAM sul Pi)
 
-Nessuna ottimizzazione è ancora implementata: la PR #59 porta solo gli
-strumenti di misura e i numeri. Queste sono le scelte che servono per
-andare avanti, con quello che comporta ciascuna. Misure e fatti verificati
-stanno in [`note-issue-58.md`](note-issue-58.md), l'analisi completa nel
-testo della issue #58.
+Misure e fatti verificati stanno in [`note-issue-58.md`](note-issue-58.md).
+Qui ci sono solo le scelte: quelle già implementate con un valore
+predefinito che si può cambiare, e quelle ancora da prendere.
 
-## 1. Alleggerire la wake word: come
+**Già decisa e implementata (28/9), non più aperta**: la wake word non usa
+più `openwakeword.Model` ma `wake_word.RilevatoreLeggero`, adattato dal suo
+codice (Apache 2.0) e con punteggi identici. È la variante B della versione
+precedente di questo file, con una correzione: i due modelli di feature non
+vengono copiati nel repo, si leggono dalla cartella del pacchetto installato
+da pip, senza importarlo. Così non si ridistribuisce niente e non c'è da
+verificare nessuna licenza di modelli. bmo-core sul Pi: da 248 a 106 MB.
 
-Il guadagno è misurato sul Pi: bmo-core da **248 a 108 MB**, con punteggi
-identici fino alla nona cifra su 12 clip di parlato (comprese due «Hey
-BMO» in cui `bmo3` arriva a 0,73). Resta da scegliere il modo.
+## 1. La voce: guadagno fisso al posto di `loudnorm` (implementato)
 
-- **A · Modulo fittizio.** Prima di importare openwakeword si mette in
-  `sys.modules` un `openwakeword.custom_verifier_model` vuoto, e le sessioni
-  ONNX si creano senza arena e a un thread. ~15 righe in `richiamo.py`.
-  *Conseguenza*: il più rapido e il più piccolo, ma dipende da come è scritto
-  oggi `openwakeword/__init__.py` (0.4.0): un aggiornamento che sposta
-  quell'import rompe il trucco in silenzio, e la RAM torna su senza errori.
-  scikit-learn e scipy restano installati sul Pi (207 MB di microSD misurati,
-  non di RAM). Serve un test che fallisca se `sklearn` finisce in `sys.modules`.
-- **B · Pipeline propria, niente dipendenza.** Si riscrive la parte di
-  openwakeword che serve (melspettrogramma ONNX → embedding ONNX → i
-  classificatori, ~100 righe), adattandola da `openwakeword/utils.py`
-  invece di reinventarla, e si toglie `openwakeword` dalle dipendenze
-  (restano numpy e onnxruntime, che ci sono già).
-  *Conseguenza*: più lavoro (mezza giornata con i test di confronto dei
-  punteggi), ma niente più scipy e scikit-learn installati, nessun trucco
-  fragile, e il controllo completo di come si creano le sessioni ONNX. I due
-  modelli di feature (`melspectrogram.onnx`, `embedding_model.onnx`) vanno
-  copiati nel repo accanto ai modelli `bmo*.onnx`, o scaricati
-  all'installazione: **prima va verificata la loro licenza** (openwakeword
-  distribuisce alcuni modelli con licenza non commerciale, e il repo è
-  pubblico).
-- **C · Niente, per ora.** Si aspetta la fase 2.3.
-  *Conseguenza*: sul Pi resterebbero ~10 MB di margine a riposo con mpv
-  acceso: la misura della 2.3 fallirebbe quasi certamente al primo turno.
+- **Implementato**: nel preset `radiolina`, quello predefinito, `loudnorm`
+  è sostituito da un guadagno fisso di +6,4 dB più un limitatore a
+  −1,5 dBFS, tarati su 25 frasi vere. Gli altri preset hanno ancora
+  `loudnorm`.
+- **Alternativa**: tornare a `loudnorm`.
 
-**Consiglio**: B. A regge come prova, ma per un dispositivo acceso 24/7 un
-risparmio che sparisce in silenzio a un aggiornamento è il rischio sbagliato.
+**Conseguenza della scelta**: mpv mentre BMO parla passa da 60 a 33 MB e usa
+circa un quarto della CPU. Sul Pi questo conta doppio, perché nello stesso
+momento la wake word occupa già ~40% di un core. Sulla carta il volume medio
+è lo stesso (−18,5 contro −18,4 LUFS) e le frasi sono persino più uniformi,
+ma **non l'hai ancora sentita**: `loudnorm` in un passaggio solo cambiava il
+volume dentro la frase, il guadagno fisso no. Se all'ascolto il timbro o il
+volume ti suonano diversi, si torna indietro cambiando una riga
+(`_GUADAGNO_RADIOLINA` in `adapters/audio_output.py`).
 
-## 2. Quanti modelli wake word in produzione
+## 2. Lo "streaming dalla SD": zram con scrittura sul file (`zram+file`)
 
-- **Oggi**: tre (`bmo1`, `bmo2`, `bmo3`), tutti caricati insieme.
+- **Oggi**: swap solo in zram (RAM compressa), il predefinito di Raspberry
+  Pi OS. Non implementato niente.
+- **Alternativa consigliata**: `Mechanism=zram+file` in
+  `/etc/rpi/swap.conf.d/`. È il meccanismo ufficiale di `rpi-swap` per
+  quello che chiamavi "SSD streaming": le pagine di memoria rimaste inattive
+  a lungo vengono spostate dalla zram a un file di swap sulla SD. Per
+  default la prima volta dopo 3 ore dall'avvio, poi ogni 24 ore.
+- **Altra alternativa**: swap su file classico sulla SD (`swapfile`).
+
+**Conseguenza della scelta**: quello che si può "streammare" dalla SD si
+divide in due.
+
+- **La memoria su file** (codice delle librerie, modelli) ci va già oggi,
+  gratis: il kernel la scarta quando serve spazio e la rilegge dalla scheda.
+  Nella prova di carico è circa il 28% del totale.
+- **La memoria anonima** (oggetti Python, buffer) può andare sulla SD solo
+  come swap. Con la microSD misurata (22,8 MB/s in sequenziale, 1430
+  letture casuali da 4 KiB al secondo, 0,65 ms ciascuna) rileggere 10 MB di
+  pagine sparse costa ~1,7 s: accettabile per pagine fredde (il codice di
+  una funzione usata una volta al giorno), non per quelle calde. La wake
+  word gira ogni 80 ms e non finirebbe mai sulla SD.
+
+`zram+file` scrive solo pagine inattive da ore e solo una volta al giorno,
+quindi consuma poco la scheda. `swapfile` scriverebbe invece a ogni picco, e
+consumerebbe la SD in un dispositivo acceso 24/7. **Consiglio**: attivare
+`zram+file` solo se la fase 2.3 (24 h sul Pi) mostra che la zram si riempie.
+Con le ottimizzazioni di oggi probabilmente non servirà.
+
+## 3. Quanti modelli wake word in produzione
+
+- **Oggi**: tre (`bmo1`, `bmo2`, `bmo3`).
 - **Alternativa**: uno solo, il migliore dopo la taratura nella stanza vera
   (fase 4.4).
 
-**Conseguenza della scelta**: sulla RAM quasi niente (~2 MB di differenza,
-misurato) e nemmeno sulla CPU (il costo sta nel melspettrogramma e
-nell'embedding condivisi). Quindi è una scelta di **qualità del
-rilevamento**: tre modelli fanno scattare BMO se uno qualsiasi supera la
-soglia, quindi più rilevamenti veri ma anche più falsi positivi. Nella prova
-di fumo del 27/9 (microfono aperto per ~25 s, nessuno che lo chiamasse di
-proposito) BMO si è attivato più volte: non so se fossero falsi positivi o
-voci nella stanza. Da decidere con i dati della fase 4.4, non ora.
+**Conseguenza della scelta**: sulla RAM e sulla CPU quasi niente (~1 MB e
+~0,4 s di CPU su 20 s di audio, misurati sul Pi). È una scelta di qualità
+del rilevamento: con tre modelli scatta se uno qualsiasi supera la soglia,
+quindi più rilevamenti veri ma anche più falsi positivi. Da decidere con i
+dati della fase 4.4.
 
-## 3. SDK `google-genai` o chiamate REST dirette
+## 4. SDK `google-genai` o chiamate REST dirette
 
-- **Oggi**: l'SDK ufficiale (+34–43 MB misurati sul Pi).
-- **Alternativa**: chiamate HTTP dirette all'API REST di Gemini con `httpx`,
-  che è già una dipendenza.
+- **Oggi**: l'SDK ufficiale. Sul Pi `import google.genai` vale +43–46 MB,
+  quasi tutti da `google.genai.types` (le definizioni pydantic dell'intera
+  API, più aiohttp e websockets che BMO non usa).
+- **Alternativa**: chiamate HTTP dirette con `httpx`, che è già una
+  dipendenza.
 
-**Conseguenza della scelta**: ~35–40 MB in meno, al prezzo di riscrivere il
-livello di trasporto di `brain.py` (che usa i tipi dell'SDK ovunque) e di
-seguire a mano i cambiamenti dell'API invece di aggiornare un pacchetto.
-**Consiglio**: non ora. Rivalutare solo se, dopo la decisione 1, la misura
-della fase 2.3 sfora ancora.
+**Conseguenza della scelta**: dopo le ottimizzazioni è la voce più grossa
+rimasta dentro bmo-core, circa 40 dei suoi 106 MB. In cambio va riscritto il
+livello di trasporto di `brain.py`, che usa i tipi dell'SDK ovunque (loop
+agentico, storico, trascrizione), e vanno seguiti a mano i cambiamenti
+dell'API. **Consiglio**: non ora. Solo se la fase 2.3 sfora.
 
-## 4. Alpine Linux al posto di Raspberry Pi OS
+## 5. Alpine Linux e riscrittura in Rust/C
 
-- **Oggi**: Raspberry Pi OS trixie, irrobustito dalla #25 (equivale a un
-  Lite).
-- **Alternativa**: Alpine, con solo le dipendenze del progetto.
+- **Oggi**: Raspberry Pi OS trixie, Python.
+- **Consiglio**: no a entrambe, a maggior ragione dopo le misure del 28/9.
 
-**Conseguenza della scelta**: guadagno realistico **20–40 MB** (a riposo i
-processi di sistema occupano ~20 MB, il kernel sarebbe lo stesso). In cambio:
-onnxruntime non ha pacchetti per musl su PyPI e su Alpine esiste solo nel
-ramo `edge`, non in una versione stabile; si perdono `rpi-swap` e gli
-strumenti mantenuti da Raspberry Pi; il piano va riscritto per un altro
-sistema. **Consiglio**: no. Se un giorno servisse un sistema più piccolo, il
-passo sensato è un riflash Raspberry Pi OS Lite, stessa Debian e stessa glibc.
+**Conseguenza della scelta**:
+- **Alpine**: toglierebbe 20–40 MB di sistema, ma onnxruntime su Alpine
+  esiste solo nel ramo `edge` e non ha pacchetti per musl su PyPI.
+- **Rust**: toglierebbe forse altri 60 MB da bmo-core, al prezzo di
+  riscrivere ~5.200 righe e 346 test.
 
-## 5. Riscrivere bmo-core in Rust, C o Go
-
-- **Oggi**: Python.
-- **Alternativa**: riscrittura, tutta o solo il pezzo sempre acceso
-  (microfono + wake word).
-
-**Conseguenza della scelta**: stima 30–50 MB per un bmo-core in Rust, cioè
-~60–70 MB in meno rispetto alla decisione 1. onnxruntime, la libreria C++
-che pesa davvero, resterebbe. Il costo è riscrivere ~5.200 righe e 341 test
-e perdere la velocità di modifica che ha chiuso la milestone 1.
-**Consiglio**: no, per ora. Rivalutare solo se la fase 2.3 sfora anche dopo
-le decisioni 1 e 3. Il compromesso più economico sarebbe un piccolo
-processo nativo solo per l'ascolto.
+Le ottimizzazioni di oggi hanno liberato di più di quanto avrebbe dato
+Alpine, e senza cambiare linguaggio. Restano valide solo come ultima
+risorsa se la fase 2.3 sfora anche dopo la decisione 4.
