@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 
 from ..config import Ambiente, percorso_socket, rileva_ambiente
-from .audio_input import ArecordAdapter
+from .audio_input import ArecordAdapter, ArecordConvertitoreAdapter
 from .audio_output import MpvAdapter
 from .base import (
     AudioInputAdapter,
@@ -35,7 +35,13 @@ def crea_camera(ambiente: Ambiente | None = None) -> CameraAdapter:
 def crea_audio_input(ambiente: Ambiente | None = None) -> AudioInputAdapter:
     ambiente = ambiente or rileva_ambiente()
     if ambiente is Ambiente.PI:
-        return ArecordAdapter(dispositivo="hw:0,0", formato="S32_LE")
+        # Il microfono del Pi (jack o HAT WM8960) registra nativamente a
+        # S32_LE stereo 48 kHz; VAD e wake word vogliono S16_LE mono 16 kHz
+        # (issue #64) — ArecordConvertitoreAdapter converte al volo.
+        # `BMO_AUDIO_DISPOSITIVO` per cambiare device senza toccare il
+        # codice (es. quando arriva il HAT e non è più hw:0,0).
+        dispositivo = os.environ.get("BMO_AUDIO_DISPOSITIVO", "hw:0,0")
+        return ArecordConvertitoreAdapter(dispositivo=dispositivo)
     # Sul PC si registra gia' nel formato che va a Gemini (§2.1: WAV 16 kHz
     # mono): ~96 kB per 3 s invece di ~1,1 MB a 48 kHz stereo 32 bit.
     return ArecordAdapter(dispositivo="default", frequenza=16000, canali=1, formato="S16_LE")
