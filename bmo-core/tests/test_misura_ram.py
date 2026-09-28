@@ -29,7 +29,7 @@ SwapPss:              10 kB
 
 def test_leggi_smaps_rollup():
     mem = leggi_smaps_rollup(SMAPS)
-    assert mem == Memoria(rss=225580, pss=214311, uss=210000, swap=10)
+    assert mem == Memoria(rss=225580, pss=214311, uss=210000, swap=10, pss_anon=150000, pss_file=0)
 
 
 def test_leggi_smaps_rollup_senza_swappss_usa_swap():

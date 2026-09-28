@@ -53,12 +53,21 @@ class Memoria:
     pss: int = 0
     uss: int = 0
     swap: int = 0
+    # La PSS divisa per natura (#58): l'anonima (heap, oggetti Python, arene
+    # di onnxruntime) può solo stare in RAM o finire compressa in zram; quella
+    # su file (codice delle librerie, modelli mappati) il kernel la scarta
+    # sotto pressione e la rilegge dal disco quando serve — è già "streaming
+    # dalla SD", gratis.
+    pss_anon: int = 0
+    pss_file: int = 0
 
     def __iadd__(self, altra: "Memoria") -> "Memoria":
         self.rss += altra.rss
         self.pss += altra.pss
         self.uss += altra.uss
         self.swap += altra.swap
+        self.pss_anon += altra.pss_anon
+        self.pss_file += altra.pss_file
         return self
 
 
@@ -74,6 +83,8 @@ def leggi_smaps_rollup(testo: str) -> Memoria:
         pss=valori.get("Pss", 0),
         uss=valori.get("Private_Clean", 0) + valori.get("Private_Dirty", 0),
         swap=valori.get("SwapPss", valori.get("Swap", 0)),
+        pss_anon=valori.get("Pss_Anon", 0) + valori.get("Pss_Shmem", 0),
+        pss_file=valori.get("Pss_File", 0),
     )
 
 
@@ -176,6 +187,8 @@ class Riepilogo:
             picco.pss = max(picco.pss, mem.pss)
             picco.uss = max(picco.uss, mem.uss)
             picco.swap = max(picco.swap, mem.swap)
+            picco.pss_anon = max(picco.pss_anon, mem.pss_anon)
+            picco.pss_file = max(picco.pss_file, mem.pss_file)
         self.campioni += 1
         self.somma_pss += totale.pss
         if totale.pss > self.picco_totale.pss:
@@ -191,13 +204,18 @@ class Riepilogo:
             f"Misura RAM di BMO: {self.campioni} campioni in {durata / 60:.1f} min",
             f"  picco PSS totale : {mb(self.picco_totale.pss)}  "
             f"(alle {datetime.fromtimestamp(self.istante_picco):%H:%M:%S}; RSS sommata {mb(self.picco_totale.rss)})",
+            f"    di cui anonima {mb(self.picco_totale.pss_anon)}, su file {mb(self.picco_totale.pss_file)} "
+            "(la parte su file il kernel la può rileggere dal disco)",
         ]
         if self.campioni:
             righe.append(f"  media PSS totale : {mb(self.somma_pss // self.campioni)}")
         righe.append("  picchi per componente (ognuno nel suo momento peggiore):")
         for nome in sorted(self.picchi, key=lambda n: -self.picchi[n].pss):
             p = self.picchi[nome]
-            righe.append(f"    {nome:<9} PSS {mb(p.pss)}  USS {mb(p.uss)}  RSS {mb(p.rss)}  swap {mb(p.swap)}")
+            righe.append(
+                f"    {nome:<9} PSS {mb(p.pss)}  anon {mb(p.pss_anon)}  file {mb(p.pss_file)}"
+                f"  USS {mb(p.uss)}  RSS {mb(p.rss)}  swap {mb(p.swap)}"
+            )
         if self.minimo_disponibile:
             righe.append(f"  MemAvailable minima del sistema: {mb(self.minimo_disponibile)}")
         return "\n".join(righe)
@@ -223,13 +241,17 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _ferma)
 
     riepilogo = Riepilogo()
+    componente_per_pid: dict[int, str] = {}
     file_csv = None
     scrittore = None
     if argomenti.csv:
         argomenti.csv.parent.mkdir(parents=True, exist_ok=True)
         file_csv = argomenti.csv.open("w", newline="")
         scrittore = csv.writer(file_csv)
-        scrittore.writerow(["istante", "componente", "processi", "pss_kb", "uss_kb", "rss_kb", "swap_kb", "mem_disponibile_kb"])
+        scrittore.writerow(
+            ["istante", "componente", "processi", "pss_kb", "uss_kb", "rss_kb", "swap_kb", "mem_disponibile_kb",
+             "pss_anon_kb", "pss_file_kb"]
+        )
 
     try:
         while not fermati:
@@ -248,7 +270,12 @@ def main() -> None:
                 testo = _leggi(PROC / str(pid) / "smaps_rollup")
                 if not testo:
                     continue
-                nome = componente_di(riga_comando(pid))
+                # Ricordato per pid: un processo che sta uscendo ha già la
+                # riga di comando vuota, e finirebbe fra gli "altro" proprio
+                # nel suo ultimo campione (trovato nella prova di carico).
+                nome = componente_per_pid.get(pid) or componente_di(riga_comando(pid))
+                if nome != "altro":
+                    componente_per_pid[pid] = nome
                 per_componente.setdefault(nome, Memoria())
                 per_componente[nome] += leggi_smaps_rollup(testo)
                 quanti[nome] = quanti.get(nome, 0) + 1
@@ -258,7 +285,8 @@ def main() -> None:
             if scrittore is not None:
                 for nome, mem in per_componente.items():
                     scrittore.writerow(
-                        [f"{istante:.1f}", nome, quanti[nome], mem.pss, mem.uss, mem.rss, mem.swap, disponibile]
+                        [f"{istante:.1f}", nome, quanti[nome], mem.pss, mem.uss, mem.rss, mem.swap, disponibile,
+                         mem.pss_anon, mem.pss_file]
                     )
                 file_csv.flush()
             time.sleep(argomenti.intervallo)

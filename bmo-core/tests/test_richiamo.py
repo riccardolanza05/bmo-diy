@@ -1,3 +1,4 @@
+import numpy as np
 from pathlib import Path
 
 import pytest
@@ -112,24 +113,23 @@ def test_ogni_ascolto_azzera_il_buffer_del_rilevatore():
 
 def test_carica_rilevatore_normalizza_una_stringa_in_lista(monkeypatch):
     """Più file possono essere caricati insieme: basta che uno solo superi la soglia."""
-    import openwakeword.model as modulo_model
+    import bmo_core.wake_word as modulo_wake_word
 
     import bmo_core.richiamo as modulo
 
     catturato = {}
 
-    class ModelFinto:
-        def __init__(self, wakeword_model_paths):
-            catturato["paths"] = wakeword_model_paths
+    class RilevatoreFintoCaricato:
+        def __init__(self, modelli):
+            catturato["modelli"] = modelli
 
-    monkeypatch.setattr(modulo_model, "Model", ModelFinto)
-    monkeypatch.setattr(modulo, "_percorso_modello", lambda nome: f"/finto/{nome}.onnx")
+    monkeypatch.setattr(modulo_wake_word, "RilevatoreLeggero", RilevatoreFintoCaricato)
 
     modulo._carica_rilevatore("hey_jarvis")
-    assert catturato["paths"] == ["/finto/hey_jarvis.onnx"]
+    assert catturato["modelli"] == ["hey_jarvis"]
 
     modulo._carica_rilevatore(["hey_jarvis", "alexa"])
-    assert catturato["paths"] == ["/finto/hey_jarvis.onnx", "/finto/alexa.onnx"]
+    assert catturato["modelli"] == ["hey_jarvis", "alexa"]
 
 
 def test_richiamo_wake_word_carica_il_rilevatore_una_sola_volta(monkeypatch):
@@ -161,4 +161,5 @@ def test_modelli_predefiniti_si_caricano_davvero():
     """Pesi veri, non un `RilevatoreFinto`: un file .onnx rotto o un nome
     sbagliato si scoprirebbe solo qui."""
     rilevatore = _carica_rilevatore(MODELLI_PREDEFINITI)
-    assert set(rilevatore.models.keys()) == {"bmo1", "bmo2"}
+    punteggi = rilevatore.predict(np.zeros(1280, dtype=np.int16))
+    assert set(punteggi) == {"bmo1", "bmo2"}
