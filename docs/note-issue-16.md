@@ -74,30 +74,43 @@ davvero:
   fermato con `SIGTERM` — processo terminato e socket ripulito, stesso
   comportamento già verificato su omarchy per la #63.
 
-**Non fatto, e perché**: l'installazione delle due unit systemd e la
-scrittura di `/etc/bmo/env` richiedono `sudo` sul Pi. La password è in Basic
-Memory apposta per questo (`sudo -S`), ma il classificatore di sicurezza
-della sessione ha bloccato il tentativo di materializzarla in un comando
-("Credential Materialization") — giustamente, è il tipo di automazione che
-merita una decisione esplicita di Riccardo, non un'iniziativa
-dell'assistente. Restano da fare a mano da Riccardo (comandi in cima a
-questa nota, sezione "Come si installa la prima volta"):
+**Il tentativo di materializzare la password sudo in un comando** è stato
+bloccato dal classificatore di sicurezza della sessione ("Credential
+Materialization") — giustamente, è il tipo di automazione che merita una
+decisione esplicita di chi ha la password, non un'iniziativa
+dell'assistente. Risolto facendo eseguire i comandi direttamente a
+Riccardo, via SSH, con l'assistente che guidava passo passo e leggeva gli
+output incollati (mai la password né la chiave, quella scritta nel file con
+un `read -s` che non la fa comparire nemmeno sullo schermo di chi digita).
 
-1. `sudo mkdir -p /etc/bmo && sudo cp pi/bmo-core-env.esempio /etc/bmo/env`,
-   compilarlo con la vera `GEMINI_API_KEY`, `sudo chmod 600`;
-2. copiare le due unit in `/etc/systemd/system/`, `daemon-reload`;
-3. `enable --now bmo-face.service` — nessuna dipendenza hardware, dovrebbe
-   restare attivo;
-4. **`bmo-core.service` andrà in ciclo di crash appena avviato**: il Pi non
-   ha ancora la scheda audio HAT (`arecord -l` non elenca nessun ingresso,
-   verificato in questa sessione), e `--wake-word` ha bisogno di un
-   microfono. È lo stato atteso fino alla fase 4 (fase 3, acquisto
-   hardware, non ancora fatta) — non un difetto di questa issue. Lasciarlo
-   `enable`d ma non avviato (`systemctl enable` senza `--now`) finché
-   l'audio non c'è, oppure avviarlo e ignorare i riavvii finché non dà
-   fastidio nel journal.
+## Installazione completata e verificata dal vivo (28/9, sessione successiva)
 
-Dopo l'installazione iniziale, un giro completo di `deploy.sh` (due volte
-di fila, la seconda deve essere un no-op pulito) e — quando l'audio ci
-sarà — un turno vero con chiamata Gemini vera restano da fare, ma non
-bloccano la #16: il deploy in sé (script, wrapper, unit) è verificato.
+Con Riccardo alla tastiera del Pi, completati tutti i passi mancanti e
+verificato con l'output reale di systemd, non solo a comando lanciato:
+
+- `/etc/bmo/env` creato (600, root:root) e compilato con la vera
+  `GEMINI_API_KEY`, mai passata né vista dall'assistente;
+- le due unit copiate in `/etc/systemd/system/`, `daemon-reload`;
+- **`bmo-face.service`**: `active (running)`, 20 MB su un tetto di 80,
+  socket in `/run/bmo/bmo.sock` come da unit — nessuna sorpresa;
+- **`bmo-core.service`**: parte, legge `GEMINI_API_KEY` da
+  `EnvironmentFile=` (confermato: senza, l'errore è
+  `ValueError: No API key was provided`, visto infatti nel primo tentativo
+  fatto girando `bmo-core-avvia.sh` a mano fuori da systemd, che non passa
+  per `EnvironmentFile=`), scrive `/var/lib/bmo/radio.json` (conferma che
+  `StateDirectory=bmo` funziona), carica i tre modelli wake word, arriva a
+  "BMO è sveglio", **poi**: `arecord: audio open error: No such file or
+  directory` — il Pi non ha ancora la scheda audio HAT (`arecord -l` non
+  elenca nessun ingresso). `macchina.py` lo gestisce da solo, si spegne
+  pulito ("Buonanotte", non un crash), systemd riavvia dopo 2 s (picco di
+  memoria osservato durante l'avvio: 168 MB, ben sotto il tetto di 280).
+  **Esattamente lo stato atteso** finché non arriva l'hardware della
+  fase 3/4 — fermato con `systemctl stop` per non farlo ciclare a vuoto,
+  resta `enabled`: ripartirà da solo al prossimo riavvio o quando l'audio
+  ci sarà.
+
+Il deploy a un comando (script, wrapper, unit, condivisione del socket fra
+i due servizi, lettura del segreto) è verificato end-to-end sul Pi reale.
+Restano solo, per il futuro: `deploy.sh` lanciato due volte di fila (la
+seconda deve essere un no-op pulito) e un giro vocale vero quando arriva la
+scheda audio — nessuno dei due blocca la #16.
