@@ -37,7 +37,7 @@ from typing import Callable
 
 from PIL import Image
 
-from .animazione import ComandoFaccia, Renderer, carta_prova, quantizza_come_pannello
+from .animazione import Renderer, carta_prova, quantizza_come_pannello
 from .dimensione_fisica import PRESET_PANNELLI, e_sottocampionato, pitch_schermo_mm, px_per_dimensione_fisica
 from .formato import NOME_BIN, NOME_JSON, carica_manifesto, mappa_bin
 from .servitore import ServitoreFaccia
@@ -71,13 +71,6 @@ def _host_px(argomenti: argparse.Namespace, pannello_px: tuple[int, int]) -> tup
             file=sys.stderr,
         )
     return host
-
-
-def _comando_snapshot(servitore: ServitoreFaccia) -> ComandoFaccia:
-    """Una copia di `servitore.comando`, presa sotto lock: il renderer non
-    deve mai leggere un `ComandoFaccia` che il thread del socket sta mutando."""
-    with servitore.lock:
-        return ComandoFaccia(**vars(servitore.comando))
 
 
 def _texture_da_frame(frame: Image.Image, larghezza: int, altezza: int):
@@ -133,7 +126,7 @@ def main() -> None:
         print(f"[finestra: {host_larghezza}×{host_altezza} px, socket su {servitore.percorso}]", file=sys.stderr)
 
         def fotogramma_dal_renderer() -> Image.Image:
-            comando = _comando_snapshot(servitore)
+            comando = servitore.comando_snapshot()
             return renderer.disegna(comando, time.monotonic())
 
         _mostra_finestra(host_larghezza, host_altezza, fotogramma_dal_renderer, servitore=servitore)

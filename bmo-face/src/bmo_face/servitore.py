@@ -97,3 +97,10 @@ class ServitoreFaccia:
             self._server = None
         if self.percorso.exists():
             self.percorso.unlink()
+
+    def comando_snapshot(self) -> ComandoFaccia:
+        """Una copia indipendente di `comando`, presa sotto lock: chi disegna
+        non deve mai leggere un `ComandoFaccia` che il thread del socket sta
+        mutando. Condivisa da `finestra.py` e `pannello.py`."""
+        with self.lock:
+            return ComandoFaccia(**vars(self.comando))
