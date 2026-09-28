@@ -115,6 +115,10 @@ class LettoreAdapter(Protocol):
 class VolumeAdapter(Protocol):
     """Il volume dell'altoparlante: riguarda tutto quello che BMO emette."""
 
-    def imposta(self, percentuale: int) -> None: ...
+    def imposta(self, percentuale: int) -> bool:
+        """`True` se il comando è andato a buon fine, `False` altrimenti (issue
+        #64: prima "abbassa il volume" rispondeva "ok" anche quando il
+        controllo ALSA non esisteva e non cambiava niente)."""
+        ...
 
     def leggi(self) -> int | None: ...

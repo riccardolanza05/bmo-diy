@@ -90,19 +90,33 @@ def regola_volume(
     funzione corrispondente iniettata (es. nessuna radio collegata) non
     solleva: risponde comunque "ok", semplicemente non c'è niente da
     cambiare — coerente con "meglio muto che fermo" del resto del progetto.
+
+    Diverso il caso in cui la funzione *è* iniettata ma il comando fallisce
+    davvero (issue #64: `VolumeAlsa.imposta` restituisce `False` quando il
+    controllo ALSA non esiste su questa macchina) — lì "ok" sarebbe una
+    bugia detta a voce, quindi lo stato diventa "errore" e il modello lo può
+    dire invece di confermare un cambiamento che non c'è stato.
     """
     percentuale = int(percentuale)
     if not 0 <= percentuale <= 100:
         raise ValueError("percentuale deve essere fra 0 e 100")
     if canale not in CANALI:
         raise ValueError(f"canale deve essere uno fra: {', '.join(CANALI)}")
+    applicato = True
     if canale == "radio":
         if imposta_radio is not None:
-            imposta_radio(percentuale)
+            applicato = imposta_radio(percentuale) is not False
         _salva_nel_file(canale, percentuale, percorso_file)
     elif canale == "sistema":
         if imposta_sistema is not None:
-            imposta_sistema(percentuale)
+            applicato = imposta_sistema(percentuale) is not False
     else:
         _salva_nel_file(canale, percentuale, percorso_file)
+    if not applicato:
+        return {
+            "stato": "errore",
+            "percentuale": percentuale,
+            "canale": canale,
+            "motivo": f"il volume del canale '{canale}' non è cambiato: il comando è fallito",
+        }
     return {"stato": "ok", "percentuale": percentuale, "canale": canale}

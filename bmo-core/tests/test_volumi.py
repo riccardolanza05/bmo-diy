@@ -78,6 +78,36 @@ def test_canali_dichiarati():
     assert set(CANALI) == {"radio", "voce", "timer", "sistema"}
 
 
+def test_regola_volume_sistema_fallito_risponde_errore_non_ok(tmp_path):
+    """issue #64: prima "abbassa il volume" rispondeva sempre "ok" anche
+    quando `VolumeAlsa.imposta` non trovava il controllo ALSA e non
+    cambiava niente — un "ok" falso."""
+    risultato = regola_volume(
+        30,
+        "sistema",
+        imposta_sistema=lambda p: False,
+        percorso_file=tmp_path / "volumi.json",
+    )
+    assert risultato["stato"] == "errore"
+    assert risultato["percentuale"] == 30
+    assert "motivo" in risultato
+
+
+def test_regola_volume_radio_fallita_risponde_errore_ma_salva_comunque(tmp_path):
+    percorso = tmp_path / "volumi.json"
+    risultato = regola_volume(25, "radio", imposta_radio=lambda p: False, percorso_file=percorso)
+    assert risultato["stato"] == "errore"
+    assert leggi_volume("radio", percorso) == 25  # ricordato comunque, per quando tornerà a funzionare
+
+
+def test_regola_volume_sistema_none_resta_ok(tmp_path):
+    """Un `imposta_sistema` che non dichiara nulla (restituisce None, come
+    prima di questa issue) resta un successo: solo `False` esplicito è un
+    fallimento, per non rompere adapter futuri che non lo dichiarano."""
+    risultato = regola_volume(40, "sistema", imposta_sistema=lambda p: None, percorso_file=tmp_path / "volumi.json")
+    assert risultato["stato"] == "ok"
+
+
 def test_radio_predefinita_al_40_e_ricordata(tmp_path):
     percorso = tmp_path / "volumi.json"
     assert leggi_volume("radio", percorso) == 40

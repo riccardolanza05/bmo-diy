@@ -1,4 +1,4 @@
-from bmo_core.adapters.audio_input import ArecordAdapter
+from bmo_core.adapters.audio_input import ArecordAdapter, ArecordConvertitoreAdapter
 from bmo_core.adapters.audio_output import MpvAdapter
 from bmo_core.adapters.camera import LibcameraAdapter, WebcamV4L2Adapter
 from bmo_core.adapters.faccia import FacciaMuta, FacciaSocket, FacciaTerminale
@@ -15,9 +15,19 @@ def test_crea_camera_dev_linux():
 
 
 def test_crea_audio_input_pi_usa_hat():
+    # issue #64: il Pi cattura nativo (S32_LE stereo 48 kHz) e converte al
+    # volo — l'adapter restituito espone comunque il formato che VAD e wake
+    # word vogliono, come sul PC di sviluppo.
     adapter = crea_audio_input(Ambiente.PI)
-    assert isinstance(adapter, ArecordAdapter)
+    assert isinstance(adapter, ArecordConvertitoreAdapter)
     assert adapter.dispositivo == "hw:0,0"
+    assert (adapter.frequenza, adapter.canali, adapter.formato) == (16000, 1, "S16_LE")
+
+
+def test_crea_audio_input_pi_rispetta_bmo_audio_dispositivo(monkeypatch):
+    monkeypatch.setenv("BMO_AUDIO_DISPOSITIVO", "plughw:1,0")
+    adapter = crea_audio_input(Ambiente.PI)
+    assert adapter.dispositivo == "plughw:1,0"
 
 
 def test_crea_audio_input_dev_linux_usa_default():
