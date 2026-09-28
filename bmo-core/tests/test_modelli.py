@@ -5,6 +5,7 @@ from google.genai import errors, types
 from bmo_core.modelli import (
     SOSPENSIONE_SOVRACCARICO_S,
     TENTATIVI_SDK,
+    MINIMO_TIMEOUT_SERVER_S,
     TIMEOUT_TENTATIVO_S,
     CascataModelli,
     GeminiNonDisponibile,
@@ -140,10 +141,22 @@ def test_scadenza_accorcia_il_timeout_della_richiesta():
     orologio = Orologio()
     client = ClientProgrammato({"primario": ["ok"]})
     cascata = CascataModelli(["primario"], orologio=orologio)
+    cascata.genera(client, scadenza=orologio() + 12.0, contents=[], config=types.GenerateContentConfig())
+    opzioni = client.configurazioni[0].http_options
+    assert opzioni.timeout == 12000
+    # In dodici secondi non ci stanno due tentativi da quindici.
+    assert opzioni.retry_options.attempts == 1
+
+
+def test_il_timeout_non_scende_sotto_il_minimo_di_gemini():
+    """Gemini rifiuta con 400 le scadenze sotto i 10 s (visto dal vivo il 28/9):
+    con 4 s rimasti si chiede comunque 10, invece di un errore sicuro."""
+    orologio = Orologio()
+    client = ClientProgrammato({"primario": ["ok"]})
+    cascata = CascataModelli(["primario"], orologio=orologio)
     cascata.genera(client, scadenza=orologio() + 4.0, contents=[], config=types.GenerateContentConfig())
     opzioni = client.configurazioni[0].http_options
-    assert opzioni.timeout == 4000
-    # In quattro secondi non ci stanno due tentativi da quindici.
+    assert opzioni.timeout == MINIMO_TIMEOUT_SERVER_S * 1000
     assert opzioni.retry_options.attempts == 1
 
 

@@ -30,16 +30,21 @@ from .config import percorso_dati
 
 NOME_FILE = "volumi.json"
 
-# Solo questi due passano dal file: radio e sistema si applicano subito
-# tramite le funzioni iniettate in regola_volume(), non hanno bisogno di
-# essere riletti da nessun altro processo.
-CANALI_FILE = ("voce", "timer")
+# Questi passano dal file. "radio" si applica anche subito (IPC di mpv), ma
+# va ricordato lo stesso (#60): ogni stazione nuova e ogni mpv riacceso
+# ripartirebbero altrimenti dal 100% di mpv, sempre troppo alto. "sistema"
+# resta solo nel mixer, che se lo ricorda da sé.
+CANALI_FILE = ("radio", "voce", "timer")
 CANALI = ("radio", "voce", "timer", "sistema")
 VOLUME_PREDEFINITO = 100
+# La radio parte al 40% (richiesta di Riccardo, #60): a 100 copre la voce di
+# BMO e chi parla. Lo dice anche il prompt fisso, così il modello sa da dove
+# parte quando gli si chiede "un po' più bassa".
+VOLUMI_PREDEFINITI = {"radio": 40, "voce": VOLUME_PREDEFINITO, "timer": VOLUME_PREDEFINITO}
 
 
 def carica_volumi(percorso: Path | None = None) -> dict[str, int]:
-    """I volumi salvati per i canali "voce"/"timer". Un file mancante o rotto
+    """I volumi salvati per i canali "radio"/"voce"/"timer". Un file mancante o rotto
     non deve fermare BMO: si riparte dal volume predefinito per entrambi,
     come `memoria.carica_diario` per il diario."""
     percorso = Path(percorso) if percorso is not None else percorso_dati() / NOME_FILE
@@ -49,13 +54,14 @@ def carica_volumi(percorso: Path | None = None) -> dict[str, int]:
         dati = {}
     if not isinstance(dati, dict):
         dati = {}
-    return {canale: int(dati.get(canale, VOLUME_PREDEFINITO)) for canale in CANALI_FILE}
+    return {canale: int(dati.get(canale, VOLUMI_PREDEFINITI[canale])) for canale in CANALI_FILE}
 
 
 def leggi_volume(canale: str, percorso: Path | None = None) -> int:
-    """Il volume attuale di "voce" o "timer": chiamato a ogni riproduzione
-    da chi suona (`VoceTts.__call__`, `Sveglia`), non messo in cache."""
-    return carica_volumi(percorso).get(canale, VOLUME_PREDEFINITO)
+    """Il volume attuale di "radio", "voce" o "timer": chiamato a ogni
+    riproduzione da chi suona (`Radio`, `VoceTts.__call__`, `Sveglia`), non
+    messo in cache."""
+    return carica_volumi(percorso).get(canale, VOLUMI_PREDEFINITI.get(canale, VOLUME_PREDEFINITO))
 
 
 def _salva_nel_file(canale: str, percentuale: int, percorso: Path | None = None) -> None:
@@ -78,7 +84,8 @@ def regola_volume(
 
     `imposta_radio`/`imposta_sistema` sono iniettati da chi costruisce lo
     strumento (`radio.Radio.regola_volume`): "radio" e "sistema" cambiano
-    subito; "voce" e "timer" si scrivono nel file che `leggi_volume()`
+    subito ("radio" finisce anche nel file, #60); "voce" e "timer" si scrivono
+    solo nel file che `leggi_volume()`
     rilegge alla prossima riproduzione. Un canale "radio"/"sistema" senza la
     funzione corrispondente iniettata (es. nessuna radio collegata) non
     solleva: risponde comunque "ok", semplicemente non c'è niente da
@@ -92,6 +99,7 @@ def regola_volume(
     if canale == "radio":
         if imposta_radio is not None:
             imposta_radio(percentuale)
+        _salva_nel_file(canale, percentuale, percorso_file)
     elif canale == "sistema":
         if imposta_sistema is not None:
             imposta_sistema(percentuale)

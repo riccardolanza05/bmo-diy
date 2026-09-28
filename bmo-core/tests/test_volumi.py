@@ -76,3 +76,12 @@ def test_file_rotto_non_blocca_la_lettura(tmp_path):
 
 def test_canali_dichiarati():
     assert set(CANALI) == {"radio", "voce", "timer", "sistema"}
+
+
+def test_radio_predefinita_al_40_e_ricordata(tmp_path):
+    percorso = tmp_path / "volumi.json"
+    assert leggi_volume("radio", percorso) == 40
+    applicati = []
+    regola_volume(15, "radio", imposta_radio=applicati.append, percorso_file=percorso)
+    assert applicati == [15]
+    assert leggi_volume("radio", percorso) == 15

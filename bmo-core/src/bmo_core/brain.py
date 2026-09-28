@@ -170,6 +170,12 @@ COME USARE GLI STRUMENTI:
   a cosa serve il timer.
 - scatta_foto SOLO se la domanda riguarda ciò che vedi o l'ambiente fisico intorno a te.
   Mai per curiosità e mai senza che qualcuno te l'abbia chiesto.
+- La radio parte sempre al 40% di volume. Lo STATO dice se sta suonando e a che volume è.
+  Mentre la radio suona, "abbassa/alza il volume", "più piano", "più forte" senza altre
+  indicazioni si riferiscono alla radio: regola_volume con canale "radio". Per richieste
+  relative parti dal volume attuale della radio scritto nello STATO: "un po'" sono circa 10
+  punti, "tanto" circa 25; non scendere sotto 5 e non superare 100. "Parla più piano" o
+  "abbassa la tua voce" riguardano invece il canale "voce".
 - cerca_sul_web per fatti che cambiano nel tempo: meteo, notizie, risultati, prezzi, orari.
   Se non sai una cosa, cercala invece di inventarla. Una sola ricerca per domanda:
   se non trova niente, non riprovare con altre parole.
@@ -329,6 +335,7 @@ def contesto_dinamico(
     inietta_ora: bool = True,
     diario: list[Voce] | None = None,
     riassunto: str | None = None,
+    altre_righe: list[str] | None = None,
 ) -> str:
     """Secondo strato del prompt (§2.3), rigenerato a ogni turno.
 
@@ -363,6 +370,8 @@ def contesto_dinamico(
         righe.append("Diario: " + "; ".join(f'"{v.testo}"' for v in diario) + ".")
     else:
         righe.append("Diario: nessuna voce.")
+    # Le righe di chi si è registrato con `Cervello.registra_stato` (la radio, #60).
+    righe.extend(altre_righe or [])
     if riassunto:
         righe.append(f"Riassunto della conversazione fin qui, per proseguirla: {riassunto}")
     return "\n".join(righe)
@@ -635,6 +644,8 @@ class Cervello:
         # Sostituibile nei test, e il giorno del piano a pagamento diventa
         # google_search senza toccare altro (#6).
         self.ricerca = ricerca or cerca
+        # Righe in più per lo STATO, da chi non è il cervello (#60: la radio).
+        self._stati_registrati: list[Callable[[], str]] = []
         self._esecutori: dict[str, Callable[..., dict[str, Any]]] = {
             "imposta_timer": self._imposta_timer,
             "annulla_timer": self._annulla_timer,
@@ -652,6 +663,27 @@ class Cervello:
         separate.
         """
         self._esecutori[nome] = esecutore
+
+    def registra_stato(self, descrizione: Callable[[], str]) -> None:
+        """Aggiunge una riga allo STATO del prompt, riletta a ogni richiesta (#60).
+
+        Stesso motivo di `registra_strumento`: la radio non è del cervello,
+        ma il modello deve sapere se sta suonando e a che volume per capire
+        "abbassa il volume" e "un po' più bassa". Una descrizione che fallisce
+        non deve far fallire il turno: la riga semplicemente manca.
+        """
+        self._stati_registrati.append(descrizione)
+
+    def _righe_registrate(self) -> list[str]:
+        righe = []
+        for descrizione in self._stati_registrati:
+            try:
+                riga = descrizione()
+            except Exception:  # difensivo apposta: è solo contesto in più
+                continue
+            if riga:
+                righe.append(riga)
+        return righe
 
     def registra_al_scatto(self, callback: Callable[[], None]) -> None:
         """Collega il suono da fare quando `scatta_foto` scatta davvero (#54).
@@ -948,7 +980,14 @@ class Cervello:
         prompt_fisso = self.prompt_fisso + _riga_persone(self.persone)
         istruzioni = [
             prompt_fisso,
-            contesto_dinamico(self.orologio(), self.timer, self.inietta_ora, self.diario, self.sessione.riassunto),
+            contesto_dinamico(
+                self.orologio(),
+                self.timer,
+                self.inietta_ora,
+                self.diario,
+                self.sessione.riassunto,
+                altre_righe=self._righe_registrate(),
+            ),
         ]
         if chiedi_trascrizione:
             istruzioni.append(ISTRUZIONE_TRASCRIZIONE_INLINE)

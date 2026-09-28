@@ -9,7 +9,7 @@ from google.genai import types
 import bmo_core.brain as brain_modulo
 from bmo_core.brain import FUSO_ORARIO, Cervello, contesto_dinamico
 from bmo_core.memoria import aggiungi_voce, carica_diario
-from bmo_core.modelli import TIMEOUT_TENTATIVO_S, GeminiNonDisponibile
+from bmo_core.modelli import MINIMO_TIMEOUT_SERVER_S, TIMEOUT_TENTATIVO_S, GeminiNonDisponibile
 
 ORA = datetime(2026, 9, 8, 22, 14, tzinfo=FUSO_ORARIO)
 
@@ -220,9 +220,10 @@ def test_riepilogo_quando_finisce_il_tempo():
     assert len(client.richieste) == 3  # due giri e il riepilogo, non quattro giri
     assert risposta.riepilogo == "tempo finito"
     assert risposta.testo.startswith("Non sono riuscito")
-    # Il riepilogo ha un timeout pari al tempo che resta: il tetto lo comprende.
+    # Restano 4 s, ma Gemini rifiuta con 400 le scadenze sotto i 10 s (visto
+    # dal vivo il 28/9): il riepilogo chiede il minimo, non un errore sicuro.
     rimasto_ms = client.richieste[-1]["config"].http_options.timeout
-    assert 0 < rimasto_ms <= (brain_modulo.TETTO_TURNO_S - 16) * 1000
+    assert rimasto_ms == MINIMO_TIMEOUT_SERVER_S * 1000
 
 
 def test_giri_con_strumenti_non_intaccano_la_riserva():

@@ -160,7 +160,8 @@ DICHIARAZIONI = [
             "'radio': the radio player only. 'voce': BMO's own speaking voice only. 'timer': the "
             "alarm/timer sound only. 'sistema': everything else (the overall speaker, error/listening "
             "sounds, and any future sound source with no channel of its own) — the default when the "
-            "request does not say which one, e.g. a plain 'abbassa il volume' with no radio playing."
+            "request does not say which one and the radio is off. While the radio is playing (see "
+            "STATO), a plain 'abbassa il volume' means the 'radio' channel."
         ),
         parameters=_schema(
             {
