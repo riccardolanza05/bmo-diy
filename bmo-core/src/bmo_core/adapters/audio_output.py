@@ -27,13 +27,24 @@ OPZIONI_MPV_LEGGERE = [
 
 # Catene di filtri per dare a BMO una voce robotica (#42). mpv le applica
 # **in riproduzione**, quindi non costano ne' un passaggio ffmpeg, ne' un
-# file intermedio, ne' latenza: misurato il 23/9, il picco di memoria di mpv
-# e' 74,2-74,9 MB con o senza filtro, cioe' rumore di misura.
+# file intermedio, ne' latenza. Il 23/9 il picco di memoria di mpv risultava
+# uguale con o senza filtro (74 MB), ma erano gli script e la configurazione
+# di mpv a coprire la differenza: con mpv leggero (#58) `loudnorm` da solo
+# vale +27 MB di PSS per ogni frase detta e quasi tutta la CPU del filtro
+# (misurato il 28/9: 60 MB e 1,7 s di CPU contro 33 MB e ~0,4 s).
 #
 # `loudnorm` non e' un vezzo: le catene partono da livelli molto diversi
 # (fra -15 e -30 dB) e senza normalizzare BMO cambierebbe volume a seconda
 # del filtro scelto.
 _NORM = "loudnorm=I=-16:TP=-1.5:LRA=11"
+# Per il preset predefinito, al posto di `loudnorm`: un guadagno fisso più un
+# limitatore (#58). Tarato il 28/9 su 25 frasi vere di BMO in cache: stesso
+# volume medio della catena con `loudnorm` (-18,5 contro -18,4 LUFS), stesso
+# picco (-1,4 dBFS), e frasi più uniformi fra loro (da -20,4 a -17,7 LUFS
+# contro da -24,1 a -16,4: su frasi brevi `loudnorm` in un passaggio solo non
+# arriva al suo obiettivo). Vale solo per la voce di edge-tts dopo questa
+# catena: un altro motore o un altro preset vanno ritarati.
+_GUADAGNO_RADIOLINA = "volume=6.4dB,alimiter=limit=0.84:level=false"
 # In ordine, dal piu' leggero al piu' marcato. I primi sono nati dopo la prova
 # d'ascolto del 23/9: i trattamenti forti rendono BMO "troppo robotico", e la
 # strada giusta e' suggerire un piccolo altoparlante, non simulare un robot.
@@ -45,7 +56,7 @@ FILTRI_VOCE = {
     "appena": f"highpass=f=200,lowpass=f=5500,acompressor=ratio=2,{_NORM}",
     # Una radiolina: si capisce che il suono esce da qualcosa di piccolo,
     # ma la voce resta naturale.
-    "radiolina": f"highpass=f=300,lowpass=f=4200,acompressor=ratio=3,{_NORM}",
+    "radiolina": f"highpass=f=300,lowpass=f=4200,acompressor=ratio=3,{_GUADAGNO_RADIOLINA}",
     # Come "radiolina" piu' un velo digitale: 10 bit si notano appena, molto
     # meno dei 6 di "console".
     "digitale": f"highpass=f=250,lowpass=f=4800,acrusher=bits=10:mode=log:aa=1,{_NORM}",
@@ -117,8 +128,9 @@ def taglia_pause(massimo_s: float | None = None) -> str | None:
 def catena_voce(filtro: str | None = None, pausa_max_s: float | None = None) -> str | None:
     """La catena completa della voce: prima le pause, poi il timbro.
 
-    L'ordine conta: i preset finiscono con `loudnorm`, che deve vedere
-    l'audio gia' accorciato.
+    L'ordine conta: i preset finiscono con la normalizzazione del volume
+    (`loudnorm`, o il guadagno fisso di "radiolina"), che deve vedere l'audio
+    gia' accorciato.
     """
     pezzi = [pezzo for pezzo in (taglia_pause(pausa_max_s), catena_filtro(filtro)) if pezzo]
     return ",".join(pezzi) or None

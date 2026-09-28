@@ -116,6 +116,36 @@ class MicrofonoCopione(ArecordAdapter):
             time.sleep(PEZZO_S)
 
 
+def registra_esiti(cervello: Cervello) -> list[dict]:
+    """Stampa, per ogni richiesta a Gemini, gli strumenti chiamati e la risposta.
+
+    La prova di carico serve anche a controllare che dopo un'ottimizzazione
+    BMO faccia ancora le cose giuste, non solo che occupi meno: senza questo
+    il terminale mostrerebbe solo le righe di ascolto e di voce.
+    """
+    esiti: list[dict] = []
+    originale = cervello.rispondi
+
+    def rispondi(*argomenti, **opzioni):
+        try:
+            risposta = originale(*argomenti, **opzioni)
+        except Exception as errore:
+            print(f"[esito] ERRORE {type(errore).__name__}: {str(errore)[:160]}", flush=True)
+            esiti.append({"ok": False})
+            raise
+        chiamate = ", ".join(
+            f"{c.nome}→{c.risultato.get('stato', '?') if isinstance(c.risultato, dict) else '?'}"
+            for c in risposta.chiamate
+        )
+        print(f"[esito] strumenti: {chiamate or 'nessuno'} | {risposta.modello} {risposta.durata_s:.1f}s", flush=True)
+        print(f"[esito] BMO: {risposta.testo or '(vuota: ' + str(risposta.motivo_vuota) + ')'}", flush=True)
+        esiti.append({"ok": bool(risposta.testo)})
+        return risposta
+
+    cervello.rispondi = rispondi
+    return esiti
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Prova di carico di BMO con le frasi lette da file (#58).")
     parser.add_argument("--giri", type=int, default=1, help="quante volte ripetere la sequenza")
@@ -138,6 +168,7 @@ def main() -> None:
     cervello = Cervello(faccia=faccia, microfono=microfono)
     radio = Radio()
     radio.registra(cervello)
+    esiti = registra_esiti(cervello)
     altoparlante = crea_audio_output()
     voce = VoceTts(altoparlante=altoparlante, faccia=faccia)
     suoni = Suoni(altoparlante)
@@ -189,6 +220,11 @@ def main() -> None:
     print(
         f"\n[carico] finito: {len(turni)} turni in {durata / 60:.1f} min, "
         f"wake word mancata {stato['mancati']} volte",
+        flush=True,
+    )
+    falliti = [e for e in esiti if not e["ok"]]
+    print(
+        f"[carico] risposte: {len(esiti) - len(falliti)} riuscite, {len(falliti)} senza risposta o con errore",
         flush=True,
     )
 

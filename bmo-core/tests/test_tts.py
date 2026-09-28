@@ -457,7 +457,9 @@ def test_i_preset_dei_filtri(monkeypatch):
     assert catena_filtro(None) == catena_filtro("radiolina")
     for nome in ("appena", "radiolina", "digitale", "altoparlante", "console", "anello", "metallico", "bmo"):
         catena = catena_filtro(nome)
-        assert catena and "loudnorm" in catena  # senza, BMO cambierebbe volume col filtro
+        # Senza normalizzazione BMO cambierebbe volume col filtro. "radiolina"
+        # usa un guadagno fisso tarato al posto di loudnorm (#58).
+        assert catena and ("loudnorm" in catena or ("volume=" in catena and "alimiter" in catena))
 
 
 def test_le_pause_si_accorciano_e_il_silenzio_iniziale_sparisce():
@@ -472,10 +474,12 @@ def test_le_pause_si_accorciano_e_il_silenzio_iniziale_sparisce():
 
 
 def test_la_catena_mette_le_pause_prima_del_timbro():
-    """I preset finiscono con loudnorm, che deve vedere l'audio gia' accorciato."""
+    """I preset finiscono con la normalizzazione, che deve vedere l'audio gia' accorciato."""
     catena = catena_voce("radiolina")
     assert catena.index("silenceremove") < catena.index("highpass")
-    assert catena.index("highpass") < catena.index("loudnorm")
+    assert catena.index("highpass") < catena.index("volume=") < catena.index("alimiter")
+    catena = catena_voce("appena")
+    assert catena.index("silenceremove") < catena.index("highpass") < catena.index("loudnorm")
 
 
 def test_la_catena_regge_le_combinazioni_estreme():
