@@ -36,7 +36,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 from .adapters.audio_input import ArecordAdapter
 from .brain import Cervello
@@ -116,6 +116,28 @@ class MicrofonoCopione(ArecordAdapter):
             time.sleep(PEZZO_S)
 
 
+def tieni_viva_la_wake_word(
+    rilevatore: RichiamoWakeWord,
+    secondi: float,
+    orologio: Callable[[], float] = time.monotonic,
+) -> int:
+    """Fra un giro e l'altro (dosaggio della #65 con `--pausa-minuti`), continua
+    a far ascoltare la wake word invece di un `time.sleep` semplice: è l'unico
+    modo di riprodurre lo stesso costo di CPU del Pi sempre in ascolto (~39%
+    di un core, misurato in produzione) durante la pausa, non solo durante i
+    turni. Ogni chiamata a `ascolta_punteggio()` consuma un buffer di silenzio
+    a ritmo reale (`MicrofonoCopione.flusso_pcm`, coda vuota: ~4,4 s); si
+    ripete finché non sono passati `secondi`. Restituisce quante volte la
+    wake word è scattata per errore sul silenzio (atteso: mai, ma un falso
+    positivo non deve interrompere la pausa, solo essere segnalato)."""
+    fine = orologio() + secondi
+    falsi_positivi = 0
+    while orologio() < fine:
+        if rilevatore.ascolta_punteggio() is not None:
+            falsi_positivi += 1
+    return falsi_positivi
+
+
 def registra_esiti(cervello: Cervello) -> list[dict]:
     """Stampa, per ogni richiesta a Gemini, gli strumenti chiamati e la risposta.
 
@@ -152,6 +174,11 @@ def main() -> None:
     parser.add_argument("--elenco", action="store_true", help="stampa la sequenza ed esce")
     parser.add_argument("--modello-wake-word", action="append", default=None)
     parser.add_argument("--soglia-wake-word", type=float, default=SOGLIA_PREDEFINITA)
+    parser.add_argument(
+        "--pausa-minuti", type=float, default=0.0,
+        help="pausa fra un giro e l'altro con la wake word sempre accesa sul silenzio, invece di "
+        "farli uno via l'altro: dosa le richieste Gemini per una prova lunga (24 h, #65)",
+    )
     argomenti = parser.parse_args()
 
     if argomenti.elenco:
@@ -184,6 +211,19 @@ def main() -> None:
     def richiamo() -> bool:
         if stato["turno"] >= len(turni):
             return False
+        if argomenti.pausa_minuti and stato["turno"] > 0 and stato["turno"] % len(SEQUENZA) == 0:
+            print(
+                f"\n[carico] pausa di {argomenti.pausa_minuti:.0f} min fra un giro e l'altro "
+                "(wake word sempre accesa)...",
+                flush=True,
+            )
+            falsi = tieni_viva_la_wake_word(rilevatore, argomenti.pausa_minuti * 60)
+            if falsi:
+                print(
+                    f"[carico] wake word scattata {falsi} volte sul silenzio durante la pausa "
+                    "(falso positivo, ignorato)",
+                    flush=True,
+                )
         turno = turni[stato["turno"]]
         stato["turno"] += 1
         # Tutte le frasi del turno in coda: «Hey BMO», la richiesta, le

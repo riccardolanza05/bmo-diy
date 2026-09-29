@@ -1,0 +1,31 @@
+# bmo-carico-calibrazione — prova breve (issue #65): i "picchi durante un
+# turno vero" (audio, foto, risposta JSON, voce, radio accesa), non ancora le
+# 24 h intere. Due giri di seguito, senza pausa fra loro (~11 min in tutto).
+#
+# Installazione (manuale, solo diagnostica: non fa parte di `deploy.sh`).
+# `bmo-carico-avvia.sh` resta dentro il clone (ExecStart lo referenzia lì),
+# solo il file .service va copiato:
+#   sudo cp bmo-carico-calibrazione.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl start bmo-carico-calibrazione.service
+#   journalctl -u bmo-carico-calibrazione.service -f    # segue il log
+#   cat /sys/fs/cgroup/system.slice/bmo-carico-calibrazione.service/memory.peak  # il picco, a fine corsa
+#
+# `MemoryMax=400M` non è il limite di produzione (280M, bmo-core.service):
+# qui è largo apposta per non uccidere il processo prima di aver visto il
+# vero picco, solo una rete di sicurezza contro una perdita di memoria che
+# altrimenti si mangerebbe tutto il Pi.
+[Unit]
+Description=bmo-carico - calibrazione breve (issue #65, picchi durante un turno)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clanker_home
+WorkingDirectory=/home/clanker_home/bmo-pi/bmo-diy/bmo-core
+Environment=PYTHONPATH=/home/clanker_home/bmo-pi/bmo-diy/bmo-core/src
+Environment=BMO_ENV=pi
+EnvironmentFile=/etc/bmo/env
+ExecStart=/home/clanker_home/bmo-pi/bmo-diy/pi/bmo-carico-avvia.sh --giri 2 --pausa-minuti 0
+MemoryMax=400M
