@@ -526,3 +526,80 @@ def test_main_usa_un_solo_altoparlante_per_voce_e_suoni(monkeypatch):
     assert len(creati) == 1
     assert catturate["suoni"].altoparlante is creati[0]
     assert catturate["voce"].altoparlante is creati[0]
+
+
+def test_main_wake_word_con_pulsante_tastiera_lo_passa_a_richiamowakeword(monkeypatch):
+    """Issue #70: --pulsante-tastiera costruisce RichiamoWakeWord con un
+    PulsanteTastiera vero, così la prova dal vivo sul PC esercita lo stesso
+    codice che girerà sul Pi col bottone GPIO reale."""
+    import bmo_core.macchina as modulo
+    from bmo_core.adapters.pulsante import PulsanteTastiera
+
+    catturato = {}
+
+    class RichiamoWakeWordFinto:
+        def __init__(self, **argomenti):
+            catturato.update(argomenti)
+
+        def __call__(self):
+            return False
+
+    class MacchinaFinta:
+        def __init__(self, **argomenti):
+            pass
+
+        def esegui(self):
+            pass
+
+    monkeypatch.setattr(modulo, "RichiamoWakeWord", RichiamoWakeWordFinto)
+    monkeypatch.setattr(modulo, "Macchina", MacchinaFinta)
+    monkeypatch.setattr(modulo, "Cervello", lambda faccia: CervelloFinto([], faccia))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["bmo", "--wake-word", "--pulsante-tastiera", "--senza-radio", "--senza-timer"],
+    )
+    modulo.main()
+
+    assert isinstance(catturato["pulsante"], PulsanteTastiera)
+
+
+def test_main_wake_word_senza_pulsante_tastiera_non_ne_passa_uno(monkeypatch):
+    """Compatibilità: senza il flag, RichiamoWakeWord riceve `pulsante=None`
+    e ricade sulla propria fabbrica (PulsanteAssente sul PC), come prima
+    dell'issue #70."""
+    import bmo_core.macchina as modulo
+
+    catturato = {}
+
+    class RichiamoWakeWordFinto:
+        def __init__(self, **argomenti):
+            catturato.update(argomenti)
+
+        def __call__(self):
+            return False
+
+    class MacchinaFinta:
+        def __init__(self, **argomenti):
+            pass
+
+        def esegui(self):
+            pass
+
+    monkeypatch.setattr(modulo, "RichiamoWakeWord", RichiamoWakeWordFinto)
+    monkeypatch.setattr(modulo, "Macchina", MacchinaFinta)
+    monkeypatch.setattr(modulo, "Cervello", lambda faccia: CervelloFinto([], faccia))
+    monkeypatch.setattr("sys.argv", ["bmo", "--wake-word", "--senza-radio", "--senza-timer"])
+    modulo.main()
+
+    assert catturato["pulsante"] is None
+
+
+def test_main_pulsante_tastiera_senza_wake_word_e_un_errore(monkeypatch):
+    """--pulsante-tastiera si aggancia al richiamo vocale: senza --wake-word
+    non ha niente a cui agganciarsi."""
+    import bmo_core.macchina as modulo
+    import pytest
+
+    monkeypatch.setattr("sys.argv", ["bmo", "--pulsante-tastiera"])
+    with pytest.raises(SystemExit):
+        modulo.main()

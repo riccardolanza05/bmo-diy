@@ -11,6 +11,9 @@ caso.
 """
 from __future__ import annotations
 
+import select
+import sys
+
 
 class PulsanteGpio:
     """Il pulsante vero, su un pin BCM del Raspberry Pi.
@@ -47,3 +50,22 @@ class PulsanteAssente:
 
     def premuto(self) -> bool:
         return False
+
+
+class PulsanteTastiera:
+    """Sostituto da tastiera del bottone GPIO, per provare il richiamo
+    manuale (#70) sul PC di sviluppo, senza aspettare il Pi: Invio al posto
+    del bottone. `python -m bmo_core.macchina --wake-word --pulsante-tastiera`.
+
+    Non bloccante, come richiede `attendi_wake_word` (interrogato ogni
+    ~80 ms dentro il ciclo audio): `select.select` dice se c'è già una riga
+    pronta su stdin senza fermarsi ad aspettarla, esattamente come
+    `Button.is_pressed` di `PulsanteGpio` non aspetta la pressione.
+    """
+
+    def premuto(self) -> bool:
+        pronto, _, _ = select.select([sys.stdin], [], [], 0)
+        if not pronto:
+            return False
+        sys.stdin.readline()
+        return True

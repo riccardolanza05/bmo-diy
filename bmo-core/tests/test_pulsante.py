@@ -1,8 +1,9 @@
 """issue #70: il pulsante extra del HAT audio, letto via GPIO o assente."""
+import io
 import sys
 import types
 
-from bmo_core.adapters.pulsante import PulsanteAssente, PulsanteGpio
+from bmo_core.adapters.pulsante import PulsanteAssente, PulsanteGpio, PulsanteTastiera
 
 
 def test_pulsante_assente_non_scatta_mai():
@@ -48,3 +49,17 @@ def test_pulsante_gpio_pull_up_falso_si_passa_a_button(monkeypatch):
 
     PulsanteGpio(17, pull_up=False)
     assert catturato["pull_up"] is False
+
+
+def test_pulsante_tastiera_niente_pronto_restituisce_false(monkeypatch):
+    monkeypatch.setattr("select.select", lambda rlist, wlist, xlist, timeout: ([], [], []))
+    assert PulsanteTastiera().premuto() is False
+
+
+def test_pulsante_tastiera_riga_pronta_restituisce_true_e_la_consuma(monkeypatch):
+    """select.select mockato: non serve un vero terminale per la prova."""
+    finto_stdin = io.StringIO("qualcosa\n")
+    monkeypatch.setattr(sys, "stdin", finto_stdin)
+    monkeypatch.setattr("select.select", lambda rlist, wlist, xlist, timeout: ([finto_stdin], [], []))
+    assert PulsanteTastiera().premuto() is True
+    assert finto_stdin.read() == ""  # la riga è stata consumata da premuto()
