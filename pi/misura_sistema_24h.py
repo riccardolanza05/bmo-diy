@@ -85,8 +85,12 @@ def zram_usato_kb() -> int | None:
     righe = (_leggi(Path("/proc/swaps")) or "").splitlines()
     for riga in righe[1:]:
         parti = riga.split()
-        if len(parti) >= 3 and "zram" in parti[0]:
-            return int(parti[2])
+        # /proc/swaps: Filename Type Size Used Priority — "Used" è la
+        # colonna 4 (indice 3), non la "Size" del device (indice 2, sempre
+        # ~pari alla RAM totale, l'errore preso live il 29/9 su questo
+        # stesso script).
+        if len(parti) >= 4 and "zram" in parti[0]:
+            return int(parti[3])
     return None
 
 
