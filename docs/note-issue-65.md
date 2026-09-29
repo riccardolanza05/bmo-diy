@@ -48,10 +48,34 @@ numero vero e aggiustare `--pausa-minuti` di conseguenza.
 
 ## Calibrazione breve (picchi durante un turno)
 
-*Da riempire dopo `bmo-carico-calibrazione.service`.*
+`bmo-carico-calibrazione.service` (2 giri, 32 turni, senza pausa), lanciata
+il 29/9/2026 alle 22:45, finita alle 22:53 (8,9 min). Risultati letti sia da
+`systemd status` (accounting proprio della cgroup) sia dal CSV di
+`pi/misura_sistema_24h.py`, coerenti fra loro:
+
+- **picco memoria del processo (`memory.peak` della cgroup): 234.172 KB ≈
+  228,7 MB** — sotto i 320 MB del criterio della fase 2.3, con margine
+  (~90 MB). `systemd status` riporta lo stesso numero (228,6M) a fine corsa.
+- **32/32 turni riusciti** (nessun errore o risposta vuota); la wake word
+  sintetica non è scattata in 16 turni su 32 (attesa: la voce di edge-tts
+  non è la stanza vera, `carico.py` parte comunque — non è un problema di
+  questa prova, la soglia vera si tara alla fase 4.4 col microfono reale).
+- **Temperatura**: 38,6°C → 44,5°C, mai oltre; `throttled` sempre `0x0` (mai,
+  né "ora" né "dal boot").
+- **zram: usata per davvero**, non solo dichiarata — è salita da 0 a un
+  picco di **~59 MB usati su 462 MB di capacità** (~13%) durante il carico,
+  poi è scesa di nuovo a prova finita. La combinazione bmo-carico (~228 MB)
+  + bmo-face (~17-40 MB) + il resto del sistema (~150-190 MB a riposo)
+  satura abbastanza la RAM libera da far intervenire lo zram di serie, ma
+  resta ben lontana dal riempirlo: **su questo solo dato, `Mechanism=zram+file`
+  di `rpi-swap` non sembra ancora necessario** (decisione condizionata,
+  `decisioni-issue-58.md`) — da confermare con la prova di 24 h, che accumula
+  molto più a lungo.
+- **`journalctl -k | grep -i oom`**: vuoto, zero eventi.
 
 ## Prova di 24 h
 
-*Da riempire a fine corsa (avviata il 29/9/2026, vedi la nota di ripresa in
-Basic Memory per come leggere i risultati se la sessione che l'ha avviata è
-già finita).*
+*Da riempire a fine corsa (non ancora avviata: in attesa del via libera di
+Riccardo dopo lo spostamento fisico del Pi, 29/9/2026 sera). Vedi la nota di
+ripresa in Basic Memory per come leggere i risultati se la sessione che
+l'ha avviata è già finita quando arrivi qui.*
