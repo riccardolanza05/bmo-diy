@@ -17,11 +17,13 @@ from .base import (
     CameraAdapter,
     FacciaAdapter,
     LettoreAdapter,
+    PulsanteAdapter,
     VolumeAdapter,
 )
 from .camera import LibcameraAdapter, WebcamV4L2Adapter
 from .faccia import FacciaMuta, FacciaSocket, FacciaTerminale
 from .lettore import LettoreMpv
+from .pulsante import PulsanteAssente, PulsanteGpio
 from .volume import VolumeAlsa, VolumePipeWire
 
 
@@ -78,3 +80,20 @@ def crea_volume(ambiente: Ambiente | None = None) -> VolumeAdapter:
     """Sul PC c'è PipeWire, sul Pi la scheda del HAT senza server audio."""
     ambiente = ambiente or rileva_ambiente()
     return VolumeAlsa() if ambiente is Ambiente.PI else VolumePipeWire()
+
+
+def crea_pulsante(ambiente: Ambiente | None = None) -> PulsanteAdapter:
+    """Il pulsante extra del HAT audio (issue #70), o nessun pulsante.
+
+    `BMO_PULSANTE_PIN` sceglie il pin BCM senza toccare il codice, come
+    `BMO_AUDIO_DISPOSITIVO` per il microfono. **Senza quella variabile
+    resta `PulsanteAssente` anche sul Pi**: il pin del bottone extra non è
+    ancora stato tracciato (scheda comprata usata, cablaggio non di
+    serie), e indovinarne uno a caso rischierebbe di leggere un pin già
+    usato per altro.
+    """
+    ambiente = ambiente or rileva_ambiente()
+    pin = os.environ.get("BMO_PULSANTE_PIN")
+    if ambiente is Ambiente.PI and pin is not None:
+        return PulsanteGpio(int(pin))
+    return PulsanteAssente()

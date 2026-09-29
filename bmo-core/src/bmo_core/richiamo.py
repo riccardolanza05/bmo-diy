@@ -31,6 +31,13 @@ funzione, dimensione diversa, nessuna duplicazione.
 sullo stesso schema di `VoceTts` (#42): finché la soglia non è stata sentita
 funzionare dal vivo nella stanza vera, `python -m bmo_core.macchina` continua
 a partire con Invio. `--wake-word` la sostituisce per la prova.
+
+**Il pulsante extra del HAT audio (issue #70)** è un richiamo manuale, per
+quando l'audio non basta — radio alta che copre il microfono, falso
+negativo del modello, un problema sul microfono stesso. Non è un richiamo
+a sé: si aggancia dentro lo stesso ciclo di `attendi_wake_word`, controllato
+a ogni pezzo insieme al punteggio della wake word, così `Macchina` continua
+a vedere un solo `Callable[[], bool]` senza saperne nulla.
 """
 from __future__ import annotations
 
@@ -41,7 +48,7 @@ from typing import Protocol
 import numpy as np
 
 from . import vad
-from .adapters import AudioInputAdapter, crea_audio_input
+from .adapters import AudioInputAdapter, PulsanteAdapter, crea_audio_input, crea_pulsante
 
 # 16 kHz mono, come già registra `crea_audio_input()` sul PC (factory.py) e
 # come richiede webrtcvad: nessuna conversione in più rispetto al VAD.
@@ -69,6 +76,12 @@ _CARTELLA_MODELLI_BMO = Path(__file__).resolve().parents[2] / "modelli-wake-word
 MODELLI_PREDEFINITI = [str(_CARTELLA_MODELLI_BMO / f"bmo{i}.onnx") for i in (1, 2)]
 SOGLIA_PREDEFINITA = 0.5  # punto di partenza (§2.6), non una misura
 
+# Il pulsante extra del HAT audio (issue #70) è un richiamo manuale, non un
+# vero punteggio della wake word: `inf` supera qualunque soglia sensata e si
+# distingue a colpo d'occhio da un punteggio reale (sempre in [0, 1]) in un
+# log o durante la taratura.
+PUNTEGGIO_PULSANTE = float("inf")
+
 
 class RilevatoreWakeWord(Protocol):
     """Quello che serve di `openwakeword.Model`: isolato per i test (vedi vad.RilevatoreVoce)."""
@@ -82,6 +95,7 @@ def attendi_wake_word(
     frame_pcm,
     rilevatore: RilevatoreWakeWord,
     soglia: float = SOGLIA_PREDEFINITA,
+    pulsante: PulsanteAdapter | None = None,
 ) -> float | None:
     """La logica pura: consuma frame finché un punteggio supera la soglia.
 
@@ -90,8 +104,16 @@ def attendi_wake_word(
     il punteggio che ha superato la soglia, o `None` se il flusso finisce
     prima — nel mondo reale, con un microfono sempre acceso, non succede mai:
     capita solo nei test o se `arecord` muore a metà.
+
+    `pulsante` (issue #70) è controllato a ogni pezzo, prima del modello:
+    se premuto, ritorna subito `PUNTEGGIO_PULSANTE` senza consultare il
+    rilevatore — un richiamo manuale, per quando l'audio non basta (radio
+    alta, falso negativo, microfono guasto). `None` di default: non cambia
+    il comportamento di chi non passa un pulsante (taratura, test esistenti).
     """
     for frame in frame_pcm:
+        if pulsante is not None and pulsante.premuto():
+            return PUNTEGGIO_PULSANTE
         campioni = np.frombuffer(frame, dtype=np.int16)
         punteggi = rilevatore.predict(campioni)
         migliore = max(punteggi.values(), default=0.0)
@@ -138,6 +160,7 @@ class RichiamoWakeWord:
         modello: str | list[str] = MODELLI_PREDEFINITI,
         soglia: float = SOGLIA_PREDEFINITA,
         rilevatore: RilevatoreWakeWord | None = None,
+        pulsante: PulsanteAdapter | None = None,
     ) -> None:
         self.microfono = microfono or crea_audio_input()
         # Uno o più nomi/percorsi .onnx: chiunque superi la soglia fa scattare
@@ -147,6 +170,10 @@ class RichiamoWakeWord:
         # Iniettabile per i test (vedi tests/test_richiamo.py): senza,
         # richiederebbero onnxruntime e ~1,5 s di caricamento per ogni prova.
         self._rilevatore = rilevatore
+        # Come crea_audio_input(): economico da costruire (PulsanteAssente
+        # senza BMO_PULSANTE_PIN, issue #70), nessun bisogno di caricarlo
+        # pigramente come il rilevatore.
+        self.pulsante = pulsante or crea_pulsante()
 
     def _rilevatore_pronto(self) -> RilevatoreWakeWord:
         if self._rilevatore is None:
@@ -174,7 +201,7 @@ class RichiamoWakeWord:
         flusso = self.microfono.flusso_pcm()
         try:
             frame = vad.ritaglia_in_frame(flusso, BYTE_PER_FRAME)
-            return attendi_wake_word(frame, rilevatore, self.soglia)
+            return attendi_wake_word(frame, rilevatore, self.soglia, pulsante=self.pulsante)
         finally:
             flusso.close()  # ferma subito arecord, come in vad.ArecordAdapter
 
