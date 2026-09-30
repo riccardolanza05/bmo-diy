@@ -12,6 +12,7 @@ from .base import (
     CameraAdapter,
     FacciaAdapter,
     LettoreAdapter,
+    PulsanteAdapter,
     VolumeAdapter,
 )
 from .audio_output import FILTRI_VOCE, catena_filtro, catena_voce, taglia_pause
@@ -21,6 +22,7 @@ from .factory import (
     crea_camera,
     crea_faccia,
     crea_lettore,
+    crea_pulsante,
     crea_volume,
 )
 
@@ -42,11 +44,13 @@ __all__ = [
     "CameraAdapter",
     "FacciaAdapter",
     "LettoreAdapter",
+    "PulsanteAdapter",
     "VolumeAdapter",
     "crea_audio_input",
     "crea_audio_output",
     "crea_camera",
     "crea_faccia",
     "crea_lettore",
+    "crea_pulsante",
     "crea_volume",
 ]

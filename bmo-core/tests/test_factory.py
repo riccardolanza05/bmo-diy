@@ -2,7 +2,14 @@ from bmo_core.adapters.audio_input import ArecordAdapter, ArecordConvertitoreAda
 from bmo_core.adapters.audio_output import MpvAdapter
 from bmo_core.adapters.camera import LibcameraAdapter, WebcamV4L2Adapter
 from bmo_core.adapters.faccia import FacciaMuta, FacciaSocket, FacciaTerminale
-from bmo_core.adapters.factory import crea_audio_input, crea_audio_output, crea_camera, crea_faccia
+from bmo_core.adapters.factory import (
+    crea_audio_input,
+    crea_audio_output,
+    crea_camera,
+    crea_faccia,
+    crea_pulsante,
+)
+from bmo_core.adapters.pulsante import PulsanteAssente, PulsanteGpio
 from bmo_core.config import Ambiente, percorso_socket
 
 
@@ -63,6 +70,34 @@ def test_faccia_sul_terminale_scrive_lo_stato():
     uscita = io.StringIO()
     FacciaTerminale(uscita).mostra("pensiero")
     assert uscita.getvalue() == "[faccia: pensiero]\n"
+
+
+def test_crea_pulsante_dev_linux_e_sempre_assente(monkeypatch):
+    """Anche con BMO_PULSANTE_PIN impostata: sul PC di sviluppo non c'è
+    nessun GPIO da leggere."""
+    monkeypatch.setenv("BMO_PULSANTE_PIN", "17")
+    assert isinstance(crea_pulsante(Ambiente.DEV_LINUX), PulsanteAssente)
+
+
+def test_crea_pulsante_pi_senza_pin_resta_assente(monkeypatch):
+    """Issue #70: il pin del bottone extra non è ancora tracciato — meglio
+    inerte che indovinato."""
+    monkeypatch.delenv("BMO_PULSANTE_PIN", raising=False)
+    assert isinstance(crea_pulsante(Ambiente.PI), PulsanteAssente)
+
+
+def test_crea_pulsante_pi_con_pin_sceglie_gpio(monkeypatch):
+    catturato = {}
+
+    class PulsanteGpioFinto:
+        def __init__(self, pin):
+            catturato["pin"] = pin
+
+    monkeypatch.setattr("bmo_core.adapters.factory.PulsanteGpio", PulsanteGpioFinto)
+    monkeypatch.setenv("BMO_PULSANTE_PIN", "27")
+    pulsante = crea_pulsante(Ambiente.PI)
+    assert isinstance(pulsante, PulsanteGpioFinto)
+    assert catturato["pin"] == 27
 
 
 def test_registra_passa_campioni_interi(monkeypatch, tmp_path):

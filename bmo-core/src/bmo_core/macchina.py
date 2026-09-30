@@ -83,6 +83,7 @@ from .adapters import (
     crea_audio_output,
     crea_faccia,
 )
+from .adapters.pulsante import PulsanteTastiera
 from .brain import CAP_ASCOLTO_S, DURATA_ASCOLTO_S, ERRORI_GEMINI, Cervello, descrivi_errore
 from .config import FUSO_ORARIO
 from .inviluppo import inviluppo_rms
@@ -556,7 +557,14 @@ def main() -> None:
         "--soglia-wake-word", type=float, default=SOGLIA_PREDEFINITA,
         help="soglia di rilevamento, 0-1: da tarare nella stanza vera (con --wake-word)",
     )
+    parser.add_argument(
+        "--pulsante-tastiera", action="store_true",
+        help="Invio al posto del bottone GPIO del HAT (#70): prova il richiamo manuale "
+        "sul PC di sviluppo, senza aspettare il Pi. Richiede --wake-word.",
+    )
     argomenti = parser.parse_args()
+    if argomenti.pulsante_tastiera and not argomenti.wake_word:
+        parser.error("--pulsante-tastiera richiede --wake-word (il bottone si aggancia al richiamo vocale)")
 
     faccia = crea_faccia(sul_terminale=True)
     cervello = Cervello(faccia=faccia)
@@ -582,7 +590,13 @@ def main() -> None:
     # (#22, §2.6 — la soglia qui è dichiaratamente provvisoria).
     if argomenti.wake_word:
         modelli_wake_word = argomenti.modello_wake_word or MODELLI_PREDEFINITI
-        rilevatore_vocale = RichiamoWakeWord(modello=modelli_wake_word, soglia=argomenti.soglia_wake_word)
+        # Il pulsante da tastiera (#70) sostituisce solo l'ingresso GPIO reale
+        # (assente sul PC di sviluppo): il resto del richiamo — soglia,
+        # modelli, ciclo audio — è lo stesso codice che gira sul Pi.
+        pulsante = PulsanteTastiera() if argomenti.pulsante_tastiera else None
+        rilevatore_vocale = RichiamoWakeWord(
+            modello=modelli_wake_word, soglia=argomenti.soglia_wake_word, pulsante=pulsante
+        )
 
         def richiamo() -> bool:
             # Segnale esplicito dello scatto, distinto dal generico
@@ -603,6 +617,8 @@ def main() -> None:
             f"Wake word: {modelli_wake_word}, soglia {argomenti.soglia_wake_word} (provvisoria)",
             flush=True,
         )
+        if argomenti.pulsante_tastiera:
+            print("Pulsante da tastiera attivo (#70): premi Invio per il richiamo manuale.", flush=True)
     else:
         richiamo = richiamo_da_tastiera
     macchina = Macchina(
@@ -633,11 +649,17 @@ def main() -> None:
         sveglia = Sveglia(archivio=macchina.cervello.archivio, faccia=faccia)
         threading.Thread(target=sveglia.esegui, daemon=True).start()
     if argomenti.wake_word:
-        # Niente Invio da premere, quindi niente Ctrl-D per uscire: con la
-        # tastiera fuori dal giro l'unica uscita resta Ctrl-C. Il testo non
-        # presume più "Hey Jarvis": con --modello-wake-word personalizzati
-        # sarebbe stato fuorviante durante una prova dal vivo.
-        print(f"BMO è sveglio. Di' una delle wake word configurate ({modelli_wake_word}); Ctrl-C per spegnerlo.", flush=True)
+        # Niente Ctrl-D per uscire in ogni caso: anche con --pulsante-tastiera
+        # Invio fa scattare il richiamo (come il bottone GPIO), non esce. Con
+        # la tastiera fuori da quel ruolo l'unica uscita resta Ctrl-C. Il
+        # testo non presume più "Hey Jarvis": con --modello-wake-word
+        # personalizzati sarebbe stato fuorviante durante una prova dal vivo.
+        richiamo_extra = " o premi Invio (pulsante da tastiera, #70)" if argomenti.pulsante_tastiera else ""
+        print(
+            f"BMO è sveglio. Di' una delle wake word configurate ({modelli_wake_word}){richiamo_extra}; "
+            "Ctrl-C per spegnerlo.",
+            flush=True,
+        )
     else:
         print(
             "BMO è sveglio. Premi Invio e parla; Ctrl-D per spegnerlo "
