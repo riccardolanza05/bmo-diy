@@ -1,0 +1,28 @@
+# bmo-misura-65 — il campionatore di sistema della #65: temperatura,
+# throttling, zram e memoria delle cgroup di bmo-carico e bmo-face
+# (`pi/misura_sistema_24h.py`). Gira per tutta la durata sia della
+# calibrazione breve sia della prova di 24 h: segue le unit per nome, non
+# importa se non sono ancora partite (righe vuote finché non partono).
+#
+# Installazione (manuale, solo diagnostica: non fa parte di `deploy.sh`):
+#   sudo cp bmo-misura-65.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl start bmo-misura-65.service
+#   # a fine prova, il CSV è in ~clanker_home/bmo-pi/misure_65/sistema.csv
+#   sudo systemctl stop bmo-misura-65.service   # quando la prova è finita
+[Unit]
+Description=bmo-misura-65 - campionatore di sistema per la #65 (24 h)
+After=network-online.target
+
+[Service]
+Type=simple
+User=clanker_home
+ExecStart=/home/clanker_home/bmo-pi/venv/bin/python3 /home/clanker_home/bmo-pi/bmo-diy/pi/misura_sistema_24h.py \
+  --unita bmo-carico-calibrazione.service --unita bmo-carico.service --unita bmo-face.service \
+  --intervallo 30 --csv /home/clanker_home/bmo-pi/misure_65/sistema.csv
+Restart=on-failure
+RestartSec=5
+MemoryMax=50M
+
+[Install]
+WantedBy=multi-user.target

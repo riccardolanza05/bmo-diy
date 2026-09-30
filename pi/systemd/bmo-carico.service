@@ -1,0 +1,39 @@
+# bmo-carico — la prova di 24 h della #65: `bmo_core.carico` con l'audio
+# letto da file al posto del microfono (nessun HAT necessario) e un giro
+# all'incirca ogni ora, invece che tutti di seguito. Fra un giro e l'altro la
+# wake word resta accesa sul silenzio (`--pausa-minuti`, vedi `carico.py`),
+# per riprodurre lo stesso costo di CPU della wake word sempre accesa in
+# produzione (~39% di un core) anche durante la pausa.
+#
+# 24 giri × ~20 richieste Gemini l'uno ≈ 480 richieste/giorno: dosaggio
+# prudente scelto senza una cifra pubblica affidabile per l'RPD del free tier
+# di gemini-3.5-flash-lite/gemini-3.1-flash-lite (non trovata nella
+# documentazione pubblica al 29/9/2026, vedi docs/note-issue-65.md) — se il
+# log mostra errori 429 va abbassato aumentando --pausa-minuti.
+#
+# Durata reale: 24 giri × (~5,5 min di giro + 55 min di pausa) ≈ 24,2 h, non
+# esattamente 24 — il giro non ha una durata fissa (chiamate Gemini vere).
+#
+# Installazione (manuale, solo diagnostica: non fa parte di `deploy.sh`):
+#   sudo cp bmo-carico.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl start bmo-carico.service
+#   journalctl -u bmo-carico.service -f
+#
+# `MemoryMax=400M`, non 280M come in produzione (bmo-core.service): qui serve
+# vedere il vero picco, non farlo tagliare in anticipo da un limite stretto —
+# resta comunque una rete di sicurezza contro una perdita di memoria vera.
+[Unit]
+Description=bmo-carico - prova di 24 h (issue #65)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=clanker_home
+WorkingDirectory=/home/clanker_home/bmo-pi/bmo-diy/bmo-core
+Environment=PYTHONPATH=/home/clanker_home/bmo-pi/bmo-diy/bmo-core/src
+Environment=BMO_ENV=pi
+EnvironmentFile=/etc/bmo/env
+ExecStart=/home/clanker_home/bmo-pi/bmo-diy/pi/bmo-carico-avvia.sh --giri 24 --pausa-minuti 55
+MemoryMax=400M
