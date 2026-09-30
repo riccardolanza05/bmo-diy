@@ -75,7 +75,49 @@ il 29/9/2026 alle 22:45, finita alle 22:53 (8,9 min). Risultati letti sia da
 
 ## Prova di 24 h
 
-*Da riempire a fine corsa (non ancora avviata: in attesa del via libera di
-Riccardo dopo lo spostamento fisico del Pi, 29/9/2026 sera). Vedi la nota di
-ripresa in Basic Memory per come leggere i risultati se la sessione che
-l'ha avviata è già finita quando arrivi qui.*
+`bmo-carico.service` (`--giri 24 --pausa-minuti 55`), avviata il 29/9/2026
+alle 23:01 (dopo che Riccardo ha spostato fisicamente il Pi e dato il via
+libera), finita il 30/9/2026 alle 22:19 — **1397,4 min ≈ 23,3 h reali**
+(meno delle 24,2 h stimate: i giri sono durati un po' meno di 5,5 min in
+media). CSV completo del campionatore in
+[`misure_65_completa.csv`](misure_65_completa.csv) (include anche la
+calibrazione, stesso file per `bmo-misura-65.service` che gira in append
+per tutta la sessione).
+
+- **384/384 turni completati.** 356 risposte riuscite, 28 con errore
+  (7,3%) — **tutti timeout o sovraccarico di Gemini** (7× `503` su
+  `gemini-3.1-flash-lite`, 1× errore di lettura su `gemini-3.5-flash-lite`,
+  15× timeout di lettura, 5× "tutti sospesi" per il tetto dei tentativi):
+  **zero errori di quota (429)**. Il dosaggio prudente scelto (24
+  giri/giorno, ≈480 richieste, vedi decisione 1) non ha mai urtato contro
+  un limite di quota — resta comunque non confermato il numero vero
+  dell'RPD del free tier (vedi sopra e `decisioni-in-sospeso-65.md`).
+- **Picco memoria (`memory.peak` della cgroup, accounting di systemd a fine
+  corsa): 238,8 MB** — sotto i 320 MB del criterio della fase 2.3, margine
+  ~81 MB. Poco sopra il picco della sola calibrazione (228,7 MB): coerente,
+  24 giri hanno più probabilità di un giro isolato di trovare il worst case
+  per un singolo componente (es. Gemini che accumula più contesto).
+- **Zero eventi OOM** per tutta la corsa: sia `journalctl -k --since
+  "2026-09-29 23:01:00" | grep -i oom` (vuoto) sia `memory.events` della
+  cgroup (`oom 0`, `oom_kill 0`) a fine corsa.
+- **Temperatura**: mai sopra **48,3°C** (plateau raggiunto presto e stabile
+  per il resto della corsa); `throttled` sempre `0x0`, mai né "ora" né "dal
+  boot" — enorme margine rispetto alla soglia di throttling del Pi (~80°C)
+  e coerente con lo stress test sintetico del 29/9 (4 core al 100%: fino a
+  53,7°C in 50 s).
+- **zram: picco ~93 MB usati su 462 MB di capacità (~20%)**, cresciuta
+  gradualmente nelle prime ore poi stabile, mai vicina a saturarsi.
+  **Conclusione: `Mechanism=zram+file` di `rpi-swap` non è necessario** con
+  il carico attuale — la zram di serie (senza configurazione custom) basta
+  da sola. Da rivedere se in futuro si aggiunge altro (es. STT/TTS locale,
+  #13) che alzi stabilmente l'uso di memoria.
+- **#13 (whisper.cpp/Piper) non misurato**: fuori dallo scopo di questa
+  sessione, resta una decisione aperta se farlo dentro questa PR o
+  separatamente (`decisioni-in-sospeso-65.md`).
+
+**Nota su un'interferenza esterna, verificata innocua**: un'altra sessione
+ha lanciato sul Pi un breve test (decode ffmpeg/mpv di un video, ~1 min di
+CPU al 100% su 2 core) alle 22:22 del 30/9 — **3 minuti dopo** che
+`bmo-carico.service` era già terminato pulito (22:19:23, confermato dal
+timestamp di creazione dei suoi file temporanei rispetto al log di
+systemd). Nessun effetto sui numeri sopra.
