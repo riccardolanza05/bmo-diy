@@ -152,6 +152,7 @@ class Radio:
         percorso: Path | None = None,
         cercatore: Callable[..., list[Stazione]] = cerca_stazioni,
         percorso_volumi: Path | None = None,
+        video: Any = None,
     ) -> None:
         self.lettore = lettore or crea_lettore()
         self.percorso_volumi = percorso_volumi
@@ -162,6 +163,9 @@ class Radio:
         # L'elenco che si sta scorrendo e dove siamo arrivati.
         self.elenco: list[Stazione] = []
         self.posizione = -1
+        # Il video di YouTube (`video.VideoYouTube`): radio e video non suonano
+        # mai insieme, e i comandi di riproduzione valgono per quello che va.
+        self.video = video
 
     def registra(self, cervello: Any) -> None:
         cervello.registra_strumento("riproduci_musica", self.riproduci)
@@ -194,6 +198,10 @@ class Radio:
         riprenderà comunque alla fine del blocco, un limite noto e accettato
         per ora.
         """
+        if self.video is not None and self.video.in_riproduzione():
+            with self.video.sospeso():
+                yield
+            return
         if not self.lettore.in_riproduzione():
             yield
             return
@@ -212,6 +220,8 @@ class Radio:
             f" del suono dei timer {leggi_volume('timer', self.percorso_volumi)}%."
         )
         stazione = self.in_ascolto
+        if self.video is not None and self.video.presente():
+            return f"Radio: spenta (sta andando un video, vedi sotto).{altri}"
         if stazione is None or not self.lettore.in_riproduzione():
             return f"Radio: spenta (quando si accende parte al {volume}% di volume).{altri}"
         return f'Radio: accesa su "{stazione.nome}", volume della radio {volume}%.{altri}'
@@ -247,6 +257,8 @@ class Radio:
 
     def riproduci(self, query: str = "") -> dict[str, Any]:
         """Accende la radio: prima cerca fra le preferite, poi sull'elenco online."""
+        if self.video is not None:
+            self.video.ferma()  # radio e video non suonano insieme
         trovata = self._fra_le_preferite(query)
         if trovata is not None:
             self.elenco = list(self.preferite)
@@ -265,6 +277,8 @@ class Radio:
         return {**self._sintonizza(0), "elenco": "risultati della ricerca"}
 
     def controllo(self, azione: str) -> dict[str, Any]:
+        if self.video is not None and self.video.presente():
+            return self.video.controllo(azione)
         if azione in ("successivo", "precedente"):
             return self._scorri(1 if azione == "successivo" else -1)
         azioni = {"pausa": self.lettore.pausa, "riprendi": self.lettore.riprendi, "stop": self.lettore.stop}
@@ -276,6 +290,12 @@ class Radio:
         if azione == "stop":
             self.elenco, self.posizione = [], -1
         return {"stato": "ok", "azione": azione}
+
+    def ferma(self) -> None:
+        """Spegne la radio se sta suonando (la usa il video quando parte)."""
+        if self.lettore.in_riproduzione():
+            self.lettore.stop()
+        self.elenco, self.posizione = [], -1
 
     def _scorri(self, passo: int) -> dict[str, Any]:
         """Avanti e indietro di una stazione, girando in tondo come una manopola."""

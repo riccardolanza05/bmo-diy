@@ -100,14 +100,18 @@ DICHIARAZIONI = [
     types.FunctionDeclaration(
         name="riproduci_musica",
         description=(
-            "Turns on the radio. BMO has no local music library and no screen: every request for "
-            "music, a song, an artist or a genre becomes an internet radio station. It first looks "
-            "among the saved favourite stations, then searches the public station directory."
+            "Turns on the INTERNET RADIO. Use it only when the person asks for the radio, for a "
+            "named radio station or a frequency ('metti Radio Deejay', '101.7', 'accendi la "
+            "radio'), or asks for a whole genre or a generic mood of music without naming any "
+            "specific song, artist or video ('un po' di jazz', 'della musica rock', 'metti della "
+            "musica'). It first looks among the saved favourite stations, then searches the public "
+            "station directory. NEVER use it for a specific song, an artist or a video: that is "
+            "riproduci_video."
         ),
         parameters=_schema(
             {
                 "query": _testo(
-                    "Station name, frequency, genre or artist, e.g. 'radio deejay', '101.7', "
+                    "Station name, frequency or genre, e.g. 'radio deejay', '101.7', "
                     "'jazz'. Leave it out to turn the radio on where it was."
                 )
             },
@@ -115,16 +119,40 @@ DICHIARAZIONI = [
         ),
     ),
     types.FunctionDeclaration(
+        name="riproduci_video",
+        description=(
+            "Searches YouTube and plays a specific video or song with sound AND picture on BMO's "
+            "screen (for a song, its music video). Use it whenever the person asks for a specific "
+            "song, a specific artist, or a video ('metti Bohemian Rhapsody', 'fammi sentire i "
+            "Queen', 'metti il video di Gangnam Style', 'play Thriller'). Do NOT use it when "
+            "they ask for the radio, a radio station or just a genre: that is riproduci_musica. "
+            "Starting it stops the radio."
+        ),
+        parameters=_schema(
+            {
+                "query": _testo(
+                    "What to search on YouTube, in the words the person used: artist and title, "
+                    "e.g. 'queen bohemian rhapsody video ufficiale'. For a song add 'video "
+                    "ufficiale' (or 'official video' in English) so the first result is the "
+                    "music video; for 'il video di X' just X."
+                )
+            },
+            ["query"],
+        ),
+    ),
+    types.FunctionDeclaration(
         name="controllo_riproduzione",
         description=(
-            "Controls the radio that is currently playing. 'successivo' and 'precedente' tune to "
-            "the next or previous station of the list being listened to, like turning a dial."
+            "Controls what is playing right now: the radio or the YouTube video (see STATO). "
+            "For the radio, 'successivo' and 'precedente' tune to the next or previous station of "
+            "the list being listened to, like turning a dial; for a video they play the next or "
+            "previous search result."
         ),
         parameters=_schema(
             {
                 "azione": _testo(
-                    "'pausa' pauses, 'riprendi' resumes, 'stop' turns the radio off, "
-                    "'successivo' tunes to the next station, 'precedente' to the previous one.",
+                    "'pausa' pauses, 'riprendi' resumes, 'stop' turns the radio or the video off, "
+                    "'successivo' goes to the next station or video, 'precedente' to the previous one.",
                     ["pausa", "riprendi", "stop", "successivo", "precedente"],
                 )
             },
@@ -158,10 +186,10 @@ DICHIARAZIONI = [
             "Sets the volume of one audio channel to an absolute level, independently of the others. "
             "For relative requests ('un po' più basso') choose a sensible absolute value. "
             "'radio': the radio player only. 'voce': BMO's own speaking voice only. 'timer': the "
-            "alarm/timer sound only. 'sistema': everything else (the overall speaker, error/listening "
-            "sounds, and any future sound source with no channel of its own) — the default when the "
-            "request does not say which one and the radio is off. While the radio is playing (see "
-            "STATO), a plain 'abbassa il volume' means the 'radio' channel."
+            "alarm/timer sound only. 'sistema': everything else (the overall speaker, the sound of a "
+            "YouTube video, error/listening sounds) — the default when the request does not say which "
+            "one and the radio is off, and the channel for a video that is playing. While the radio "
+            "is playing (see STATO), a plain 'abbassa il volume' means the 'radio' channel."
         ),
         parameters=_schema(
             {

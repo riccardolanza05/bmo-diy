@@ -89,6 +89,7 @@ from .inviluppo import inviluppo_rms
 from .volumi import leggi_volume
 from .memoria import aggiungi_voce
 from .radio import Radio
+from .video import RisolutorePronto, VideoYouTube
 from .richiamo import MODELLI_PREDEFINITI, SOGLIA_PREDEFINITA, RichiamoWakeWord
 from .suoni import Suoni, SuoniMuti
 from .sveglia import Sveglia
@@ -564,6 +565,17 @@ def main() -> None:
     if not argomenti.senza_radio:
         radio = Radio()
         radio.registra(cervello)
+        # I video di YouTube: stessi controlli della radio, e un solo media alla volta.
+        video = VideoYouTube(
+            faccia=faccia,
+            ferma_radio=radio.ferma,
+            # Il video parte mentre BMO parla, e il risolutore si carica durante la ricerca.
+            in_background=True,
+            precarica=RisolutorePronto,
+            al_fallimento=lambda motivo: (faccia.esprimi("triste", 4.0), suoni_bmo and suoni_bmo.errore()),
+        )
+        radio.video = video
+        video.registra(cervello)
         print(f"Radio: {len(radio.preferite)} stazioni salvate in {radio.percorso}", flush=True)
     # Opt-in: il terminale resta la voce predefinita finché il TTS non è
     # stato sentito funzionare dal vivo. Così prova_frasi e i test non
@@ -620,6 +632,7 @@ def main() -> None:
         # Macchina.esegui(). I timer sono sempre disponibili via l'archivio
         # del cervello; la radio solo se collegata.
         qualcosa_attivo=lambda: (radio is not None and radio.lettore.in_riproduzione())
+        or (radio is not None and radio.video is not None and radio.video.presente())
         or bool(cervello.archivio.attivi()),
         # Il microfono aperto sente la radio come voce (trovato il 21/9): la
         # si sospende per la durata dell'ascolto e la si riprende subito

@@ -1,54 +1,73 @@
 # Decisioni in sospeso — video di YouTube sul Pi
 
-Numeri e prove in [`note-video-youtube.md`](note-video-youtube.md). Qui solo
-ciò che aspetta te. Ogni voce dice cosa è implementato di default e cosa
-cambia scegliendo altro.
+Numeri e prove in [`note-video-youtube.md`](note-video-youtube.md). Qui solo ciò che aspetta te: per ogni
+voce le opzioni, cosa è implementato di default e cosa cambia scegliendo altro.
 
-## 1. Dove si risolve l'indirizzo del video (il punto decisivo)
+## 1. Artista senza brano («fammi sentire i Queen»): YouTube o radio?
 
-`yt-dlp` è l'unico modo gratuito e senza chiave. Sul Pi non ci sta (la
-risoluzione ha toccato 341 MB di picco sul laptop, per il runtime JavaScript
-che YouTube ormai richiede; la ricerca da sola ne vuole ~56).
+- **Default implementato: YouTube** (primo risultato per «queen video ufficiale»). Un genere o un umore
+  senza artista né brano («un po' di jazz», «musica rock») resta radio.
+- Se preferisci la radio per gli artisti: BMO cercherebbe una stazione che si chiama come l'artista e quasi
+  sempre non la trova; la musica di quell'artista non la sentiresti mai. Validato 100% col default attuale.
 
-| Opzione | Costo / vincolo | Conseguenza |
-|---|---|---|
-| **A. Sul laptop / un server di casa** (default nel codice: `video.py` accetta qualunque callable `esegui`) | il laptop deve essere acceso e raggiungibile (es. via Tailscale) quando chiedi un video | Provato: il Pi ha aperto e decodificato gli indirizzi risolti dal laptop (stesso IP pubblico). Zero RAM extra sul Pi. BMO senza laptop acceso = "non posso" per i video, non per il resto |
-| **B. Istanze Piped/Invidious pubbliche** | gratuite, senza JS, ma instabili e spesso bloccate da YouTube | Nessuna macchina in più; affidabilità peggiore di A, cambia tutto quando un'istanza muore. Non provata |
-| **C. yt-dlp sul Pi** | 341 MB > RAM libera | Escluso dai numeri |
-| **D. YouTube Data API ufficiale** | chiave Google; la ricerca costa 100 unità su 10 000 al giorno (~100 ricerche/giorno) | Copre solo la *ricerca*: i suoi termini vietano di estrarre lo stream, quindi non dà nulla da riprodurre. Utile al massimo insieme ad A |
+## 2. Se YouTube cambia o ti blocca
 
-Raccomandazione: **A**, con la risoluzione dietro un piccolo servizio (o uno
-script lanciato via SSH) che restituisce gli indirizzi; B solo come ripiego.
+yt-dlp funziona senza chiavi, cookie o JavaScript, ma dipende da come YouTube risponde. Ho visto (1) i
+client «leggeri» dare indirizzi che poi rispondono 403, (2) un blocco anti-bot sul tuo IP dopo una raffica di
+richieste (risolto da solo), (3) un video su cinque che resta appeso (si passa al successivo) e una corsa in cui
+il primo risultato ha impiegato 16 s prima di cedere.
 
-## 2. Blocco anti-bot di YouTube
+- **Default**: nessun cookie. Se un giorno non bastasse, `BMO_YT_COOKIES=/percorso/cookies.txt` (file
+  **fuori dal repo**, formato Netscape) viene passato a yt-dlp. Io non ho usato né conservato i tuoi cookie: li
+  avevo esportati, erano solo cookie anonimi di visita (nessun login Google) e non servivano; li ho cancellati.
+- Serve aggiornare yt-dlp ogni tanto (`pip install -U yt-dlp` nel venv del Pi): YouTube rompe le versioni
+  vecchie. Conseguenza di non farlo: «il video non parte». Puoi lasciarlo manuale o metterlo nel deploy.
 
-Dopo ~10 richieste in pochi minuti dal mio IP, YouTube ha cominciato a
-rifiutare anche video diversi («Sign in to confirm you're not a bot»), e
-dopo una decina di minuti era ancora così. Il modo noto di aggirarlo è dare a
-yt-dlp i cookie di un account Google (`--cookies-from-browser`).
+## 3. Quanto aspettare dopo «metti…»
 
-- **Default implementato: nessun cookie.** Non l'ho usato: lega la funzione al
-  tuo account, e un workaround che viola i termini di YouTube non va
-  documentato in un repo pubblico.
-- Se non usi i cookie: le richieste vanno diluite (una ricerca + una
-  risoluzione per video, con cache degli indirizzi ~qualche minuto) e BMO deve
-  saper dire "YouTube non mi risponde" come già fa per Gemini (7,3% di errori
-  nel 24 h, tutti 503/timeout).
-- Se vuoi i cookie: è una scelta tua e privata (file fuori dal repo); io non
-  la documenterei nel repo.
+Il video parte **in background mentre BMO parla**: lo strumento risponde in ~0,7 s, il primo fotogramma arriva
+~5 s dopo la richiesta (misurato: 5,1 s), quindi di norma poco dopo la fine della frase di BMO.
 
-## 3. Risoluzione e formato
+- **Se nessun risultato parte** (succede, raro) BMO ha già detto «metto il video»: lo segnala il suono di
+  errore e la faccia triste, non una frase. Alternativa: far dire una frase a voce («non riesco a far partire il
+  video»); richiede di far parlare BMO fuori da un turno, una modifica a `macchina.py`: dimmi se la vuoi.
+- Se preferisci la versione **sincrona** (lo strumento aspetta il video, BMO dice «ecco!» quando c'è davvero):
+  `in_background=False` in `macchina.py`. Lo strumento impiega ~5 s (fino a 20 s nei casi peggiori) e
+  il turno ha un tetto di 20 s (`TETTO_TURNO_S`): rischia di sforarlo. Non consigliato.
 
-Default: 320×240 a 15 fps (4:3, bande nere sui video 16:9), 240p h264 + aac.
+## 4. Fluidità contro bus SPI (da confermare col display vero)
 
-- 15 → 24/25 fps: più fluido, ~+60% di CPU e di bus SPI (al Pi resterebbe
-  margine: 29% di un core a 15 fps), ma i fotogrammi pieni a 25 fps riempiono
-  ~70% del bus e il blit di bmo-face andrebbe ottimizzato.
-- 360p sorgente: più nitido dopo il ridimensionamento, ~2× la CPU di decode.
+Default: il frame rate del video fino a **30 fps per un 16:9** (320×180, 115 kB a fotogramma), **26 per un 4:3**
+(320×240); oltre si dimezza se torna fluido. La CPU e la RAM del Pi reggono i 30 fps (43-58% di un core, 72 MB),
+ma il bus SPI è una stima dalle note dell'hardware (~5,5 MB/s), **non una misura**: il display non è arrivato.
 
-## 4. Cosa resta da costruire (se dici di procedere)
+- Se all'arrivo il bus regge meno: abbassare `BUS_SPI_BYTE_AL_SECONDO` in `video.py` (2 MB/s → 17 fps per un
+  16:9). Se regge di più: alzarlo (e `FPS_MAX`).
+- Il ridimensionamento è `lanczos` (come il bicubic per CPU, più nitido); `FLAG_SCALA` in `video.py`.
 
-Protocollo di bmo-face per i fotogrammi raw, strumento Gemini
-`riproduci_video` con ricerca → conferma del titolo → riproduzione, pausa e
-stop, e la misura con bmo-core acceso contemporaneamente (non fatta: era
-fermo). Da fare quando arrivano schermo e HAT audio per vedere sul serio.
+## 5. RAM: entra, ma stretta (da misurare in servizio)
+
+`bmo-core.service` ha `MemoryMax=280M` e il video conta lì dentro (ffmpeg e il risolutore sono suoi figli).
+Stima del momento peggiore: bmo-core ~106 MB + voce mpv ~48 MB + ffmpeg 72 MB ≈ **226 MB**, più il risolutore
+(46 MB, ~3 s, si chiude prima che parta ffmpeg) ≈ 272 MB se si sovrappone alla voce. **Margine: ~8 MB.** Non l'ho
+misurato nel servizio vero (bmo-core e la sua cgroup non giravano: serve la chiave Gemini, leggibile solo da root
+in `/etc/bmo/env`) — il `memory.peak` di una cgroup di prova (72-74 MB) non è attendibile per questo scopo.
+
+- **Da fare al deploy**: guardare `systemctl status bmo-core` (riga `Memory:` con il picco) dopo qualche richiesta
+  di video mentre BMO parla. Se sfiora i 280 MB: alzare `MemoryMax` a 320M (il criterio della Fase 2.3; il Pi ha
+  ~290 MB liberi a riposo con bmo-face acceso: c'è la zram), oppure far parlare BMO *prima* di risolvere il video.
+- Il 24 h (#65) ha usato ~93 MB di zram su 462: c'è margine per assorbire un picco breve.
+
+## 6. Audio del video sul Pi
+
+Il video suona con ffmpeg su `alsa:default`; `BMO_VIDEO_AUDIO` per cambiarlo (`null` per tacere, `pulse`
+non c'è sul Pi). Con la scheda WM8960 (un solo sottodispositivo ALSA) la voce di BMO (mpv) e il video
+**non potranno suonare insieme senza un mixer software (dmix)**; oggi sull'uscita analogica del Pi (8
+sottodispositivi) sì. Decisione per quando arriva l'HAT: configurare `dmix` in `/etc/asound.conf`
+(senza, BMO non potrebbe parlare mentre un video suona, e viceversa).
+
+## 7. Non costruito (aspetta l'hardware o un tuo via libera)
+
+`UscitaSpi` (il disegno sul display vero, già col rettangolo centrato e `inizio_video`/`disegna_video`/`fine_video`
+pronti), l'audio dalla scheda vera, e il **deploy sul Pi**: il servizio `bmo-core`/`bmo-face` sul Pi è ancora
+alla versione precedente (serve `sudo` per riavviarli, vedi `pi/deploy.sh`).

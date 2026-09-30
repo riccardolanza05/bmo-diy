@@ -7,7 +7,13 @@
 {"cmd":"timer",      "remaining":312, "label":"pasta"}
 {"cmd":"level",      "value":0.34}
 {"cmd":"immagine",   "data":"<jpeg in base64>", "ttl":6.0}
+{"cmd":"video",      "action":"start|pause|resume|stop", "title":"..."}
 ```
+
+`video` (dopo l'issue #63, per i video di YouTube) è solo il *controllo*:
+i fotogrammi non passano di qui (base64 in JSON a 25 fps sarebbero ~4 MB/s
+di codifica in Python sul Pi) ma su un socket datagram a parte, vedi
+`video.py`.
 
 `immagine` è più recente degli altri cinque (issue #51): mostra un JPEG
 arbitrario (una foto di `scatta_foto`, #24) al posto della faccia per `ttl`
@@ -93,6 +99,18 @@ def applica(comando: ComandoFaccia, messaggio: dict[str, Any], ora: float) -> No
             else:
                 comando.immagine = grezzi
                 comando.immagine_scadenza = ora + float(messaggio.get("ttl", 6.0))
+    elif cmd == "video":
+        azione = messaggio.get("action")
+        if azione == "start":
+            comando.video_attivo, comando.video_in_pausa = True, False
+            titolo = messaggio.get("title")
+            comando.video_titolo = titolo if isinstance(titolo, str) else None
+        elif azione == "pause":
+            comando.video_in_pausa = True
+        elif azione == "resume":
+            comando.video_in_pausa = False
+        elif azione == "stop":
+            comando.video_attivo, comando.video_in_pausa, comando.video_titolo = False, False, None
     # Un `cmd` sconosciuto o mancante si ignora: un bmo-core più recente che
     # manda un comando nuovo non deve rompere un bmo-face più vecchio, lo
     # stesso principio del riepilogo forzato che ignora strumenti sconosciuti.
@@ -121,3 +139,7 @@ def messaggio_level(valore: float) -> str:
 def messaggio_immagine(dati: bytes, ttl: float = 6.0) -> str:
     codificato = base64.b64encode(dati).decode("ascii")
     return json.dumps({"cmd": "immagine", "data": codificato, "ttl": ttl}) + "\n"
+
+
+def messaggio_video(azione: str, titolo: str | None = None) -> str:
+    return json.dumps({"cmd": "video", "action": azione, "title": titolo}) + "\n"
