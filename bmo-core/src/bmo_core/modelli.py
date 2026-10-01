@@ -24,8 +24,19 @@ import httpx
 from google.genai import errors, types
 
 # Primario e riserva scelti dopo le prime prove reali, quando
-# gemini-3.8-flash rispondeva spesso 503 per sovraccarico.
-MODELLI_PREDEFINITI = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+# gemini-3.8-flash rispondeva spesso 503 per sovraccarico. In coda (#73) due
+# modelli più forti, provati solo se i due lite falliscono: nel traffico
+# normale non vengono mai chiamati. Il free tier li limita a 5 richieste al
+# minuto e a poche decine al giorno, quindi non possono stare in testa; un 429
+# costa circa 0,2 s e la cascata li salta. Esclusi dopo le misure del 1/10/2026
+# (docs/note-issue-73.md): gemini-3.7-flash e gemini-3.8-flash (503/504 quasi
+# a ogni richiesta), Gemma 4 (rifiuta l'audio con 400), gemini-2.5-* (404).
+MODELLI_PREDEFINITI = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+]
 
 # Per quanto un modello resta sospeso dopo un errore, in secondi.
 SOSPENSIONE_QUOTA_S = 60.0          # 429 senza retryDelay nella risposta

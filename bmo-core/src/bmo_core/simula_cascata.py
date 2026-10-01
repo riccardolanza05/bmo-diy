@@ -35,6 +35,7 @@ TENTATIVI_SDK = 2
 SOSPENSIONE_QUOTA_S = 60.0
 SOSPENSIONE_SOVRACCARICO_S = 30.0
 PAUSA_SDK_S = 1.0  # attesa fra i tentativi dell'SDK
+COSTO_RITENTO_429_S = 1.8  # secondi in più con 2 tentativi dell'SDK (misura, docs/note-issue-73.md)
 
 
 @dataclass
@@ -56,7 +57,10 @@ class ProfiloModello:
     p_timeout: float = 0.5
     lat_503_s: float = 1.5
     rpm: int | None = None
-    lat_429_s: float = 0.6
+    lat_429_s: float = 0.2  # con 1 tentativo SDK; con 2 sale a ~2 s (misurato)
+    # Richieste riuscite ma lente (code a 4-5 s viste anche sul modello più veloce).
+    p_lento: float = 0.0
+    lat_lenta_s: float = 4.5
 
 
 @dataclass
@@ -69,8 +73,20 @@ class Esito:
 class Mondo:
     """Stato dei modelli nel tempo: episodi di guasto e finestre di richieste."""
 
-    def __init__(self, profili: dict[str, ProfiloModello], rng: random.Random) -> None:
-        self.profili = profili
+    def __init__(
+        self,
+        profili: dict[str, ProfiloModello],
+        rng: random.Random,
+        comune: ProfiloModello | None = None,
+    ) -> None:
+        # `comune`: episodi di sovraccarico che colpiscono TUTTI i modelli insieme
+        # (stessa infrastruttura, stessa rete): senza, i modelli sembrerebbero
+        # guastarsi in modo indipendente e la cascata più sicura di quanto è.
+        self.profili = dict(profili)
+        self.comune = comune
+        if comune is not None:
+            self.profili["_comune"] = comune
+        profili = self.profili
         self.rng = rng
         self.t = 0.0
         self._fino_a: dict[str, float] = {}  # fine dell'episodio in corso
@@ -101,11 +117,14 @@ class Mondo:
         if p.rpm is not None and len(finestra) >= p.rpm:
             return "429", p.lat_429_s
         finestra.append(self.t)
-        if self._aggiorna(modello):
+        guasto_proprio = self._aggiorna(modello)
+        guasto_comune = self.comune is not None and self._aggiorna("_comune")
+        if guasto_proprio or guasto_comune:
             if self.rng.random() < p.p_timeout:
                 return "timeout", max_attesa_s
             return "503", min(p.lat_503_s, max_attesa_s)
-        durata = self.rng.lognormvariate(0.0, p.lat_sigma) * p.lat_mediana_s
+        base = p.lat_lenta_s if self.rng.random() < p.p_lento else p.lat_mediana_s
+        durata = self.rng.lognormvariate(0.0, p.lat_sigma) * base
         if durata > max_attesa_s:
             return "timeout", max_attesa_s
         return "ok", durata
@@ -123,7 +142,9 @@ class CascataSimulata:
         tentativi_sdk: int = TENTATIVI_SDK,
         salta_se_al_limite: bool = False,
         sospensione_lunga: bool = False,
+        hedge_s: float | None = None,
     ) -> None:
+        self.hedge_s = hedge_s
         self.mondo = mondo
         self.modelli = modelli
         self.timeout_s = timeout_s if callable(timeout_s) else (lambda _m, v=timeout_s: v)
@@ -151,10 +172,47 @@ class CascataSimulata:
                 secondi *= min(2 ** (self._guasti_di_fila[modello] - 1), 8)
         self._sospesi[modello] = self.mondo.t + secondi
 
+    def _con_hedge(self, primo: str, secondo: str, scadenza: float, conteggio: dict[str, int]) -> bool:
+        """Lancia `secondo` se `primo` non ha risposto entro `hedge_s`: vince chi finisce prima.
+
+        Costa una richiesta in più (quota) solo nella coda lenta; evita di
+        aspettare il timeout intero del primo modello.
+        """
+        m = self.mondo
+        t0 = m.t
+        rimasto = scadenza - t0
+        if rimasto < MINIMO_RICHIESTA_S:
+            return False
+        timeout = max(min(self.timeout_s(primo), rimasto), MINIMO_TIMEOUT_SERVER_S)
+        e1, d1 = m.richiesta(primo, timeout)
+        conteggio[primo] = conteggio.get(primo, 0) + 1
+        if e1 == "ok" and d1 <= self.hedge_s:
+            m.t = t0 + d1
+            return True
+        inizio2 = min(d1, self.hedge_s)
+        m.t = t0 + inizio2
+        e2, d2 = m.richiesta(secondo, timeout)
+        conteggio[secondo] = conteggio.get(secondo, 0) + 1
+        fine = [t0 + d for e, d, t in ((e1, d1, 0.0), (e2, d2, inizio2)) if e == "ok" for d in [d + t]]
+        if fine:
+            m.t = min(fine)
+            return True
+        m.t = t0 + max(d1, inizio2 + d2)
+        for modello, esito in ((primo, e1), (secondo, e2)):
+            if esito == "429":
+                self._sospendi(modello, SOSPENSIONE_QUOTA_S, guasto=False)
+            else:
+                self._sospendi(modello, SOSPENSIONE_SOVRACCARICO_S, guasto=True)
+        return False
+
     def richiesta(self, scadenza: float, conteggio: dict[str, int]) -> tuple[bool, str]:
         """Una `genera()`: (riuscita, motivo del fallimento). Fa avanzare l'orologio."""
         m = self.mondo
         candidati = self._disponibili() or self.modelli[:1]
+        if self.hedge_s is not None and len(candidati) >= 2:
+            if self._con_hedge(candidati[0], candidati[1], scadenza, conteggio):
+                return True, ""
+            candidati = candidati[2:]
         for modello in candidati:
             if self.salta_se_al_limite and self._al_limite(modello):
                 continue
@@ -171,7 +229,12 @@ class CascataSimulata:
                     self._guasti_di_fila[modello] = 0
                     return True, ""
                 if esito == "429":
-                    break  # l'SDK ritenta anche i 429, ma restano 429 per un minuto
+                    # L'SDK ritenta anche i 429 (misurato: 1,5-3,3 s in tutto con
+                    # 2 tentativi, 0,2 s con 1), ma restano 429 per un po'.
+                    # Dentro il tetto di 20 s i tentativi sono sempre 1 (vedi sopra).
+                    if tentativi > 1:
+                        m.t += COSTO_RITENTO_429_S
+                    break
                 if tentativo + 1 < tentativi:
                     m.t += PAUSA_SDK_S
             if esito == "429":
@@ -190,8 +253,9 @@ def conversazione(
     pausa_media_s: float = 25.0,
     richieste_per_turno: tuple[tuple[int, float], ...] = ((1, 0.55), (2, 0.35), (3, 0.10)),
     avvio_s: float = 0.0,
+    comune: ProfiloModello | None = None,
 ) -> list[Esito]:
-    mondo = Mondo(profili, rng)
+    mondo = Mondo(profili, rng, comune)
     mondo.t = avvio_s
     cascata = costruisci(mondo)
     esiti: list[Esito] = []
@@ -220,6 +284,7 @@ def percentile(valori: list[float], q: float) -> float:
 
 def riassunto(esiti: list[Esito]) -> dict[str, float | dict[str, float]]:
     durate = [e.durata_s for e in esiti]
+    durate_ok = [e.durata_s for e in esiti if e.ok] or [0.0]
     richieste: dict[str, int] = {}
     for e in esiti:
         for m, n in e.richieste.items():
@@ -229,6 +294,92 @@ def riassunto(esiti: list[Esito]) -> dict[str, float | dict[str, float]]:
         "falliti_%": 100.0 * sum(not e.ok for e in esiti) / len(esiti),
         "mediana_s": statistics.median(durate),
         "p95_s": percentile(durate, 0.95),
+        "p95_ok_s": percentile(durate_ok, 0.95),
+        "mediana_ok_s": statistics.median(durate_ok),
         "lenti_>8s_%": 100.0 * sum(d > 8 for d in durate) / len(durate),
         "richieste": {m: n / len(esiti) for m, n in richieste.items()},
     }
+
+
+# Profili presi dalle misure del 1/10/2026 (docs/note-issue-73.md). Le latenze
+# sono per singola richiesta; un turno con strumento ne fa due o più.
+PROFILI: dict[str, ProfiloModello] = {
+    # Affidabilità misurata il 1/10 (25 richieste, 1 al minuto): 24/25 e 23/25.
+    "gemini-3.5-flash-lite": ProfiloModello(0.8, p_lento=0.12, lat_lenta_s=4.5, p_guasto=0.04, lat_503_s=2.0),
+    "gemini-3.1-flash-lite": ProfiloModello(2.8, lat_sigma=0.45, p_guasto=0.08, lat_503_s=2.3),
+    "gemini-3.5-flash": ProfiloModello(1.8, p_guasto=0.08, rpm=5, lat_503_s=3.0),
+    "gemini-3.6-flash": ProfiloModello(2.2, p_guasto=0.04, rpm=5, lat_503_s=3.0),
+    # Misurati il 1/10: 503/504 sulla maggior parte delle richieste.
+    "gemini-3.7-flash": ProfiloModello(3.0, p_guasto=0.6, durata_guasto_s=600, rpm=5, lat_503_s=4.0),
+    "gemini-3.8-flash": ProfiloModello(2.5, p_guasto=0.7, durata_guasto_s=600, rpm=5, lat_503_s=3.0),
+}
+# Calibrato perché la cascata attuale dia ~7% di turni falliti (prova di 24 h, #65).
+COMUNE = ProfiloModello(0.0, p_guasto=0.08, durata_guasto_s=150.0, p_timeout=0.6, lat_503_s=3.0)
+
+L35, L31 = "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"
+F35, F36 = "gemini-3.5-flash", "gemini-3.6-flash"
+F37, F38 = "gemini-3.7-flash", "gemini-3.8-flash"
+
+# (nome, modelli, opzioni della cascata). Le prime quattro sono realizzabili
+# cambiando solo l'elenco dei modelli o le costanti; l'ultima è un meccanismo
+# nuovo, valutato qui e NON implementato (vedi docs/decisioni-issue-73.md).
+VARIANTI: list[tuple[str, list[str], dict]] = [
+    ("A attuale (2 lite)", [L35, L31], {}),
+    ("B + flash in coda (3.5 poi 3.1 poi 3.5-f, 3.6)", [L35, L31, F35, F36], {}),
+    ("B2 = B con 3.6 prima di 3.5 (SCELTA, implementata)", [L35, L31, F36, F35], {}),
+    ("C flash prima del lite lento", [L35, F35, F36, L31], {}),
+    ("D = C con 3.7/3.8 nella cascata", [L35, F37, F38, F35, F36, L31], {}),
+    ("E = C con timeout per tentativo 10 s (costante)", [L35, F35, F36, L31], {"timeout_s": 10.0}),
+    ("F = C + salto RPM + sospensione lunga (non implem.)", [L35, F35, F36, L31],
+     {"salta_se_al_limite": True, "sospensione_lunga": True}),
+    ("G = C + hedging a 3 s (non implem.)", [L35, F35, F36, L31], {"hedge_s": 3.0}),
+    ("H = C + timeout 10 s + hedging a 3 s (non implem.)", [L35, F35, F36, L31],
+     {"timeout_s": 10.0, "hedge_s": 3.0}),
+]
+
+
+# Scenario "indipendenti": ogni modello si guasta per conto suo, nessun guasto
+# comune. È l'estremo ottimistico per aggiungere modelli; il vero sta in mezzo
+# (non si può distinguere con i dati della #65: contano solo i turni falliti).
+PROFILI_INDIPENDENTI = {
+    **PROFILI,
+    "gemini-3.5-flash-lite": ProfiloModello(0.8, p_lento=0.12, lat_lenta_s=4.5, p_guasto=0.07, lat_503_s=2.0),
+    "gemini-3.1-flash-lite": ProfiloModello(2.8, lat_sigma=0.45, p_guasto=0.10, lat_503_s=3.5),
+}
+
+
+def confronta(turni: int, prove: int, seme: int, pausa_media_s: float, guasti: str) -> None:
+    indipendenti = guasti == "indipendenti"
+    profili = PROFILI_INDIPENDENTI if indipendenti else PROFILI
+    comune = None if indipendenti else COMUNE
+    print(f"{prove} conversazioni da {turni} turni, pausa media fra i turni {pausa_media_s:.0f} s, "
+          f"guasti {guasti}\n")
+    print(f"{'variante':54} {'falliti':>8} {'mediana':>8} {'p95 ok':>7} {'>8 s':>6}  richieste/turno")
+    for nome, modelli, opzioni in VARIANTI:
+        tutti: list[Esito] = []
+        for i in range(prove):
+            rng = random.Random(seme + i)
+            tutti += conversazione(
+                profili, lambda mondo, mod=modelli, op=opzioni: CascataSimulata(mondo, mod, **op),
+                turni, rng, pausa_media_s=pausa_media_s, comune=comune,
+                avvio_s=rng.uniform(0, 3600),
+            )
+        r = riassunto(tutti)
+        per_modello = " ".join(f"{m.replace('gemini-', '')}={n:.2f}" for m, n in r["richieste"].items())
+        print(f"{nome:54} {r['falliti_%']:7.1f}% {r['mediana_ok_s']:7.2f}s {r['p95_ok_s']:6.1f}s "
+              f"{r['lenti_>8s_%']:5.1f}%  {per_modello}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--turni", type=int, default=60)
+    parser.add_argument("--prove", type=int, default=300)
+    parser.add_argument("--seme", type=int, default=1)
+    parser.add_argument("--pausa", type=float, default=25.0, help="pausa media fra i turni, secondi")
+    parser.add_argument("--guasti", choices=["correlati", "indipendenti"], default="correlati")
+    argomenti = parser.parse_args()
+    confronta(argomenti.turni, argomenti.prove, argomenti.seme, argomenti.pausa, argomenti.guasti)
+
+
+if __name__ == "__main__":
+    main()

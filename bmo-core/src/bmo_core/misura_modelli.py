@@ -14,6 +14,8 @@ modelli con pochi RPM vanno con `--pausa` alta):
   un turno cominciato da un altro modello (cambio a metà turno, cioè il
   ripiego della cascata nel secondo giro).
 - `latenza`: tempo di una risposta semplice e di un turno con strumento.
+- `affidabilita`: una richiesta vera ogni `--pausa` secondi, `--ripetizioni`
+  volte: quante volte il modello non risponde e quanto costa ogni caduta.
 - `limite`: una raffica di richieste minuscole per vedere cosa risponde l'API
   oltre l'RPM (codice, `retryDelay`) e quanto costa il fallimento in secondi,
   con 1 e con 2 tentativi dell'SDK.
@@ -198,6 +200,41 @@ def prova_latenza(modello: str, ripetizioni: int, pausa: float) -> dict[str, Any
             "richieste": registratore.chiamate}
 
 
+def prova_affidabilita(modello: str, richieste: int, intervallo_s: float) -> dict[str, Any]:
+    """Una richiesta vera (prompt e strumenti del cervello) ogni `intervallo_s`.
+
+    Misura quante volte il modello NON risponde (503, 504, 429, timeout) e
+    quanto costa ogni caduta: è ciò che decide chi sta in cima alla cascata.
+    """
+    cartella = tempfile.mkdtemp(prefix="bmo-aff-")
+    registratore = ClienteRegistratore(_client(1, 30.0))
+    cervello = _cervello(modello, registratore, cartella)
+    for numero in range(richieste):
+        try:
+            cervello.rispondi(testo=FRASE_SEMPLICE)
+        except Exception:  # noqa: BLE001 - l'esito è già nel registratore
+            pass
+        if numero + 1 < richieste:
+            time.sleep(intervallo_s)
+    voci = registratore.chiamate
+    riuscite = [v["durata_s"] for v in voci if v["esito"] == "ok"]
+    cadute: dict[str, int] = {}
+    for v in voci:
+        if v["esito"] != "ok":
+            chiave = v["esito"].split(" retryDelay")[0]
+            cadute[chiave] = cadute.get(chiave, 0) + 1
+    costo_cadute = [v["durata_s"] for v in voci if v["esito"] != "ok"]
+    return {
+        "richieste": len(voci),
+        "riuscite": len(riuscite),
+        "cadute": cadute,
+        "mediana_riuscite_s": round(statistics.median(riuscite), 2) if riuscite else None,
+        "max_riuscite_s": max(riuscite, default=None),
+        "costo_medio_caduta_s": round(statistics.mean(costo_cadute), 2) if costo_cadute else None,
+        "tutte": voci,
+    }
+
+
 def prova_limite(modello: str, raffica: int, tentativi: int) -> dict[str, Any]:
     """`raffica` richieste minuscole senza pause: cosa torna oltre l'RPM e a che costo."""
     client = _client(tentativi, 30.0)
@@ -215,7 +252,7 @@ def prova_limite(modello: str, raffica: int, tentativi: int) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("prova", choices=["compat", "latenza", "limite"])
+    parser.add_argument("prova", choices=["compat", "latenza", "limite", "affidabilita"])
     parser.add_argument("--modelli", required=True, help="id separati da virgola")
     parser.add_argument("--altro", default="gemini-3.5-flash-lite",
                         help="compat: modello che apre il turno del cambio a metà")
@@ -233,6 +270,8 @@ def main() -> None:
             risultati[modello] = prova_compat(modello, argomenti.altro, argomenti.pausa)
         elif argomenti.prova == "latenza":
             risultati[modello] = prova_latenza(modello, argomenti.ripetizioni, argomenti.pausa)
+        elif argomenti.prova == "affidabilita":
+            risultati[modello] = prova_affidabilita(modello, argomenti.ripetizioni, argomenti.pausa)
         else:
             risultati[modello] = prova_limite(modello, argomenti.raffica, argomenti.tentativi)
         print(json.dumps(risultati[modello], indent=1, ensure_ascii=False), flush=True)
