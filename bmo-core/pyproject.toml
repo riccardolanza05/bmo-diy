@@ -27,7 +27,11 @@ requires-python = ">=3.11"
 # pacchetto pip, non servono download separati. onnxruntime pubblica ruote
 # arm64 ufficiali (non armv7l): è per questo che il Pi dovrà girare a 64 bit
 # (decisione già chiusa nel piano, non da riaprire).
-dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts", "openwakeword", "onnxruntime", "numpy"]
+# yt-dlp: ricerca di riserva e risoluzione degli indirizzi dei video di YouTube (`video.py`,
+# `risolvi_youtube.py`), in un processo figlio che muore subito. Senza il runtime JavaScript:
+# il client `visionos` di cui si serve da solo non lo richiede. YouTube cambia spesso e le
+# versioni vecchie smettono di funzionare: va aggiornato ogni tanto (`pip install -U yt-dlp`).
+dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts", "openwakeword", "onnxruntime", "numpy", "yt-dlp"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

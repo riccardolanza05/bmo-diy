@@ -36,6 +36,30 @@ git merge --ff-only "@{upstream}"
 echo "== dipendenze (pip)"
 "$VENV/bin/pip" install --upgrade --quiet -e ./bmo-core -e ./bmo-face
 
+echo "== yt-dlp (aggiornato sempre)"
+# `pip install --upgrade -e ./bmo-core` NON aggiorna una dipendenza già soddisfatta e senza versione
+# fissata: yt-dlp resterebbe quello vecchio. YouTube rompe spesso le versioni vecchie («il video non
+# parte»), quindi lo si aggiorna a ogni deploy, esplicitamente.
+"$VENV/bin/pip" install --upgrade --quiet yt-dlp
+"$VENV/bin/python" -c "import yt_dlp; print('-- yt-dlp', yt_dlp.version.__version__)"
+if ! command -v ffmpeg >/dev/null; then
+  echo "ATTENZIONE: ffmpeg non è installato: i video non partiranno (sudo apt install ffmpeg)." >&2
+fi
+
+echo "== unit di systemd (copiate solo se cambiate)"
+ricarica=0
+for unit in bmo-face.service bmo-core.service; do
+  if ! cmp -s "$RADICE/pi/systemd/$unit" "/etc/systemd/system/$unit"; then
+    sudo cp "$RADICE/pi/systemd/$unit" "/etc/systemd/system/$unit"
+    echo "-- $unit aggiornata"
+    ricarica=1
+  fi
+done
+if [ "$ricarica" -eq 1 ]; then sudo systemctl daemon-reload; fi
+
+echo "== audio (dmix + volume del video, solo con la WM8960)"
+"$RADICE/pi/installa-audio.sh"
+
 echo "== assets di bmo-face"
 if [ ! -f "$ASSETS/faces.bin" ]; then
   echo "-- faces.bin mancante: lo costruisco (placeholder, a meno che non esista"

@@ -526,3 +526,64 @@ def test_main_usa_un_solo_altoparlante_per_voce_e_suoni(monkeypatch):
     assert len(creati) == 1
     assert catturate["suoni"].altoparlante is creati[0]
     assert catturate["voce"].altoparlante is creati[0]
+
+
+def test_mentre_bmo_parla_si_abbassa_quello_che_suona():
+    from contextlib import contextmanager
+
+    eventi = []
+
+    @contextmanager
+    def abbassa():
+        eventi.append("abbassato")
+        try:
+            yield
+        finally:
+            eventi.append("rialzato")
+
+    def voce(testo, lingua="it"):
+        eventi.append(f"voce {testo}")
+
+    macchina = Macchina(cervello=CervelloFinto([], None), faccia=None, richiamo=lambda: True, voce=voce,
+                        abbassa_durante_voce=abbassa)
+    macchina.voce("ciao")
+    assert eventi == ["abbassato", "voce ciao", "rialzato"]
+
+
+def test_annuncia_parla_con_suono_di_errore_e_faccia_triste():
+    macchina, faccia, cervello, dette = _macchina([])
+    eventi = []
+    faccia.esprimi = lambda espressione, ttl=3.0: eventi.append(("faccia", espressione))
+    macchina.suoni = type("S", (), {"errore": lambda self: eventi.append(("suono", "errore"))})()
+    macchina.annuncia("Non riesco a far partire il video.")
+    assert eventi == [("faccia", "triste"), ("suono", "errore")]
+    assert dette == ["Non riesco a far partire il video."]
+
+
+def test_una_voce_alla_volta_un_annuncio_aspetta_la_risposta_in_corso():
+    import threading
+    import time
+
+    ordine = []
+    primo_dentro, via = threading.Event(), threading.Event()
+
+    def voce(testo, lingua="it"):
+        ordine.append(f"inizio {testo}")
+        if testo == "risposta":
+            primo_dentro.set()
+            via.wait(2)
+        ordine.append(f"fine {testo}")
+
+    macchina = Macchina(cervello=CervelloFinto([], None), faccia=type("F", (), {"mostra": lambda s, x: None,
+                        "esprimi": lambda s, e, t=3.0: None})(), richiamo=lambda: True, voce=voce)
+    t1 = threading.Thread(target=macchina.voce, args=("risposta",))
+    t1.start()
+    primo_dentro.wait(2)
+    t2 = threading.Thread(target=macchina.annuncia, args=("avviso",))
+    t2.start()
+    time.sleep(0.2)
+    assert ordine == ["inizio risposta"]  # l'avviso aspetta
+    via.set()
+    t1.join(2)
+    t2.join(2)
+    assert ordine == ["inizio risposta", "fine risposta", "inizio avviso", "fine avviso"]

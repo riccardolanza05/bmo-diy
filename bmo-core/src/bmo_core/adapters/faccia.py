@@ -39,6 +39,9 @@ class FacciaMuta:
     def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
         del dati, ttl
 
+    def video(self, azione: str, titolo: str | None = None) -> None:
+        del azione, titolo
+
 
 class FacciaTerminale:
     """Scrive lo stato sul terminale, l'unico "schermo" che c'e' oggi sul PC
@@ -68,6 +71,9 @@ class FacciaTerminale:
 
     def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
         print(f"[faccia: immagine, {len(dati)} byte per {ttl:g}s]", file=self.uscita, flush=True)
+
+    def video(self, azione: str, titolo: str | None = None) -> None:
+        print(f"[faccia: video {azione}{f' «{titolo}»' if titolo else ''}]", file=self.uscita, flush=True)
 
 
 class FacciaSocket:
@@ -140,3 +146,6 @@ class FacciaSocket:
     def immagine(self, dati: bytes, ttl: float = 6.0) -> None:
         codificato = base64.b64encode(dati).decode("ascii")
         self._manda({"cmd": "immagine", "data": codificato, "ttl": ttl})
+
+    def video(self, azione: str, titolo: str | None = None) -> None:
+        self._manda({"cmd": "video", "action": azione, "title": titolo})
