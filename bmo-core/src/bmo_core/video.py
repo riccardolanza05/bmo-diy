@@ -64,10 +64,29 @@ VARIABILE_COOKIE = "BMO_YT_COOKIES"
 # Ridimensionamento: lanczos costa come il bicubic a 30 fps (58% contro 57% di un core sul Pi; il
 # fast_bilinear 43%) ed è il più nitido scendendo da 640×360 a 320×180.
 FLAG_SCALA = "lanczos"
-OPZIONI_INGRESSO: tuple[str, ...] = ()  # probing di ffmpeg: vedi pi/avvio_ffmpeg_pi.py per le misure
+# Un solo thread per il decoder e per i filtri: sul Pi la RAM anonima di ffmpeg scende da 36,7 a 27,6 MB e la
+# CPU da 55% a 42% di un core a parità di fps (pi/ffmpeg_ram.py). Il probing non cambia nulla (pi/avvio_ffmpeg_pi.py).
+OPZIONI_INGRESSO: tuple[str, ...] = ("-threads", "1")
+OPZIONI_GLOBALI: tuple[str, ...] = ("-filter_threads", "1", "-filter_complex_threads", "1")
 TIMEOUT_RETE_US = 10_000_000  # ffmpeg: un indirizzo che non manda dati per 10 s è un errore, non un'attesa infinita
 
 NOME_SOCKET_VIDEO = "bmo-video.sock"
+VOLUME_VIDEO_ABBASSATO = 30  # % del video mentre BMO parla (con /etc/asound.conf di pi/asound.conf.modello)
+
+
+def uscita_audio_predefinita() -> str:
+    """Dove suona ffmpeg: `BMO_VIDEO_AUDIO` se c'è; altrimenti `video_out` se l'ALSA di sistema lo definisce
+    (dmix + volume software «Video», installato da `pi/installa-audio.sh` con la WM8960), altrimenti `default`."""
+    forzata = os.environ.get("BMO_VIDEO_AUDIO")
+    if forzata:
+        return forzata
+    for percorso in (Path("/etc/asound.conf"), Path.home() / ".asoundrc"):
+        try:
+            if "video_out" in percorso.read_text():
+                return "alsa:video_out"
+        except OSError:
+            pass
+    return "alsa:default"
 
 
 @dataclass
@@ -317,14 +336,14 @@ def comando_ffmpeg(flusso: Flusso, uscita_audio: str = "alsa:default", flag_scal
     `uscita_audio`: "alsa:<dispositivo>", "pulse", oppure "null" (per i test e le
     misure: si decodifica tutto ma non si suona niente).
     """
-    comando = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
+    comando = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", *OPZIONI_GLOBALI]
     for indirizzo in flusso.indirizzi:
         comando += [*opzioni_ingresso, "-re", "-rw_timeout", str(TIMEOUT_RETE_US)]
         if inizio_s > 0:
             comando += ["-ss", f"{inizio_s:.2f}"]
         comando += ["-i", indirizzo]
     # Un solo ingresso: video e audio vengono dallo stesso file; due: video dal primo, audio dal secondo.
-    audio = "1:a:0" if len(flusso.indirizzi) > 1 else "0:a:0"
+    audio = "1:a:0?" if len(flusso.indirizzi) > 1 else "0:a:0?"
     scala = f"scale={flusso.larghezza}:{flusso.altezza}" + (f":flags={flag_scala}" if flag_scala else "")
     filtro = f"fps={flusso.fps},{scala},format=rgb565le"
     comando += ["-map", "0:v:0", "-vf", filtro, "-f", "rawvideo", "pipe:1"]
@@ -553,7 +572,8 @@ class VideoYouTube:
     ) -> None:
         self.faccia = faccia
         self.sink = sink if sink is not None else SinkFotogrammi()
-        self.uscita_audio = uscita_audio or os.environ.get("BMO_VIDEO_AUDIO", "alsa:default")
+        self.uscita_audio = uscita_audio or uscita_audio_predefinita()
+        self._volume_software: bool | None = None  # c'è il controllo «Video» in ALSA? (si scopre alla prima volta)
         self.ferma_radio = ferma_radio
         self.cercatore = cercatore
         self.risolutore = risolutore
@@ -753,6 +773,32 @@ class VideoYouTube:
         self.elenco, self.posizione = [], -1
         self._mostra("stop")
         return {"stato": "errore", "motivo": "nessun altro video parte"}
+
+    def _regola_volume_video(self, percento: int) -> bool:
+        """Il volume software del video (`amixer sset Video`): False se non c'è (nessun asound.conf)."""
+        if self._volume_software is False or not self.uscita_audio.endswith("video_out"):
+            return False
+        try:
+            fatto = subprocess.run(["amixer", "-q", "sset", "Video", f"{percento}%"], capture_output=True, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            fatto = None
+        self._volume_software = fatto is not None and fatto.returncode == 0
+        return self._volume_software
+
+    @contextmanager
+    def abbassato(self, percento: int = VOLUME_VIDEO_ABBASSATO) -> Iterator[None]:
+        """Abbassa il video per la durata del blocco (mentre BMO parla) e lo riporta al 100%.
+
+        Non fa nulla se il video non suona o se non c'è il volume software: in quel caso video e voce
+        suonano alla pari (o, senza dmix, uno solo dei due).
+        """
+        if not self.in_riproduzione() or not self._regola_volume_video(percento):
+            yield
+            return
+        try:
+            yield
+        finally:
+            self._regola_volume_video(100)
 
     @contextmanager
     def sospeso(self) -> Iterator[None]:

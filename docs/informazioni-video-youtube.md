@@ -21,3 +21,9 @@
 - **`prova_frasi`**: il banco storico resta di 48 frasi; `video` è una categoria a parte
   (`--categoria video`, 22 frasi, 21/21 alla prima corsa). Le due frasi storiche di musica che ora vanno a
   YouTube (Bohemian Rhapsody, Gangnam Style) sono state spostate lì.
+- **Anteprima prima del deploy**: `python -m bmo_core.anteprima_video "<ricerca>"` (vedi le note).
+- **Pulizia sul Pi dopo le prove del 1/10**: i file temporanei sono in `/tmp/vt` (cancellabili); ho creato e
+  rimosso un `~/.asoundrc` di prova; il venv di produzione ha in più `yt-dlp`. Un `mpv` rimasto appeso da un
+  mio test dmix fallito è stato ucciso. La chiave Gemini è stata passata solo via stdin (non è finita su disco
+  né negli argomenti dei comandi).
+- **PipeWire sul Pi**: lo vedevo attivo solo perché ero collegato in SSH (`Linger=no`); nel servizio non c'è.

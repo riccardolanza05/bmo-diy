@@ -97,13 +97,13 @@ def test_fps_di_riproduzione_4_3_ha_meno_bus(sorgente, atteso):
 
 def test_comando_un_ingresso_prende_l_audio_dal_primo():
     comando = comando_ffmpeg(Flusso(["http://x"], 320, 180, 25), "null")
-    assert comando.count("-i") == 1 and "0:a:0" in comando
+    assert comando.count("-i") == 1 and "0:a:0?" in comando
     assert "scale=320:180" in " ".join(comando) and "format=rgb565le" in " ".join(comando)
 
 
 def test_comando_due_ingressi_prende_l_audio_dal_secondo():
     comando = comando_ffmpeg(Flusso(["http://v", "http://a"], 320, 180, 25), "alsa:hw:1")
-    assert comando.count("-i") == 2 and "1:a:0" in comando
+    assert comando.count("-i") == 2 and "1:a:0?" in comando
     assert comando[-3:] == ["-f", "alsa", "hw:1"]
 
 

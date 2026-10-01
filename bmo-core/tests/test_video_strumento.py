@@ -251,6 +251,71 @@ def test_stato_della_radio_con_un_video_in_corso(tmp_path):
     assert "sta andando un video" in radio.descrivi_stato()
 
 
+# --- audio: video_out, volume software e abbassamento mentre BMO parla -----------------------
+
+
+def test_uscita_audio_predefinita_segue_asound_e_la_variabile(tmp_path, monkeypatch):
+    from bmo_core import video as modulo
+
+    monkeypatch.delenv("BMO_VIDEO_AUDIO", raising=False)
+    monkeypatch.setattr(modulo.Path, "home", classmethod(lambda cls: tmp_path))
+    assert modulo.uscita_audio_predefinita() == "alsa:default"       # niente asound: com'è oggi sul Pi
+    (tmp_path / ".asoundrc").write_text("pcm.video_out { type plug }")
+    assert modulo.uscita_audio_predefinita() == "alsa:video_out"      # con dmix + volume software installati
+    monkeypatch.setenv("BMO_VIDEO_AUDIO", "null")
+    assert modulo.uscita_audio_predefinita() == "null"                # la variabile vince sempre
+
+
+def test_abbassato_regola_il_volume_del_video_e_lo_rimette(monkeypatch):
+    from bmo_core import video as modulo
+
+    chiamate = []
+
+    class Esito:
+        returncode = 0
+
+    monkeypatch.setattr(modulo.subprocess, "run", lambda cmd, **k: chiamate.append(cmd[-1]) or Esito())
+    v, *_ = _tutto()
+    v.uscita_audio = "alsa:video_out"
+    v.riproduci("x")
+    with v.abbassato():
+        assert chiamate == ["30%"]
+    assert chiamate == ["30%", "100%"]
+
+
+def test_abbassato_senza_volume_software_non_fa_nulla(monkeypatch):
+    from bmo_core import video as modulo
+
+    chiamate = []
+    monkeypatch.setattr(modulo.subprocess, "run", lambda cmd, **k: chiamate.append(cmd))
+    v, *_ = _tutto()          # uscita "null": niente video_out
+    v.riproduci("x")
+    with v.abbassato():
+        pass
+    assert chiamate == []
+    with VideoYouTube(sink=lambda *a: None, uscita_audio="null").abbassato():  # e senza video che suona
+        pass
+
+
+def test_se_amixer_fallisce_si_smette_di_provare(monkeypatch):
+    from bmo_core import video as modulo
+
+    chiamate = []
+
+    class Esito:
+        returncode = 1
+
+    monkeypatch.setattr(modulo.subprocess, "run", lambda cmd, **k: chiamate.append(cmd) or Esito())
+    v, *_ = _tutto()
+    v.uscita_audio = "alsa:video_out"
+    v.riproduci("x")
+    with v.abbassato():
+        pass
+    with v.abbassato():
+        pass
+    assert len(chiamate) == 1  # il controllo «Video» non c'è: una volta sola
+
+
 # --- avvio in background (il video parte mentre BMO parla) -----------------------------
 
 

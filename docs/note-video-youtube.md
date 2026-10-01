@@ -87,15 +87,42 @@ mai throttling.) Consegnati 15,5 / 20,6 / 25,7 / 30,9 fotogrammi al secondo: seg
 - Sorgente: sempre 360p h264 (formato 134 + audio 140, oppure 18). Il 240p non serve: l'estrazione
   costa uguale e il 360p ridotto a 320×180 è più nitido. Oltre i 360p non c'è guadagno: lo schermo è largo 320.
 
-## RAM
+## RAM (misurata nelle condizioni del servizio: `pi/ram_video.py`, `pi/ffmpeg_ram.py`)
 
-- ffmpeg (video 320×180 + audio): **72 MB PSS** costanti, qualunque fps.
-- Risolutore (yt-dlp con solo l'estrattore YouTube): **~46-48 MB**, vive ~3 s e **si chiude da solo
-  subito dopo la prima risoluzione riuscita**, quindi non si sovrappone a ffmpeg.
-- `bmo-core.service` ha `MemoryMax=280M`; il caso peggiore del 24 h (#65) è 238,8 MB con mpv radio
-  (~47 MB). Il video sostituisce la radio e pesa ~25 MB in più di mpv: stima ~265 MB nel momento
-  peggiore (BMO sta parlando con mpv ~48 MB *e* parte ffmpeg). **Vicino al limite.** Vedi le
-  misure della cgroup nell'ultima corsa e la decisione 5.
+Il primo conto sommava i PSS (72 + 48 + 106 + 48 ≈ 270 MB contro `MemoryMax=280M`) ed era **troppo
+pessimista**: il PSS conta anche le librerie condivise (file, che il kernel libera prima di uccidere
+qualcuno), e ffmpeg è fatto per metà di librerie (72 MB PSS = 37 anonimi + 35 di file). Quello che conta per il
+tetto è la memoria **anonima** e l'assenza di *thrash*. Misura vera, sul Pi 3 A+, in una cgroup con tetto 294 MB
+(= `MemoryMax=280M` del servizio, 280 MiB), con un processo che carica come bmo-core (numpy + onnxruntime,
+google.genai, macchina, i 3 modelli della wake word, Gemini, radio e video registrati, ascolto continuo) e un
+**turno reale**: Gemini riceve «metti queen bohemian rhapsody video ufficiale», chiama `riproduci_video` davvero
+(ricerca, risolutore pre-avviato, ffmpeg) e la risposta è letta da `VoceTts` (edge-tts + mpv):
+
+| Fase | Picco con cache | Picco anonimo | Chi |
+|---|---|---|---|
+| avvio (caricamento: transitorio) | 172 MB | 151 MB | |
+| **riposo** (bmo-core carico che ascolta) | 96 MB | 74 MB | python 70 |
+| **turno** (Gemini + voce + risolutore + partenza ffmpeg) | **201 MB** | **136 MB** | python 111 (bmo-core 70 + risolutore ~41), mpv 9, ffmpeg 9 |
+| **video** che suona | 176 MB | 104 MB | python 63, ffmpeg 37 |
+
+- **Tetto 294 MB, picco 201 MB: margine ~93 MB (32%)**, eventi `high`/`max`/`oom_kill` = 0; `workingset_refault_file`
+  +290 pagine (~1 MB) e `pgmajfault` +1222 in tutta la prova: sono i caricamenti delle librerie la prima volta,
+  non un kernel che butta fuori librerie in uso. *Il criterio non è «niente OOM»: è niente thrash.*
+- Il video costa quindi **+105 MB con cache / +62 MB anonimi** sul riposo, e il momento peggiore è il turno
+  in cui il risolutore (~41 MB, ~3 s) si sovrappone alla voce e alla partenza di ffmpeg; il risolutore si chiude
+  da solo prima che ffmpeg parta del tutto.
+- **Ottimizzazione fatta: ffmpeg a un thread** (`-threads 1 -filter_threads 1 -filter_complex_threads 1`):
+  RAM anonima di ffmpeg **36,7 → 27,6 MB**, CPU **55% → 42%** di un core, stessi fps (23,5 contro 23,9 con
+  l'avvio). Il probing (`-probesize`) non cambia niente. Con la nuova opzione ffmpeg pesa 62 MB PSS invece di 72.
+- **Rust non serve**: il costo è nelle librerie libav (già C) e nell'interprete Python di yt-dlp; un risolutore in
+  Rust sarebbe lo stesso lavoro di richieste a YouTube che farebbe una versione in Python con la sola stdlib, più
+  un toolchain di cross-compilazione, per risparmiare ~10 MB di interprete. Un risolutore leggero in Python
+  (senza importare yt-dlp: -41 MB transitori e ~-1,3 s di latenza) si può fare, ma va mantenuto dietro a
+  YouTube: non l'ho fatto perché la RAM ci sta e yt-dlp resta il ripiego automatico comunque.
+- **Cosa la prova non copre**: il microfono e il VAD (arecord, ~poca RAM), la sveglia, i buffer di un turno
+  più lungo, e la base reale del servizio (il 238,8 MB del 24 h è un `memory.peak` dalla nascita del servizio:
+  contiene il picco di avvio, quindi non è una base di riposo). Per questo la decisione 5 chiede di guardare
+  il picco vero dopo il deploy. `MemorySwapMax` non era impostato (come nel servizio): la zram assorbe i picchi.
 
 ## Pausa e ripresa
 
@@ -123,6 +150,39 @@ ufficiale»). Un genere o un umore senza brano né artista («un po' di jazz», 
 - `python -m bmo_core.prova_frasi --categoria video` (ripetibile; attenzione alla quota di Gemini: a metà
   della prima corsa è comparso «quota esaurita su tutti i modelli» e ha ripreso da solo dopo 30 s).
 
+## Anteprima sul portatile (prima del deploy)
+
+`python -m bmo_core.anteprima_video "<ricerca>"` mostra in una finestra come lo vedrebbe lo schermo: stessa
+catena di produzione (ricerca, risoluzione, ffmpeg con **la stessa risoluzione e gli stessi fps che sceglierebbe
+sul Pi**), composta sul canvas 320×240 con le bande nere, ingrandita a pixel netti (`--scala 3` = 960×720),
+audio dal PC. `--file clip.mp4` per un file, `--png f.png --png-dopo 20` per un fotogramma senza finestra.
+Non simula la dimensione fisica del 2,4", la retroilluminazione né il bus SPI. Verificato: PNG su un video
+vero (video 320×180 a 25 fps centrato su 320×240, con il banding dell'rgb565) e finestra mpv che gira senza errori.
+
+## Audio: voce e video insieme (software, nessun costo)
+
+- **In produzione PipeWire non gira** (nessuna sessione utente, `irrobustisci.sh` lo ha tolto: -35-50 MB; sul Pi
+  lo vedevo acceso solo per via del mio SSH, `Linger=no`) e l'audio va in ALSA diretto. Non c'è `/etc/asound.conf`
+  (mai distribuito: `docs/note-issue-64.md`).
+- La WM8960 ha **un solo sottodispositivo** di riproduzione: voce (mpv) e video (ffmpeg) non possono aprirla
+  insieme. La soluzione software già nel piano (§2.10) è **ALSA `dmix`**, il mixer in libasound: nessun demone,
+  RAM trascurabile. `pi/asound.conf.modello` + `pi/installa-audio.sh` (con `sudo`, lanciato anche da `deploy.sh`)
+  lo installano **solo quando c'è la WM8960**; senza l'HAT non fa nulla (sul jack analogico voce e video suonano
+  insieme già oggi e il driver `bcm2835` non supporta nemmeno `dmix`: provato, «unable to open slave»).
+- Il modello aggiunge `video_out` = `plug` → **volume software «Video»** (`softvol`) → `dmix`. Verificato sul Pi
+  (scheda analogica) la parte del volume: il controllo `Video` compare in `amixer` e passa da 100% (0 dB) a
+  30% (−28 dB) al volo. **Non verificato**: `dmix` con due flussi veri, impossibile finché non c'è l'HAT.
+- Lato codice: `video.uscita_audio_predefinita()` sceglie `alsa:video_out` se l'ALSA di sistema lo definisce,
+  altrimenti `alsa:default` (come oggi); `BMO_VIDEO_AUDIO` vince su tutto. **Mentre BMO parla il video si abbassa
+  al 30%** (`VideoYouTube.abbassato()`, agganciato alla voce con `Macchina(abbassa_durante_voce=...)`) e poi torna
+  al 100%; senza il controllo «Video» è un no-op. Resta la pausa del video mentre BMO ascolta (già c'era).
+
+## Se il video non parte
+
+Se nessuno dei primi tre risultati parte, BMO **lo dice a voce**: suono di errore, faccia triste e
+«Non riesco a far partire il video: YouTube non mi risponde» (`Macchina.annuncia`). Una sola voce alla volta:
+l'avviso aspetta che finisca la risposta in corso (lock sulla voce, testato).
+
 ## Come ripetere
 
 ```
@@ -132,6 +192,10 @@ SINCRONO=1 ... (come sopra)                                                     
 systemd-run --user --scope -p MemoryMax=400M ~/bmo-pi/venv/bin/python pi/prova_video_e2e.py ...  # + memory.peak della cgroup
 ~/bmo-pi/venv/bin/python pi/peso_video_pi.py matrice "funny cats compilation" 15                # fps × scaler
 ~/bmo-pi/venv/bin/python pi/avvio_ffmpeg_pi.py "<ricerca>"                                      # opzioni di probing
+~/bmo-pi/venv/bin/python pi/ffmpeg_ram.py "<ricerca>"                                           # RAM anonima di ffmpeg, per variante
+systemd-run --user --scope -p MemoryMax=280M ~/bmo-pi/venv/bin/python pi/ram_video.py <repo> "<ricerca>" [--turno-reale]  # RAM nelle condizioni del servizio
+# laptop: l'anteprima di come lo vedrebbe lo schermo
+python -m bmo_core.anteprima_video "queen bohemian rhapsody video ufficiale"
 # laptop
 cd bmo-core && pytest tests/test_video.py tests/test_video_strumento.py     # senza rete (un test decodifica con ffmpeg)
 ```

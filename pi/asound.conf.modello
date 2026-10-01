@@ -1,0 +1,59 @@
+# Audio di BMO: più flussi insieme sulla stessa scheda, senza demoni (docs/02-piano-attuale.md §2.10).
+#
+# `@SCHEDA@` è l'id ALSA della scheda (`aplay -l`: «card 0: Headphones» -> Headphones; la WM8960 di
+# Waveshare è wm8960soundcard). `pi/installa-audio.sh` lo sostituisce e installa il file come
+# /etc/asound.conf. Niente PipeWire: a riposo non gira (pi/irrobustisci.sh) e costerebbe 35-50 MB.
+#
+# Perché serve: la WM8960 ha UN solo sottodispositivo di riproduzione, quindi la voce di BMO (mpv) e il
+# video (ffmpeg) non possono aprirla insieme. `dmix` è il mixer software di ALSA: ogni programma lo
+# apre come se fosse la scheda e i flussi vengono sommati in C dentro libasound (nessun processo in più,
+# RAM trascurabile). Con la scheda analogica del Pi 3 A+ (8 sottodispositivi) funzionava anche senza.
+#
+# `video_out` aggiunge un controllo di volume software «Video» solo per il video: serve ad abbassarlo
+# mentre BMO parla (`amixer -c @SCHEDA@ sset Video 30%`) e a rialzarlo dopo, senza riavviare ffmpeg.
+
+pcm.!default {
+    type plug
+    slave.pcm "mixato"
+}
+
+ctl.!default {
+    type hw
+    card @SCHEDA@
+}
+
+pcm.mixato {
+    type dmix
+    ipc_key 5978293
+    ipc_perm 0666            # voce (bmo-core) e video (ffmpeg, figlio di bmo-core) sono lo stesso utente, ma costa nulla
+    slave {
+        pcm "hw:CARD=@SCHEDA@,DEV=0"
+        rate 48000
+        channels 2
+        period_size 1024
+        buffer_size 8192
+    }
+    bindings {
+        0 0
+        1 1
+    }
+}
+
+# `video_out` è quello che usa ffmpeg: `plug` ricampiona/converte (ffmpeg non lo fa da sé, il video è a 44,1 o 48 kHz) e
+# poi il volume software, poi il mixer.
+pcm.video_out {
+    type plug
+    slave.pcm "video_volume"
+}
+
+pcm.video_volume {
+    type softvol
+    slave.pcm "mixato"
+    control {
+        name "Video"
+        card @SCHEDA@
+    }
+    min_dB -40.0
+    max_dB 0.0
+    resolution 41
+}
