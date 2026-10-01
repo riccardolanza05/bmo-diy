@@ -9,11 +9,11 @@ Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *A
 | | |
 |---|---|
 | **Piano in vigore** | rev. 5.1 "cloud-first, solo voce" — [`docs/02-piano-attuale.md`](docs/02-piano-attuale.md) |
-| **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A, microSD (bring-up fatto, raggiungibile via SSH) |
-| **Hardware da comprare** | HAT audio, display, camera, minuteria (tutto UE, zero dazi) — **ultima fase** della roadmap |
-| **Software** | `bmo-core` in sviluppo sul PC: cervello con cascata di modelli e loop agentico, timer persistenti, macchina a stati, radio — vedi [`bmo-core/`](bmo-core/); wake word e TTS ancora da collegare (issue #21, #22) |
+| **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A, microSD (bring-up fatto, raggiungibile via SSH). L'HAT audio WM8960 non era ancora arrivato al 29/9/2026 |
+| **Hardware da comprare** | display, camera, minuteria (tutto UE, zero dazi) — **ultima fase** della roadmap |
+| **Software** | Su PC funzionano: [`bmo-core`](bmo-core/) con conversazione su Gemini (cascata di quattro modelli, loop agentico), wake word «Hey BMO» locale, ascolto fino al silenzio, voce, timer persistenti, radio, ricerca sul web, video di YouTube, diario di preferenze, persone di casa, memoria di sessione e foto con la webcam; e [`bmo-face`](bmo-face/), la faccia, in una finestra sul PC o senza schermo sul Pi. Sul Pi: deploy a un comando, `bmo-face` come servizio, prova di carico di 24 h passata (picco di RAM 239 MB). `bmo-core` come servizio parte solo con l'HAT audio |
 | **Meccanica** | non iniziata (niente ancora stampato) |
-| **Fase corrente della roadmap** | Fase 1 — software su PC con `bmo-core`, usando webcam, microfono e casse del computer (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap), software-first dal 2026-09-19) |
+| **Fase corrente della roadmap** | Fase 2 — porting sul Pi: bring-up, deploy, misure di RAM e prova di 24 h fatti; in attesa dell'HAT audio per la Fase 4 (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap), software-first dal 2026-09-19) |
 
 Il progetto è arrivato a questo punto passando per cinque revisioni della distinta base e tre premesse di fondo che ne hanno riscritto l'architettura (niente modelli locali, solo interazione vocale, hardware già in parte comprato). La storia completa, comprese le decisioni scartate e perché, è in [`docs/01-storia-del-progetto.md`](docs/01-storia-del-progetto.md).
 
@@ -25,26 +25,42 @@ docs/
 ├── 01-storia-del-progetto.md         Come si è arrivati al piano attuale, revisione per revisione
 ├── 02-piano-attuale.md               IL PIANO IN VIGORE: BOM, architettura software, roadmap, rischi
 ├── 03-riferimenti-esterni.md         Link ai progetti di riferimento e alle fonti
+├── note-issue-NN.md                  Numeri grezzi e metodo di ogni issue (anche note-video-youtube.md)
+├── decisioni-issue-NN.md             Scelte che spettano a Riccardo: opzioni, default, conseguenze
+├── informazioni-issue-NN.md          Cose da sapere, non da decidere
 └── revisioni-precedenti/             Distinte base superate — non sono scartate: ognuna
     ├── rev3-hardware-bom.md          resta l'UNICA fonte per una parte del progetto (vedi i
     ├── rev3-piano-progetto.md        banner in cima a ciascun file)
     ├── rev4-bom-senza-dazi.md
     └── rev3-sintesi-bom.md
 
-bmo-core/                             Logica di dialogo, in sviluppo sul PC (omarchy) prima
-└── src/bmo_core/                     ancora di comprare HAT/display/camera — vedi bmo-core/README.md
+bmo-core/                             Logica di dialogo, sviluppata sul PC (omarchy) e in uso
+└── src/bmo_core/                     sul Pi — vedi bmo-core/README.md
     ├── brain.py                       il cervello: prompt, cascata di modelli, loop agentico
     ├── macchina.py                    la macchina a stati (attesa/ascolto/pensiero/parlato)
     ├── modelli.py                     cascata dei modelli Gemini con ripiego automatico
     ├── strumenti.py                   le dichiarazioni degli strumenti per Gemini
+    ├── wake_word.py / vad.py          richiamo «Hey BMO» locale e ascolto fino al silenzio
+    ├── tts.py / suoni.py / volumi.py  voce, suoni senza parole e volumi
     ├── timer.py / sveglia.py          timer persistenti su disco e il processo che li fa suonare
     ├── radio.py / ricerca.py          radio via internet e ricerca sul web
+    ├── video.py / risolvi_youtube.py  video di YouTube
+    ├── memoria.py / sessione.py       diario di preferenze e memoria di conversazione
     ├── prova_frasi.py                 il banco di prova a frasi del prompt di sistema
+    ├── misura_modelli.py              misure dei modelli Gemini (non importato dal servizio)
+    ├── simula_cascata.py              simulatore della cascata (non importato dal servizio)
     ├── config.py                      rileva l'ambiente: PC di sviluppo o Raspberry Pi
     └── adapters/                      confine hardware: stessa logica, implementazione diversa
 
-pi/
-└── irrobustisci.sh                   prepara il Raspberry Pi per il 24/7 (issue #25): idempotente
+bmo-face/                             La faccia di BMO: finestra sul PC, pannello senza schermo sul Pi
+└── src/bmo_face/                     (uscita SPI col display vero da fare) — vedi bmo-face/README.md
+
+pi/                                   Tutto ciò che serve sul Raspberry Pi
+├── deploy.sh                         deploy a un comando (issue #16), da lanciare sul Pi via SSH
+├── irrobustisci.sh                   prepara il Raspberry Pi per il 24/7 (issue #25): idempotente
+├── systemd/                          unit di bmo-core e bmo-face
+├── bmo-core-env.esempio              variabili d'ambiente (chiave Gemini, cascata) per /etc/bmo/env
+└── *.py, *.sh                        misure di RAM, carico e video sul Pi
 ```
 
 ## Per chi vuole ricostruire BMO da zero
