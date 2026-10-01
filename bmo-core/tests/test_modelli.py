@@ -3,6 +3,7 @@ import pytest
 from google.genai import errors, types
 
 from bmo_core.modelli import (
+    MODELLI_PREDEFINITI,
     SOSPENSIONE_SOVRACCARICO_S,
     TENTATIVI_SDK,
     MINIMO_TIMEOUT_SERVER_S,
@@ -56,7 +57,71 @@ def test_cascata_da_ambiente(monkeypatch):
     monkeypatch.setenv("BMO_GEMINI_MODEL", "solo")
     assert modelli_da_ambiente() == ["solo"]
     monkeypatch.delenv("BMO_GEMINI_MODEL")
-    assert modelli_da_ambiente() == ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+    assert modelli_da_ambiente() == MODELLI_PREDEFINITI
+
+
+def test_predefinita_ha_i_lite_in_testa_e_i_flash_solo_in_coda():
+    """#73: l'ordine lo decide l'affidabilità misurata; i modelli con pochi
+    richieste al giorno non devono mai passare davanti ai due lite."""
+    assert MODELLI_PREDEFINITI[:2] == ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]
+    assert len(set(MODELLI_PREDEFINITI)) == len(MODELLI_PREDEFINITI)
+    # Esclusi dalle misure: 503/504 quasi sempre, niente audio, o 404.
+    for escluso in ("gemini-3.7-flash", "gemini-3.8-flash", "gemma-4-26b-a4b-it", "gemini-2.5-flash"):
+        assert escluso not in MODELLI_PREDEFINITI
+
+
+def test_nel_traffico_normale_la_coda_non_viene_chiamata():
+    client = ClientProgrammato({m: ["ok", "ok"] for m in MODELLI_PREDEFINITI})
+    cascata = CascataModelli(orologio=Orologio())
+    cascata.genera(client, contents=[])
+    cascata.genera(client, contents=[])
+    assert client.chiamati == ["gemini-3.5-flash-lite"] * 2
+
+
+def test_se_cadono_i_lite_risponde_la_coda_e_poi_i_lite_tornano():
+    orologio = Orologio()
+    client = ClientProgrammato({
+        "gemini-3.5-flash-lite": [_errore(503), "di nuovo io"],
+        "gemini-3.1-flash-lite": [_errore(429, "20s"), "anche io"],
+        "gemini-3.6-flash": ["coda"],
+        "gemini-3.5-flash": [],
+    })
+    cascata = CascataModelli(orologio=orologio)
+    assert cascata.genera(client, contents=[]) == ("coda", "gemini-3.6-flash")
+    assert client.chiamati == ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash"]
+    orologio.t += SOSPENSIONE_SOVRACCARICO_S + 1  # il 429 da 20 s è già scaduto
+    assert cascata.genera(client, contents=[])[1] == "gemini-3.5-flash-lite"
+
+
+def test_quota_giornaliera_della_coda_esaurita_costa_solo_un_429_veloce():
+    """Misura del 1/10: a quota giornaliera finita Google risponde 429 con
+    retryDelay di pochi secondi. Il modello viene saltato per quel tempo e
+    la cascata passa oltre senza aspettare."""
+    orologio = Orologio()
+    client = ClientProgrammato({
+        "gemini-3.5-flash-lite": [_errore(503), _errore(503)],
+        "gemini-3.1-flash-lite": [_errore(503), "ok"],
+        "gemini-3.6-flash": [_errore(429, "8s")],
+        "gemini-3.5-flash": ["ultima"],
+    })
+    cascata = CascataModelli(orologio=orologio)
+    assert cascata.genera(client, contents=[]) == ("ultima", "gemini-3.5-flash")
+    assert cascata.disponibili() == ["gemini-3.5-flash"]  # gli altri tre sono sospesi
+    orologio.t += 9
+    assert "gemini-3.6-flash" in cascata.disponibili()
+
+
+def test_tutta_la_cascata_predefinita_fallita_dice_quota_se_c_e_un_429():
+    client = ClientProgrammato({
+        "gemini-3.5-flash-lite": [_errore(503)],
+        "gemini-3.1-flash-lite": [_errore(503)],
+        "gemini-3.6-flash": [_errore(429, "8s")],
+        "gemini-3.5-flash": [_errore(503)],
+    })
+    with pytest.raises(GeminiNonDisponibile) as errore:
+        CascataModelli(orologio=Orologio()).genera(client, contents=[])
+    assert errore.value.tipo == "quota"
+    assert list(errore.value.errori) == MODELLI_PREDEFINITI
 
 
 def test_503_passa_al_modello_di_riserva():

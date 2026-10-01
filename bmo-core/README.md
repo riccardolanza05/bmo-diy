@@ -72,8 +72,9 @@ rispondono `non_disponibile` finché non arrivano con l'issue #20.
 
 La chiave API va nella variabile d'ambiente `GEMINI_API_KEY` (se è impostata
 anche `GOOGLE_API_KEY`, l'SDK usa quella). Il modello predefinito è
-`gemini-3.5-flash-lite`, con `gemini-3.1-flash-lite` come riserva (vedi la
-cascata sotto); per usare un solo modello basta `BMO_GEMINI_MODEL`.
+`gemini-3.5-flash-lite`, con `gemini-3.1-flash-lite` come riserva e due
+modelli più forti in coda (vedi la cascata sotto); per usare un solo modello
+basta `BMO_GEMINI_MODEL`.
 
 ```bash
 export GEMINI_API_KEY=...
@@ -567,8 +568,15 @@ python -m bmo_core.prova_frasi --prompt prompt/nuovo.txt
 
 Se il modello primario risponde con quota esaurita (429) o sovraccarico
 (500/502/503/504), `modelli.py` passa subito al modello successivo della
-cascata. Quella predefinita è `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`;
-si cambia con una variabile d'ambiente, senza toccare il codice:
+cascata. Quella predefinita (#73) è `gemini-3.5-flash-lite` →
+`gemini-3.1-flash-lite` → `gemini-3.6-flash` → `gemini-3.5-flash`. I due lite
+stanno in testa perché sono i più affidabili misurati (96% e 92% di richieste
+riuscite, 1/10/2026); i due Flash, più forti ma con pochissime richieste al
+giorno e 5 al minuto, vengono chiamati solo se i lite falliscono. Esclusi:
+`gemini-3.7-flash` e `gemini-3.8-flash` (503/504 quasi sempre), Gemma 4
+(rifiuta l'audio), `gemini-2.5-*` (404). Misure e motivi in
+`docs/note-issue-73.md`. Si cambia con una variabile d'ambiente, senza
+toccare il codice:
 
 ```bash
 # quali modelli ha a disposizione la tua chiave
