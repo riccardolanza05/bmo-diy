@@ -29,8 +29,12 @@ from PIL import Image
 from .animazione import Renderer
 from .formato import NOME_BIN, NOME_JSON, carica_manifesto, mappa_bin
 from .servitore import ServitoreFaccia
+from .video import RiceviFotogrammi, percorso_socket_video
 
 FPS_PANNELLO = 25.0
+# Se un video è "attivo" e non arriva un fotogramma da tanto (bmo-core morto
+# senza dire `stop`), la faccia torna da sola invece di restare congelata.
+SILENZIO_VIDEO_S = 5.0
 
 
 class UscitaPannello:
@@ -42,6 +46,19 @@ class UscitaPannello:
     def disegna_frame(self, frame: Image.Image) -> None:
         raise NotImplementedError
 
+    # Il video (bmo-core lo decodifica, qui arriva già in rgb565 della forma
+    # giusta): l'uscita SPI disegnerà solo quel rettangolo, centrato, e
+    # lascerà spente le bande. I tre metodi hanno un default che non fa
+    # niente, così un'uscita che non sa di video non si rompe.
+    def inizio_video(self, larghezza: int, altezza: int) -> None:
+        """Il video parte: l'uscita può pulire le bande e preparare la finestra."""
+
+    def disegna_video(self, dati: bytes, larghezza: int, altezza: int) -> None:
+        """Un fotogramma rgb565 (2 byte per pixel, little endian)."""
+
+    def fine_video(self) -> None:
+        """Il video è finito: la faccia sta per tornare, da ridisegnare per intero."""
+
 
 class UscitaNulla(UscitaPannello):
     """Calcola e butta via: serve alla fase 2.3 per misurare RAM e CPU veri
@@ -49,9 +66,21 @@ class UscitaNulla(UscitaPannello):
 
     def __init__(self) -> None:
         self.fotogrammi_inviati = 0
+        self.fotogrammi_video = 0
+        self.video_iniziati = 0
+        self.video_finiti = 0
 
     def disegna_frame(self, frame: Image.Image) -> None:
         self.fotogrammi_inviati += 1
+
+    def inizio_video(self, larghezza: int, altezza: int) -> None:
+        self.video_iniziati += 1
+
+    def disegna_video(self, dati: bytes, larghezza: int, altezza: int) -> None:
+        self.fotogrammi_video += 1
+
+    def fine_video(self) -> None:
+        self.video_finiti += 1
 
 
 class UscitaSpi(UscitaPannello):
@@ -84,6 +113,7 @@ def esegui_pannello(
     orologio=time.monotonic,
     dormi=time.sleep,
     ancora=lambda: True,
+    ricevitore: RiceviFotogrammi | None = None,
 ) -> None:
     """Il loop principale: nessun main loop di GTK qui, solo un polling a
     `fps` che disegna e manda all'uscita solo i fotogrammi diversi dal
@@ -91,9 +121,42 @@ def esegui_pannello(
     attesa reale, nessun loop infinito)."""
     ultimo_grezzo: bytes | None = None
     periodo = 1.0 / fps
+    in_video = False
+    primo = False
+    ultimo_numero = 0
+    ultima_attivita = orologio()
     while ancora():
         inizio = orologio()
         comando = servitore.comando_snapshot()
+        if comando.video_attivo and ricevitore is not None:
+            # Il video prende il posto della faccia. Si aspetta il prossimo
+            # fotogramma (al massimo un periodo) invece di sondare a 25 Hz:
+            # un video a 24 fps non deve perdere fotogrammi per l'aliasing.
+            if not in_video:
+                in_video = True
+                ultima_attivita = inizio
+                primo = True
+                # I fotogrammi di un video precedente ancora nel ricevitore non contano.
+                ultimo_numero = ricevitore.numero_attuale()
+            fotogramma = ricevitore.nuovo(ultimo_numero, periodo)
+            if fotogramma is not None:
+                if primo:
+                    primo = False
+                    uscita.inizio_video(fotogramma.larghezza, fotogramma.altezza)
+                ultimo_numero = fotogramma.numero
+                ultima_attivita = orologio()
+                uscita.disegna_video(fotogramma.dati, fotogramma.larghezza, fotogramma.altezza)
+            elif not comando.video_in_pausa and orologio() - ultima_attivita > SILENZIO_VIDEO_S:
+                with servitore.lock:
+                    servitore.comando.video_attivo = False
+                    servitore.comando.video_titolo = None
+            elif comando.video_in_pausa:
+                ultima_attivita = orologio()
+            continue
+        if in_video:
+            in_video = False
+            uscita.fine_video()
+            ultimo_grezzo = None  # lo schermo ha i resti del video: la faccia si ridisegna per intero
         frame = renderer.disegna(comando, inizio)
         grezzo = frame.tobytes()
         if grezzo != ultimo_grezzo:
@@ -120,6 +183,8 @@ def main() -> None:
         renderer = Renderer(manifesto, dati)
         servitore = ServitoreFaccia(percorso=argomenti.socket)
         servitore.avvia()
+        ricevitore = RiceviFotogrammi(percorso_socket_video(servitore.percorso))
+        ricevitore.avvia()
         print(f"[pannello: uscita={argomenti.uscita}, socket su {servitore.percorso}]", file=sys.stderr)
 
         fermare = False
@@ -132,8 +197,10 @@ def main() -> None:
         signal.signal(signal.SIGINT, gestisci_stop)
 
         try:
-            esegui_pannello(renderer, servitore, uscita, fps=argomenti.fps, ancora=lambda: not fermare)
+            esegui_pannello(renderer, servitore, uscita, fps=argomenti.fps, ancora=lambda: not fermare,
+                            ricevitore=ricevitore)
         finally:
+            ricevitore.ferma()
             servitore.ferma()
 
 

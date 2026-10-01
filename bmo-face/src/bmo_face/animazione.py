@@ -117,6 +117,13 @@ class ComandoFaccia:
     # dica "basta", esattamente come l'espressione.
     immagine: bytes | None = None
     immagine_scadenza: float | None = None
+    # Dal comando `video`: bmo-core sta riproducendo un video e i fotogrammi
+    # arrivano a parte, su un socket datagram (`video.py`); finché è attivo
+    # prende il posto della faccia. In pausa i fotogrammi non arrivano: il
+    # sorvegliante del pannello non lo scambia per un bmo-core morto.
+    video_attivo: bool = False
+    video_in_pausa: bool = False
+    video_titolo: str | None = None
 
 
 def livello_bocca(comando: ComandoFaccia, t: float) -> float:

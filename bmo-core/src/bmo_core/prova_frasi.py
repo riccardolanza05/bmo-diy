@@ -43,8 +43,10 @@ SOGLIA = 0.9
 # Categorie escluse dalla corsa completa, da chiedere con --categoria. La
 # prova storica della #19 e' sulle frasi italiane: mescolarci quelle inglesi
 # cambierebbe il numero di riferimento e non sarebbe piu' confrontabile con
-# le misure precedenti.
-CATEGORIE_A_PARTE = ("inglese",)
+# le misure precedenti. Lo stesso vale per "video" (radio o YouTube, e i controlli
+# di un video in corso): il banco storico resta di 48 frasi, con due sole modifiche
+# volute, le due frasi di musica che oggi vanno a YouTube (vedi sotto).
+CATEGORIE_A_PARTE = ("inglese", "video")
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,9 @@ class Frase:
     # le 40 frasi storiche restano giudicate solo sugli strumenti, cosi' il
     # 40/40 di riferimento della #19 continua a voler dire la stessa cosa.
     lingua: str | None = None
+    # Righe in più nello STATO prima della frase (es. un video in corso): per provare
+    # i controlli e il volume, che dipendono da cosa sta andando.
+    stato: tuple[str, ...] = ()
 
 
 def _f(
@@ -79,8 +84,9 @@ def _f(
     *attesi: Atteso,
     timer: tuple[tuple[str, int], ...] = (),
     lingua: str | None = None,
+    stato: tuple[str, ...] = (),
 ) -> Frase:
-    return Frase(categoria, testo, attesi, timer, lingua)
+    return Frase(categoria, testo, attesi, timer, lingua, stato)
 
 
 FRASI = [
@@ -107,11 +113,44 @@ FRASI = [
     # Musica e radio.
     _f("musica", "Metti Radio Deejay", usa("riproduci_musica", query="deejay")),
     _f("musica", "Accendi la radio", usa("riproduci_musica")),
-    # Non c'è una libreria locale: una canzone precisa diventa una radio, oppure
-    # BMO spiega che può solo mettere la radio. Tutt'e due vanno bene.
-    _f("musica", "Metti Bohemian Rhapsody dei Queen", usa("riproduci_musica"), nessuno()),
+    # La radio è per la radio, le stazioni e i generi: un intero genere o un umore senza un
+    # brano né un artista preciso resta radio.
     _f("musica", "Fammi sentire un po' di jazz", usa("riproduci_musica", query="jazz")),
-    _f("musica", "Riproduci il video di Gangnam Style", usa("riproduci_musica"), nessuno()),
+    _f("musica", "Metti della musica rock", usa("riproduci_musica")),
+    _f("musica", "Sintonizzati su Radio Capital", usa("riproduci_musica", query="capital")),
+    # Un brano preciso, un artista o un video: si cerca su YouTube e si usa il videoclip.
+    _f("video", "Metti la radio sui cento e sette", usa("riproduci_musica")),
+    _f("video", "Metti Bohemian Rhapsody dei Queen", usa("riproduci_video", query="bohemian")),
+    _f("video", "Fammi sentire Despacito", usa("riproduci_video", query="despacito")),
+    _f("video", "Metti il video di Gangnam Style", usa("riproduci_video", query="gangnam")),
+    _f("video", "Riproduci il video di Gangnam Style", usa("riproduci_video", query="gangnam")),
+    _f("video", "Mettimi il videoclip di Get Lucky dei Daft Punk", usa("riproduci_video", query="get lucky")),
+    _f("video", "Metti Zitti e buoni dei Måneskin", usa("riproduci_video", query="zitti")),
+    _f("video", "Fammi vedere un video di gatti divertenti", usa("riproduci_video", query="gatti")),
+    _f("video", "Metti una canzone dei Coldplay", usa("riproduci_video", query="coldplay")),
+    _f("video", "Fammi sentire i Queen", usa("riproduci_video", query="queen")),
+    _f("video", "Mi fai sentire Yellow?", usa("riproduci_video", query="yellow")),
+    _f("video", "Voglio ascoltare Wonderwall degli Oasis", usa("riproduci_video", query="wonderwall")),
+    _f("video", "Cerca su YouTube un tutorial per fare la carbonara", usa("riproduci_video", query="carbonara")),
+    # Una sola cosa alla volta: i controlli valgono per quello che sta andando (lo dice lo STATO).
+    _f("video", "Metti in pausa il video", usa("controllo_riproduzione", azione="pausa"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)".',)),
+    _f("video", "Ferma il video", usa("controllo_riproduzione", azione="stop"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)".',)),
+    _f("video", "Basta, spegni", usa("controllo_riproduzione", azione="stop"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)".',)),
+    _f("video", "Passa al prossimo", usa("controllo_riproduzione", azione="successivo"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)".',)),
+    _f("video", "Riprendi", usa("controllo_riproduzione", azione="riprendi"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)" (in pausa).',)),
+    _f("video", "Abbassa il volume", usa("regola_volume", canale="sistema"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)".',)),
+    _f("video", "Adesso metti Radio Deejay", usa("riproduci_musica", query="deejay"),
+       stato=('Video: in riproduzione "Queen - Bohemian Rhapsody (Official Video)".',)),
+    _f("video", "Metti Another One Bites the Dust", usa("riproduci_video", query="another one"),
+       stato=('Radio: accesa su "Radio Deejay 107.0", volume della radio 40%.',)),
+    _f("video", "Un po' più piano, per favore", usa("regola_volume", canale="radio"),
+       stato=('Radio: accesa su "Radio Deejay 107.0", volume della radio 40%.',)),
     _f("musica", "Metti in pausa la musica", usa("controllo_riproduzione", azione="pausa")),
     _f("musica", "Cambia stazione", usa("controllo_riproduzione", azione="successivo")),
     _f("musica", "Torna alla stazione di prima", usa("controllo_riproduzione", azione="precedente")),
@@ -155,6 +194,9 @@ FRASI = [
     _f("inglese", "Cancel the pasta timer", usa("annulla_timer", etichetta="pasta"),
        timer=(("pasta", 300),), lingua="en"),
     _f("inglese", "Play some jazz", usa("riproduci_musica", query="jazz"), lingua="en"),
+    _f("inglese", "Play Thriller by Michael Jackson", usa("riproduci_video", query="thriller"), lingua="en"),
+    _f("inglese", "Show me the Gangnam Style video", usa("riproduci_video", query="gangnam"), lingua="en"),
+    _f("inglese", "Turn on the radio", usa("riproduci_musica"), lingua="en"),
     _f("inglese", "What do you see in front of you?", usa("scatta_foto"), lingua="en"),
     _f("inglese", "What time is it?", nessuno(), lingua="en"),
     _f("inglese", "Thanks BMO, you are the best", nessuno(), lingua="en"),
@@ -210,6 +252,8 @@ def _prepara(cervello: Cervello, frase: Frase) -> None:
     # Stato noto a ogni frase: i timer stanno su disco (#20), quindi si
     # riscrive l'elenco invece di riempire una lista in memoria.
     cervello.archivio.sostituisci([Timer(e, ora + timedelta(seconds=s)) for e, s in frase.timer_attivi])
+    for riga in frase.stato:
+        cervello.registra_stato(lambda riga=riga: riga)
 
 
 def _descrivi_attesi(frase: Frase) -> str:

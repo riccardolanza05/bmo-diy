@@ -89,6 +89,7 @@ from .inviluppo import inviluppo_rms
 from .volumi import leggi_volume
 from .memoria import aggiungi_voce
 from .radio import Radio
+from .video import RisolutorePronto, VideoYouTube
 from .richiamo import MODELLI_PREDEFINITI, SOGLIA_PREDEFINITA, RichiamoWakeWord
 from .suoni import Suoni, SuoniMuti
 from .sveglia import Sveglia
@@ -293,13 +294,25 @@ class Macchina:
         dormi: Callable[[float], None] = time.sleep,
         sospendi_ascolto: Callable[[], AbstractContextManager[None]] | None = None,
         suoni: Suoni | SuoniMuti | None = None,
+        abbassa_durante_voce: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> None:
         self.cervello = cervello
         # Muti se non collegati: i test e prova_frasi non lanciano mpv.
         self.suoni = suoni or SuoniMuti()
         self.faccia = faccia or crea_faccia()
         self.richiamo = richiamo
-        self.voce = voce
+        # Una voce alla volta: oltre ai turni, un avviso può arrivare da un altro thread
+        # (`annuncia`, es. un video che non parte) e non deve parlare sopra una risposta.
+        self._blocco_voce = threading.Lock()
+
+        # Mentre BMO parla si abbassa quello che suona (il video): la voce si sente sopra.
+        abbassa = abbassa_durante_voce or (lambda: nullcontext())
+
+        def voce_una_alla_volta(*argomenti: Any, **parole: Any) -> None:
+            with self._blocco_voce, abbassa():
+                voce(*argomenti, **parole)
+
+        self.voce = voce_una_alla_volta
         # durata_ascolto_s/cap_conferma_s contano solo con usa_vad=False: col
         # VAD acceso è cap_ascolto_s/cap_conferma_s a fare da tetto, e ci si
         # ferma molto prima per silenzio.
@@ -484,6 +497,16 @@ class Macchina:
         # non prima e non durante.
         self.cervello.dopo_il_turno()
 
+    def annuncia(self, testo: str, lingua: str = "it") -> None:
+        """BMO dice una frase di sua iniziativa, fuori da un turno (es. «il video non parte»).
+
+        Si può chiamare da un altro thread: aspetta che la voce sia libera, poi suono di errore,
+        faccia triste e la frase. Non è una risposta del modello, quindi niente etichette.
+        """
+        self.faccia.esprimi("triste", 4.0)
+        self.suoni.errore()
+        self.voce(testo, lingua)
+
     def esegui(self, giri: int | None = None) -> None:
         """Aspetta di essere chiamato, finché non si esce (`giri` serve ai test).
 
@@ -564,6 +587,18 @@ def main() -> None:
     if not argomenti.senza_radio:
         radio = Radio()
         radio.registra(cervello)
+        # I video di YouTube: stessi controlli della radio, e un solo media alla volta.
+        video = VideoYouTube(
+            faccia=faccia,
+            ferma_radio=radio.ferma,
+            # Il video parte mentre BMO parla, e il risolutore si carica durante la ricerca.
+            in_background=True,
+            precarica=RisolutorePronto,
+            # Se nessun risultato parte, BMO lo dice (la `macchina` esiste quando serve).
+            al_fallimento=lambda motivo: macchina.annuncia("Non riesco a far partire il video: YouTube non mi risponde."),
+        )
+        radio.video = video
+        video.registra(cervello)
         print(f"Radio: {len(radio.preferite)} stazioni salvate in {radio.percorso}", flush=True)
     # Opt-in: il terminale resta la voce predefinita finché il TTS non è
     # stato sentito funzionare dal vivo. Così prova_frasi e i test non
@@ -620,12 +655,14 @@ def main() -> None:
         # Macchina.esegui(). I timer sono sempre disponibili via l'archivio
         # del cervello; la radio solo se collegata.
         qualcosa_attivo=lambda: (radio is not None and radio.lettore.in_riproduzione())
+        or (radio is not None and radio.video is not None and radio.video.presente())
         or bool(cervello.archivio.attivi()),
         # Il microfono aperto sente la radio come voce (trovato il 21/9): la
         # si sospende per la durata dell'ascolto e la si riprende subito
         # dopo. Radio.sospesa() non fa nulla se non sta suonando.
         sospendi_ascolto=radio.sospesa if radio is not None else None,
         suoni=suoni_bmo,
+        abbassa_durante_voce=radio.video.abbassato if radio is not None and radio.video is not None else None,
     )
     if not argomenti.senza_timer:
         # Nello stesso processo, in un thread: un timer deve suonare anche
