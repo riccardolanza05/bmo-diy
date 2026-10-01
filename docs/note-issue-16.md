@@ -105,9 +105,12 @@ verificato con l'output reale di systemd, non solo a comando lanciato:
   pulito ("Buonanotte", non un crash), systemd riavvia dopo 2 s (picco di
   memoria osservato durante l'avvio: 168 MB, ben sotto il tetto di 280).
   **Esattamente lo stato atteso** finché non arriva l'hardware della
-  fase 3/4 — fermato con `systemctl stop` per non farlo ciclare a vuoto,
-  resta `enabled`: ripartirà da solo al prossimo riavvio o quando l'audio
-  ci sarà.
+  fase 3/4 — fermato con `systemctl stop` per non farlo ciclare a vuoto.
+  Il 28/9 era rimasto `enabled` (sarebbe ripartito al riavvio); **poi è stato
+  disabilitato**: il 29/9 `systemctl is-enabled` dava `disabled` per
+  `bmo-core` e `enabled` per `bmo-face` (`docs/note-issue-65.md`), e lo
+  stesso risultava il 1/10/2026 (servizio inattivo e disabilitato). Va
+  riabilitato quando arriva l'HAT audio.
 
 Il deploy a un comando (script, wrapper, unit, condivisione del socket fra
 i due servizi, lettura del segreto) è verificato end-to-end sul Pi reale.
