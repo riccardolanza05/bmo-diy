@@ -19,13 +19,17 @@ from .base import (
     LettoreAdapter,
     VolumeAdapter,
 )
-from .camera import LibcameraAdapter, WebcamV4L2Adapter
+from .camera import CameraGrezzaV4L2, LibcameraAdapter, WebcamV4L2Adapter
 from .faccia import FacciaMuta, FacciaSocket, FacciaTerminale
 from .lettore import LettoreMpv
 from .volume import VolumeAlsa, VolumePipeWire
 
 
 def crea_camera(ambiente: Ambiente | None = None) -> CameraAdapter:
+    # `BMO_CAMERA=grezza` (#77): la camera CSI del Pi senza libcamera, via V4L2.
+    # Opt-in esplicito: senza la variabile non cambia niente.
+    if os.environ.get("BMO_CAMERA") == "grezza":
+        return CameraGrezzaV4L2()
     ambiente = ambiente or rileva_ambiente()
     if ambiente is Ambiente.PI:
         return LibcameraAdapter()
