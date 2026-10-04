@@ -19,10 +19,31 @@ def test_crea_uscita_nulla():
     assert isinstance(crea_uscita("nulla"), UscitaNulla)
 
 
-def test_crea_uscita_spi_non_implementata():
-    # L'interfaccia esiste già (issue #63); l'hardware no (fase 4.5/4.7).
-    with pytest.raises(NotImplementedError, match="fase 4.5/4.7"):
-        crea_uscita("spi")
+def test_crea_uscita_spi_usa_il_display_dell_ambiente(monkeypatch):
+    # L'uscita SPI c'è dalla #77: il display vero si crea da `BMO_SPI_*`.
+    from bmo_face import spi as modulo_spi
+    from bmo_face.spi import DisplayIli9341
+
+    class Finto:
+        def __init__(self):
+            self.livelli = {}
+
+        def uscita(self, pin, alto):
+            self.livelli[pin] = alto
+
+        def rilascia(self):
+            pass
+
+        def scrivi(self, dati):
+            pass
+
+        def chiudi(self):
+            pass
+
+    finto = Finto()
+    display = DisplayIli9341(finto, finto, larghezza=16, altezza=16, dormi=lambda s: None)
+    monkeypatch.setattr(modulo_spi, "crea_display_da_ambiente", lambda: display)
+    assert isinstance(crea_uscita("spi"), UscitaSpi)
 
 
 def test_crea_uscita_sconosciuta():

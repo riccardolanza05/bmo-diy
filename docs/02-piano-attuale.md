@@ -151,21 +151,24 @@ In più, gratis: microfoni e amplificatore stanno sullo **stesso codec**, quindi
 
 ### 1.4 Mappa dei pin
 
-Il HAT occupa **I2S** (GPIO18/19/20/21) e **I2C** (GPIO2/3); il display sta su **SPI0** più tre GPIO liberi; la fotocamera passa dal CSI. I fili del display vanno sui pin che sporgono **sopra** il HAT.
+> **Aggiornamento 2026-10-04 — cablaggio reale.** Display e camera sono montati e provati sul Pi, senza il HAT audio (non ancora arrivato). La tabella qui sotto è la configurazione **attuale e verificata dal vivo**; il piano originale prevedeva DC=GPIO23 e RST=GPIO24, ma il display è stato cablato con i **pin di fabbrica del Waveshare** (DC=GPIO25, RST=GPIO27), che con il HAT audio sono ugualmente liberi, quindi si tengono. È cambiato un solo filo rispetto al cablaggio di fabbrica: il **backlight**, spostato dal GPIO18 al **GPIO12**. Il codice (`bmo_face.spi`) ha questi valori come predefiniti, modificabili con le variabili `BMO_SPI_*`.
+
+Il HAT occupa **I2S** (GPIO18/19/20/21), **I2C** (GPIO2/3) e il **pulsante** (GPIO17, dal wiki Waveshare); il display sta su **SPI0** più tre GPIO liberi; la fotocamera passa dal CSI. I fili del display vanno sui pin che sporgono **sopra** il HAT.
 
 | Segnale | Pin | BCM | Note |
 |---|---|---|---|
-| Display SCLK | 23 | GPIO11 | SPI0 |
-| Display MOSI | 19 | GPIO10 | SPI0 |
+| Display SCLK (CLK) | 23 | GPIO11 | SPI0 |
+| Display MOSI (DIN) | 19 | GPIO10 | SPI0 |
 | Display CS | 24 | GPIO8 | CE0 |
-| Display DC | 16 | GPIO23 | |
-| Display RST | 18 | GPIO24 | |
-| **Display BL** | **32** | **GPIO12** | ⚠️ `luma.lcd` mette il backlight su **GPIO18** di default, che qui è il BCLK dell'I2S. Passare `gpio_LIGHT=12` (ALT0 = PWM0). Il sintomo se sbagliato è indiretto e fa perdere una serata: il display funziona e **l'audio smette** |
-| Display MISO | — | — | **Non collegare** |
-| Display VCC | — | 3,3 V o 5 V | **Guardare il modulo**: regolatore a bordo → 5 V; senza → 3,3 V, e 5 V lo distrugge. Nel dubbio 3,3 V |
+| Display DC | **22** | **GPIO25** | pin di fabbrica Waveshare. ✅ verificato dal vivo (4/10/2026) |
+| Display RST | **13** | **GPIO27** | pin di fabbrica Waveshare. ✅ verificato dal vivo (4/10/2026) |
+| **Display BL** | **32** | **GPIO12** | ✅ verificato dal vivo. ⚠️ Il pin di fabbrica del backlight è il **GPIO18 (pin 12)**, che con il HAT è il **BCLK dell'I2S**: va spostato, ed è già stato fatto. `luma.lcd` usa GPIO18 di default (`gpio_LIGHT=12` per cambiarlo). Il sintomo se sbagliato è indiretto e fa perdere una serata: il display funziona e **l'audio smette**. Il backlight del modulo **non si accende da solo**: resta spento finché il pin non è alto |
+| Display MISO | — | — | **Non collegare** (il controller non si può nemmeno interrogare: lo si verifica guardando lo schermo) |
+| Display VCC | — | 3,3 V o 5 V | **Guardare il modulo**: regolatore a bordo → 5 V; senza → 3,3 V, e 5 V lo distrugge. Nel dubbio 3,3 V. *(Quale dei due sia stato usato nel cablaggio attuale non è annotato: da riportare qui.)* |
 | I2S + I2C + alimentazione audio | — | GPIO18/19/20/21, GPIO2/3 | Gestiti dal HAT, nessun cablaggio manuale |
-| Fotocamera | CSI | — | connettore dedicato 15 pin |
-| GPIO liberi | | 5, 6, 13, 16, 17, 22, 26, 27 | Non serve niente |
+| Pulsante del HAT | — | GPIO17 | Serve alla #70 (richiamo manuale) |
+| Fotocamera | CSI | — | connettore dedicato 15 pin; sensore **OV5647** (camera v1) |
+| GPIO liberi | | 5, 6, 13, 16, 22, 23, 24, 26 | Con il cablaggio attuale (display su 25, 27 e 12; HAT su 2, 3, 17, 18-21). Il 23 e il 24 erano di DC e RST nel piano originale |
 
 `/boot/firmware/config.txt`:
 
@@ -177,6 +180,40 @@ camera_auto_detect=1
 gpu_mem=16
 # opzionale: dtoverlay=disable-bt   (se si rinuncia all'uscita A2DP verso una cassa vera)
 ```
+
+Sul Pi di oggi (4/10/2026, senza HAT) ci sono `dtparam=spi=on`, `camera_auto_detect=1`, `gpu_mem=16` e `dtoverlay=disable-bt`; **`dtoverlay=wm8960-soundcard` va aggiunto solo quando arriva il HAT**.
+
+#### Schermo: cosa è stato verificato (4/10/2026)
+
+- **Modulo:** Waveshare 2.4" LCD, ILI9341, 320×240 in orizzontale (240×320 in verticale). `/dev/spidev0.0` e `/dev/spidev0.1` esistono; non serve nessun driver del kernel, si pilota da `spidev` con tre GPIO (DC, RST, BL).
+- **Verificato:** inizializzazione del controller, riempimento a colori (rosso, verde, blu), foto sul display e **backlight sul GPIO12 (pin 32)**: sul GPIO12 la retroilluminazione si accende; sul pin di fabbrica (GPIO18) lo faceva già prima.
+- **Non verificato:** l'orientamento e l'ordine dei colori di una foto vera (`BMO_SPI_MADCTL`, predefinito `0x28` = orizzontale, ordine BGR); velocità dell'SPI oltre i 16 MHz (il predefinito del codice è 20 MHz, `BMO_SPI_HZ`).
+- **Cose che hanno fatto perdere tempo:**
+  - Il bianco fisso senza immagini non significa «collegato bene»: un ILI9341 senza inizializzazione mostra il bianco appena è alimentato. Indica solo che l'alimentazione e il backlight arrivano; i dati (MOSI, CLK, CS, DC, RST) vanno verificati a parte, con un test a colori.
+  - A programma finito i GPIO tornano in ingresso con il pull-down: **RST basso tiene il display in reset** e il backlight si spegne. Per tenere un'immagine ferma dopo la fine dello script servono `pinctrl set 27 op dh` e `pinctrl set 12 op dh`; `bmo-face` (`UscitaSpi`) lo evita restando in esecuzione.
+  - Il Pi si è riavviato una volta mentre si muoveva il connettore del display: un contatto instabile sulla linea di alimentazione può portare via la corrente al Pi stesso, non solo al modulo.
+- **Codice:** `bmo_face.spi` (pilota dell'ILI9341) e `UscitaSpi` in `bmo_face.pannello` (`--uscita spi`): scrive solo il rettangolo cambiato, centra il video, scambia i byte da little a big endian.
+
+#### Fotocamera: cosa è stato verificato (4/10/2026)
+
+- **Sensore:** OV5647 (camera v1) sul connettore CSI. Il kernel lo vede: controller `unicam`, entità `ov5647 10-0036`, nodi `/dev/video0`, `/dev/media0`, `/dev/v4l-subdev0`.
+- **`rpicam`/libcamera non la vedono** («only supports the Raspberry Pi platforms», zero camere): `vcgencmd get_camera` risponde `supported=0` e il kernel `Failed to open VCHI service connection`. La causa più probabile è `gpu_mem=16`, che fa usare il firmware ridotto senza ISP; **non è stata verificata alzando `gpu_mem`** (costerebbe ~48 MB di RAM, vedi sotto).
+- **Cattura grezza V4L2: funziona.** Formato Bayer `pGAA` (GBRG, 10 bit impacchettati) a 1296×972; si sviluppa a mano con numpy.
+- **Il sensore non ha auto-esposizione:** esposizione da 4 a 1431 (righe) e guadagno analogico da 16 a 1023. In una stanza con luce normale è risultato buono 1431 con guadagno ~300.
+- **L'immagine esce capovolta di 180°:** la camera risulta montata o collegata a testa in giù. Si compensa con `BMO_CAMERA_RUOTA=180` (o con `vertical_flip` + `horizontal_flip` nel sensore).
+- **Codice:** `CameraGrezzaV4L2` in `bmo_core.adapters.camera`, opt-in con `BMO_CAMERA=grezza`; regola da sola esposizione e guadagno e sviluppa a mezza risoluzione (648×486) per tenere la RAM bassa. `LibcameraAdapter`, il predefinito del Pi, non è cambiato.
+- **Decisione aperta:** alzare `gpu_mem` (per esempio a 64) per usare `rpicam` toglie ~48 MB al sistema (462 MB totali, ~280 MB disponibili a riposo). Con la camera grezza non serve.
+
+#### Quando arriva il HAT audio: cosa ricontrollare
+
+1. **Aggiungere `dtoverlay=wm8960-soundcard`** a `config.txt` e riavviare; `arecord -l` deve elencare la scheda. Se non è più `hw:0,0`, impostare `BMO_AUDIO_DISPOSITIVO`.
+2. **Il backlight deve restare sul GPIO12 (pin 32)**: con il HAT il GPIO18 è il BCLK dell'I2S. Se l'audio smette mentre il display funziona, è questo.
+3. **DC (GPIO25, pin 22) e RST (GPIO27, pin 13)** sono liberi anche con il HAT secondo il wiki Waveshare (che elenca solo I2C, I2S e il pulsante su GPIO17): confermarlo montandolo.
+4. **I fili del display vanno sui pin che sporgono sopra il HAT** (riga «Header stacking 2×20 extra-tall» della distinta): con il HAT montato i pin 13, 19, 22, 23, 24 e 32 devono restare raggiungibili.
+5. **Il flat della camera**: verificare che passi sotto o attraverso il HAT senza forzare il connettore.
+6. **Ripetere la prova del display e della camera** (`pi/ibrida/` o i test a colori) con il HAT montato, prima di richiudere il guscio.
+7. **Il pulsante del HAT è sul GPIO17**: serve alla #70.
+8. **`bmo-face.service` e `bmo-core.service`** vanno rimessi in produzione: `bmo-core` è oggi disabilitato perché senza HAT non ha un microfono.
 
 ### 1.5 Meccanica: cosa copiare dal riferimento
 

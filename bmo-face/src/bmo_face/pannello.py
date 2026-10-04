@@ -24,11 +24,13 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from .animazione import Renderer
 from .formato import NOME_BIN, NOME_JSON, carica_manifesto, mappa_bin
 from .servitore import ServitoreFaccia
+from .spi import rgb565_big_endian
 from .video import RiceviFotogrammi, percorso_socket_video
 
 FPS_PANNELLO = 25.0
@@ -59,6 +61,9 @@ class UscitaPannello:
     def fine_video(self) -> None:
         """Il video è finito: la faccia sta per tornare, da ridisegnare per intero."""
 
+    def chiudi(self) -> None:
+        """Si esce: l'uscita libera ciò che ha preso (SPI, pin, backlight)."""
+
 
 class UscitaNulla(UscitaPannello):
     """Calcola e butta via: serve alla fase 2.3 per misurare RAM e CPU veri
@@ -84,16 +89,71 @@ class UscitaNulla(UscitaPannello):
 
 
 class UscitaSpi(UscitaPannello):
-    """Il display vero (fase 4.5/4.7 del piano): arriva con l'hardware.
-    L'interfaccia è pronta apposta in anticipo (issue #63); l'implementazione
-    no, per questo l'istanziazione fallisce subito e con un messaggio chiaro
-    invece di lasciare che l'errore emerga altrove."""
+    """Il display vero, un ILI9341 su SPI0 (issue #77; pin e orientamento da `BMO_SPI_*`, vedi `spi.py`).
 
-    def __init__(self) -> None:
-        raise NotImplementedError(
-            "uscita SPI non ancora implementata: arriva con l'hardware (fase 4.5/4.7 del piano, "
-            "docs/02-piano-attuale.md) — nel frattempo usa --uscita nulla"
+    Un fotogramma pieno 320×240 sono 150 kB: a 20 MHz un'intera schermata costa
+    ~60 ms, troppo per tenere i 25 fps. Per questo si tiene l'ultimo fotogramma
+    inviato e si scrive solo il rettangolo che contiene i pixel cambiati (un
+    battito di palpebre o la bocca che si muove ne toccano una piccola parte).
+
+    I video arrivano in RGB565 little endian (`bmo_core.video`); l'ILI9341 vuole
+    il byte alto per primo, quindi si scambia l'ordine dei byte. Il video occupa
+    un rettangolo centrato e le bande restano nere.
+    """
+
+    def __init__(self, display=None) -> None:
+        if display is None:
+            from .spi import crea_display_da_ambiente
+
+            display = crea_display_da_ambiente()
+        self.display = display
+        self.display.inizializza()
+        self.display.riempi((0, 0, 0))  # senza, un ILI9341 appena acceso mostra il bianco
+        self._ultimo: np.ndarray | None = None
+        self._origine_video = (0, 0)
+        self.fotogrammi_inviati = 0
+        self.byte_inviati = 0
+
+    def _scrivi(self, x: int, y: int, larghezza: int, altezza: int, pixel: bytes) -> None:
+        self.display.scrivi(x, y, larghezza, altezza, pixel)
+        self.byte_inviati += len(pixel)
+
+    def disegna_frame(self, frame: Image.Image) -> None:
+        corrente = np.asarray(frame.convert("RGB"), dtype=np.uint8)
+        if self._ultimo is None or self._ultimo.shape != corrente.shape:
+            x, y, larghezza, altezza = 0, 0, corrente.shape[1], corrente.shape[0]
+        else:
+            diversi = np.any(corrente != self._ultimo, axis=2)
+            righe = np.flatnonzero(diversi.any(axis=1))
+            if righe.size == 0:
+                return
+            colonne = np.flatnonzero(diversi.any(axis=0))
+            x, y = int(colonne[0]), int(righe[0])
+            larghezza, altezza = int(colonne[-1]) - x + 1, int(righe[-1]) - y + 1
+        self._scrivi(x, y, larghezza, altezza, rgb565_big_endian(corrente[y:y + altezza, x:x + larghezza]))
+        self._ultimo = corrente
+        self.fotogrammi_inviati += 1
+
+    def inizio_video(self, larghezza: int, altezza: int) -> None:
+        self.display.riempi((0, 0, 0))
+        self._origine_video = (
+            max(0, (self.display.larghezza - larghezza) // 2),
+            max(0, (self.display.altezza - altezza) // 2),
         )
+        self._ultimo = None
+
+    def disegna_video(self, dati: bytes, larghezza: int, altezza: int) -> None:
+        if larghezza > self.display.larghezza or altezza > self.display.altezza:
+            return  # più grande dello schermo: nessun ritaglio, meglio saltarlo che disegnare male
+        grezzo = np.frombuffer(dati, dtype="<u2").astype(">u2").tobytes()
+        self._scrivi(*self._origine_video, larghezza, altezza, grezzo)
+        self.fotogrammi_inviati += 1
+
+    def fine_video(self) -> None:
+        self._ultimo = None  # sullo schermo ci sono i resti del video: la faccia si riscrive per intero
+
+    def chiudi(self) -> None:
+        self.display.chiudi()
 
 
 def crea_uscita(nome: str) -> UscitaPannello:
@@ -202,6 +262,7 @@ def main() -> None:
         finally:
             ricevitore.ferma()
             servitore.ferma()
+            uscita.chiudi()
 
 
 if __name__ == "__main__":
