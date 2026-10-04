@@ -12,14 +12,18 @@
 # lavora su una copia in ~/bmo-test/albero, con il venv di produzione solo come
 # interprete, e con dati e socket suoi.
 #
-# Uso (da `avvia_ibrida.sh`): pi_avvia.sh [--senza-wake-word] [--senza-misura] [--pulsante-tastiera]
+# Uso (da `avvia_ibrida.sh`): pi_avvia.sh [--senza-wake-word] [--senza-misura] [--pulsante-tastiera] [--solo-audio] [--testo=frase]
 set -euo pipefail
 
 SENZA_WAKE_WORD=0
 MISURA=1
 PULSANTE_TASTIERA=0
+SOLO_AUDIO=0
+TESTO=""
 for argomento in "$@"; do
   case "$argomento" in
+    --solo-audio) SOLO_AUDIO=1 ;;
+    --testo=*) TESTO="${argomento#--testo=}" ;;
     --senza-wake-word) SENZA_WAKE_WORD=1 ;;
     --senza-misura) MISURA=0 ;;
     --pulsante-tastiera) PULSANTE_TASTIERA=1 ;;
@@ -39,6 +43,8 @@ mkdir -p "$BASE/dati" "$BASE/extra" "$BASE/misure" "$RUNTIME/bmo-test"
 [ -x "$PYTHON" ] || { echo "[pi] manca il venv di produzione $PYTHON" >&2; exit 1; }
 [ -f "$CHIAVE" ] || { echo "[pi] manca la chiave Gemini ($CHIAVE): la porta avvia_ibrida.sh" >&2; exit 1; }
 [ -d "$ALBERO/bmo-core/src" ] || { echo "[pi] manca la copia del codice in $ALBERO: la porta avvia_ibrida.sh" >&2; exit 1; }
+[ -f "$ALBERO/bmo-face/assets/faces.bin" ] || { echo "[pi] mancano gli asset della faccia in $ALBERO/bmo-face/assets: li porta avvia_ibrida.sh" >&2; exit 1; }
+echo "[pi] faccia: faces.bin $(stat -c %s "$ALBERO/bmo-face/assets/faces.bin") byte, impronta $(sha256sum "$ALBERO/bmo-face/assets/faces.bin" | cut -c1-8)" >&2
 
 # La chiave sta in un file 600 sulla tmpfs: la si legge qui e nessun comando la contiene.
 set -a
@@ -77,6 +83,11 @@ for porta in "${BMO_PORTA_MICROFONO:-5001}" "${BMO_PORTA_PULSE:-4713}"; do
   fi
 done
 
+# Solo il controllo dell'audio (microfono del PC -> Pi, suoni del Pi -> altoparlanti del PC).
+if [ "$SOLO_AUDIO" = 1 ]; then
+  exec "$PYTHON" "$ALBERO/pi/ibrida/prova_audio.py"
+fi
+
 # Una faccia rimasta da una prova interrotta terrebbe occupato il display.
 pkill -f "bmo_face.pannello --assets $ALBERO" 2>/dev/null || true
 sleep 0.5
@@ -110,6 +121,14 @@ if [ "$MISURA" = 1 ]; then
   echo "[pi] misuro la RAM (PSS) di tutti i processi e il sistema: $BASE_MISURA*" >&2
 fi
 sleep 1
+
+# Un solo turno scritto: Gemini, strumenti, camera e faccia sul display, senza voce.
+if [ -n "$TESTO" ]; then
+  echo "[pi] turno scritto: «$TESTO»" >&2
+  (cd "$ALBERO/bmo-core" && "$PYTHON" -m bmo_core.brain --testo "$TESTO") || true
+  sleep 6   # il tempo di vedere sul display l'ultimo stato o la foto
+  exit 0
+fi
 
 MODELLI=()
 for modello in bmo1 bmo2 bmo3; do
