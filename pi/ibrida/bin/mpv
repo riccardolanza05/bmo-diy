@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Finto `mpv` per la prova ibrida (issue #77): forza l'uscita PulseAudio, che
+# con PULSE_SERVER=tcp:127.0.0.1:4713 arriva agli altoparlanti del PC tramite
+# il tunnel SSH. Senza, mpv sceglierebbe da solo `pipewire` e suonerebbe sul
+# PipeWire del Pi (jack o HDMI), non sul PC.
+#
+# Sta nel PATH solo durante la prova. Le opzioni di BMO passano tutte: questa
+# è solo una `--ao` messa davanti.
+exec /usr/bin/mpv --ao=pulse "$@"

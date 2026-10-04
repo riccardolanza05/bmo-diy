@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Finto `arecord` per la prova ibrida (issue #77): invece del microfono del Pi
+# legge il microfono del PC, che `avvia_ibrida.sh` espone su una porta del PC
+# e porta sul Pi con un tunnel SSH inverso (127.0.0.1:5001).
+#
+# Gli adapter di bmo-core (ArecordConvertitoreAdapter, quello del Pi) lo
+# chiamano così: arecord -D <dispositivo> -f S32_LE -r 48000 -c 2 -t raw -
+# e il PC manda già S32_LE stereo a 48 kHz, cioè il formato nativo del HAT
+# WM8960: la conversione a 16 kHz mono la fa il Pi, come la farà con la
+# scheda vera, quindi CPU e RAM misurate sono quelle vere.
+#
+# Vale solo per lo stream grezzo su stdout (wake word e ascolto); per il resto
+# esce con un errore chiaro. Sta nel PATH solo durante la prova, mai nel
+# sistema.
+set -euo pipefail
+
+grezzo=0
+argomenti=("$@")
+for ((i = 0; i < ${#argomenti[@]} - 1; i++)); do
+  if [ "${argomenti[$i]}" = "-t" ] && [ "${argomenti[$((i + 1))]}" = "raw" ]; then
+    grezzo=1
+  fi
+done
+ultimo="${argomenti[${#argomenti[@]} - 1]:-}"
+
+if [ "$grezzo" != 1 ] || [ "$ultimo" != "-" ]; then
+  echo "arecord finto (prova ibrida): supporto solo '-t raw -', ricevuto: $*" >&2
+  exit 2
+fi
+
+exec 3<>"/dev/tcp/127.0.0.1/${BMO_PORTA_MICROFONO:-5001}"
+exec cat <&3
