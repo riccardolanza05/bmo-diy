@@ -93,3 +93,14 @@ La camera in produzione usa la grezza in ogni caso (`BMO_CAMERA=grezza` in `/etc
 
 Trattata nella issue #80 / PR #81 (togliere i modelli deprecati). Qui solo il fatto che il 14/10 i
 modelli in coda davano 503 a ondate.
+
+## 9. Soglia della wake word (14/10, richiesta: «abbassa al 30% la sensibilità»)
+
+**Opzioni:** (a) soglia **0,70** (sensibilità 30% = 1 − soglia); (b) soglia 0,30 (leggendo «30%» come valore della
+soglia: sarebbe invece *più* sensibile del 0,5 di prima); (c) lasciare 0,5.
+
+**Implementato: (a)**, `BMO_SOGLIA_WAKE_WORD` in `/etc/bmo/env` la cambia senza toccare il codice.
+
+**Conseguenza:** (a) meno attivazioni a vuoto, ma col microfono al massimo e il parlato vicino saturo il modello
+può comunque scattare; a 2-3 m «Hey BMO» potrebbe non superare 0,7. Non misurato (serve
+`pi/prova_sensibilita.py` col servizio fermo). Se «Hey BMO» non scatta, la prima cosa da provare è 0,6.

@@ -23,12 +23,12 @@ fi
 # Messa a punto col microfono vero del HAT (issue #79, 14/10/2026), tutta sovrascrivibile da /etc/bmo/env:
 #   BMO_SILENZIO_MS      silenzio che chiude l'ascolto (era 800: tagliava le pause a metà frase)
 #   BMO_VOCE_MINIMA_MS   voce minima prima che il silenzio possa chiudere (scarta la coda di «Hey BMO»)
-#   BMO_SOGLIA_WAKE_WORD soglia di rilevamento (0.5 come prima: la sensibilità si alza dal microfono, non da qui)
+#   BMO_SOGLIA_WAKE_WORD soglia di rilevamento: 0.7 = sensibilità al 30% (richiesta del 14/10; era 0.5 = 50%)
 export BMO_VOCE_MINIMA_MS="${BMO_VOCE_MINIMA_MS:-400}"
 
 exec "$VENV/bin/python" -m bmo_core.macchina --wake-word --voce-tts \
   --silenzio-ms "${BMO_SILENZIO_MS:-1500}" \
-  --soglia-wake-word "${BMO_SOGLIA_WAKE_WORD:-0.5}" \
+  --soglia-wake-word "${BMO_SOGLIA_WAKE_WORD:-0.7}" \
   --modello-wake-word "$MODELLI/bmo1.onnx" \
   --modello-wake-word "$MODELLI/bmo2.onnx" \
   --modello-wake-word "$BMO3"
