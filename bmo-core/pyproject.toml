@@ -38,6 +38,10 @@ dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts>=7.3.1", "
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Solo sul Pi, per il pulsante GPIO17 del HAT (#70, `adapters/pulsante.py`): deploy.sh installa `[pi]`.
+# `lgpio` NON è qui: la ruota di PyPI (0.0.0.2) è inutilizzabile (gpiozero cade su NativeFactory e fallisce);
+# deploy.sh collega nel venv quella buona di sistema (python3-lgpio 0.2.2.0), issue #79.
+pi = ["gpiozero"]
 
 [build-system]
 requires = ["hatchling"]
