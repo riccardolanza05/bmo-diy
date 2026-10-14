@@ -31,11 +31,15 @@ from google.genai import errors, types
 # costa circa 0,2 s e la cascata li salta. Esclusi dopo le misure del 1/10/2026
 # (docs/note-issue-73.md): gemini-3.7-flash e gemini-3.8-flash (503/504 quasi
 # a ogni richiesta), Gemma 4 (rifiuta l'audio con 400), gemini-2.5-* (404).
+# Tolto il 14/10/2026 (#80) `gemini-3.5-flash`: deprecato da Google, instradato
+# in automatico a `gemini-3.6-flash`, cioè lo stesso modello già in cascata.
+# `gemini-3.1-flash-lite` è deprecato anch'esso (chiusura 07/05/2027, sostituto
+# 3.5-flash-lite) ma risponde e fa da riserva: da rivedere prima di quella data
+# (docs/decisioni-issue-80.md).
 MODELLI_PREDEFINITI = [
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
 ]
 
 # Per quanto un modello resta sospeso dopo un errore, in secondi.
