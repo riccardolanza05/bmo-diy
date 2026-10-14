@@ -13,6 +13,7 @@
 [Unit]
 Description=bmo-face - faccia di BMO (pannello sul display SPI)
 Before=bmo-core.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

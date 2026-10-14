@@ -1,0 +1,23 @@
+# bmo-hat-audio — attende la scheda del HAT e imposta il mixer prima di bmo-core (issue #83).
+#
+# Installazione (da `deploy.sh`):
+#   sudo cp bmo-hat-audio.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable bmo-hat-audio.service
+#
+# `Wants=` e non `Requires=` da bmo-core: se la scheda non c'è, il mixer resta com'è e BMO parte lo stesso
+# (e `Restart=always` di bmo-core riprova finché il microfono non si apre).
+[Unit]
+Description=bmo-hat-audio - mixer della WM8960 all'avvio
+After=sound.target alsa-restore.service
+Before=bmo-core.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=clanker_home
+ExecStart=/home/clanker_home/bmo-pi/bmo-diy/pi/bmo-hat-audio.sh
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target
