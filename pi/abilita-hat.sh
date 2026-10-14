@@ -60,7 +60,25 @@ for riga in BMO_PULSANTE_PIN=17 BMO_CAMERA=grezza BMO_CAMERA_RUOTA=180; do
 done
 echo "-- BMO_PULSANTE_PIN, BMO_CAMERA, BMO_CAMERA_RUOTA impostati"
 
-echo "== volumi della scheda salvati (alsactl store): sopravvivono al riavvio"
-alsactl store
+echo "== mixer della scheda: valori misurati il 14/10/2026, poi salvati (alsactl store)"
+# All'avvio il kernel lascia ingresso e uscita spenti e la cattura a +30 dB (satura la voce): si
+# impostano qui, esplicitamente, e si salvano perché sopravvivano al riavvio.
+M="amixer -c wm8960soundcard -q"
+if $M scontrols >/dev/null 2>&1; then
+  $M cset name="Left Input Mixer Boost Switch" on
+  $M cset name="Right Input Mixer Boost Switch" on
+  $M cset name="Left Input Boost Mixer LINPUT1 Volume" 2
+  $M cset name="Right Input Boost Mixer RINPUT1 Volume" 2
+  $M cset name="Left Output Mixer PCM Playback Switch" on
+  $M cset name="Right Output Mixer PCM Playback Switch" on
+  $M sset Capture 40
+  $M sset Playback 255
+  $M sset Speaker 85%
+  $M sset "Speaker AC" 5
+  $M sset "Speaker DC" 5
+  alsactl store
+else
+  echo "-- la scheda non c'è ancora (prima del riavvio?): niente da salvare"
+fi
 
 echo "== fatto: ora 'sudo reboot'. Dopo il riavvio: cat /proc/asound/cards deve elencare wm8960soundcard."
