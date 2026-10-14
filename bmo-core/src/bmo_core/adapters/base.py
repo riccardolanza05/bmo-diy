@@ -122,3 +122,12 @@ class VolumeAdapter(Protocol):
         ...
 
     def leggi(self) -> int | None: ...
+
+
+class PulsanteAdapter(Protocol):
+    """Un bottone fisico letto via GPIO (issue #70): un richiamo manuale,
+    alternativo alla wake word. Un solo metodo, non bloccante, pensato per
+    essere interrogato a ogni pezzo audio dentro `richiamo.attendi_wake_word`
+    (~ogni 80 ms), non per un ascolto a interrupt."""
+
+    def premuto(self) -> bool: ...
