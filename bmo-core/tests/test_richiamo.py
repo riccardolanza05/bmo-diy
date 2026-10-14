@@ -6,6 +6,7 @@ import pytest
 from bmo_core.richiamo import (
     BYTE_PER_FRAME,
     MODELLI_PREDEFINITI,
+    PUNTEGGIO_PULSANTE,
     RichiamoWakeWord,
     _carica_rilevatore,
     attendi_wake_word,
@@ -54,6 +55,43 @@ def test_attendi_wake_word_soglia_esatta_conta_come_superamento():
     assert attendi_wake_word(_frame(1), rilevatore, soglia=0.5) == 0.5
 
 
+class PulsanteFinto:
+    """PulsanteAdapter minimo: `premuto()` restituisce una sequenza preparata,
+    `False` una volta esaurita (il bottone resta rilasciato)."""
+
+    def __init__(self, stati):
+        self._stati = list(stati)
+        self.volte_interrogato = 0
+
+    def premuto(self):
+        self.volte_interrogato += 1
+        return self._stati.pop(0) if self._stati else False
+
+
+def test_attendi_wake_word_pulsante_premuto_ritorna_subito_senza_rilevatore():
+    """Issue #70: il bottone bypassa il rilevatore, non solo la soglia."""
+    rilevatore = RilevatoreFinto([{"hey_jarvis": 0.9}])  # non deve essere consultato
+    pulsante = PulsanteFinto([True])
+    punteggio = attendi_wake_word(_frame(3), rilevatore, soglia=0.5, pulsante=pulsante)
+    assert punteggio == PUNTEGGIO_PULSANTE
+    assert rilevatore._punteggi == [{"hey_jarvis": 0.9}]  # mai consumato
+
+
+def test_attendi_wake_word_pulsante_non_premuto_prosegue_normalmente():
+    rilevatore = RilevatoreFinto([{"hey_jarvis": 0.1}, {"hey_jarvis": 0.9}])
+    pulsante = PulsanteFinto([False, False])
+    punteggio = attendi_wake_word(_frame(2), rilevatore, soglia=0.5, pulsante=pulsante)
+    assert punteggio == 0.9
+    assert pulsante.volte_interrogato == 2
+
+
+def test_attendi_wake_word_senza_pulsante_si_comporta_come_prima():
+    """Compatibilità: `pulsante=None` (il default) non cambia nulla rispetto
+    al comportamento precedente all'issue #70."""
+    rilevatore = RilevatoreFinto([{"hey_jarvis": 0.9}])
+    assert attendi_wake_word(_frame(1), rilevatore, soglia=0.5) == 0.9
+
+
 class MicrofonoFinto:
     """AudioInputAdapter minimo: `flusso_pcm` è l'unico metodo che serve qui."""
 
@@ -92,6 +130,30 @@ def test_richiamo_wake_word_non_rilevata_restituisce_false():
     rilevatore = RilevatoreFinto([{"hey_jarvis": 0.1}])
     microfono = MicrofonoFinto(_frame(1))
     richiamo = RichiamoWakeWord(microfono=microfono, rilevatore=rilevatore, soglia=0.5)
+    assert richiamo() is False
+
+
+def test_richiamo_wake_word_pulsante_fa_scattare_il_richiamo(monkeypatch):
+    """Issue #70: il bottone fa scattare `RichiamoWakeWord.__call__` come se
+    la wake word avesse superato la soglia — `Macchina` non vede differenza."""
+    rilevatore = RilevatoreFinto([{"hey_jarvis": 0.1}])  # punteggio sotto soglia
+    microfono = MicrofonoFinto(_frame(1))
+    pulsante = PulsanteFinto([True])
+    richiamo = RichiamoWakeWord(
+        microfono=microfono, rilevatore=rilevatore, soglia=0.5, pulsante=pulsante
+    )
+    assert richiamo() is True
+
+
+def test_richiamo_wake_word_senza_pulsante_iniettato_usa_la_fabbrica():
+    """Senza `pulsante=`, `RichiamoWakeWord` non deve esplodere: la fabbrica
+    restituisce `PulsanteAssente` sul PC di sviluppo (nessun BMO_PULSANTE_PIN)."""
+    from bmo_core.adapters.pulsante import PulsanteAssente
+
+    rilevatore = RilevatoreFinto([{"hey_jarvis": 0.1}])
+    microfono = MicrofonoFinto(_frame(1))
+    richiamo = RichiamoWakeWord(microfono=microfono, rilevatore=rilevatore, soglia=0.5)
+    assert isinstance(richiamo.pulsante, PulsanteAssente)
     assert richiamo() is False
 
 
