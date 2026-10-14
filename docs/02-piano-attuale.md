@@ -181,7 +181,7 @@ gpu_mem=16
 # opzionale: dtoverlay=disable-bt   (se si rinuncia all'uscita A2DP verso una cassa vera)
 ```
 
-Sul Pi di oggi (4/10/2026, senza HAT) ci sono `dtparam=spi=on`, `camera_auto_detect=1`, `gpu_mem=16` e `dtoverlay=disable-bt`; **`dtoverlay=wm8960-soundcard` va aggiunto solo quando arriva il HAT**.
+Sul Pi di oggi (4/10/2026, senza HAT) ci sono `dtparam=spi=on`, `camera_auto_detect=1`, `gpu_mem=16` e `dtoverlay=disable-bt`; **`dtoverlay=wm8960-soundcard` è stato aggiunto il 14/10/2026** (`pi/abilita-hat.sh`, issue #79).
 
 #### Schermo: cosa è stato verificato (4/10/2026)
 
@@ -203,6 +203,30 @@ Sul Pi di oggi (4/10/2026, senza HAT) ci sono `dtparam=spi=on`, `camera_auto_det
 - **L'immagine esce capovolta di 180°:** la camera risulta montata o collegata a testa in giù. Si compensa con `BMO_CAMERA_RUOTA=180` (o con `vertical_flip` + `horizontal_flip` nel sensore).
 - **Codice:** `CameraGrezzaV4L2` in `bmo_core.adapters.camera`, opt-in con `BMO_CAMERA=grezza`; regola da sola esposizione e guadagno e sviluppa a mezza risoluzione (648×486) per tenere la RAM bassa. `LibcameraAdapter`, il predefinito del Pi, non è cambiato.
 - **Decisione aperta:** alzare `gpu_mem` (per esempio a 64) per usare `rpicam` toglie ~48 MB al sistema (462 MB totali, ~280 MB disponibili a riposo). Con la camera grezza non serve.
+
+#### Con il HAT montato: stato reale (14/10/2026, issue #79)
+
+Misure e numeri in `docs/note-issue-79.md`, scelte aperte in `docs/decisioni-issue-79.md`.
+
+- **Scheda:** `card 1: wm8960soundcard` (il jack bcm2835 resta la card 0), si indirizza per nome:
+  `BMO_AUDIO_DISPOSITIVO=hw:CARD=wm8960soundcard,DEV=0`. `VolumeAlsa` trova `Speaker`.
+- **Microfoni:** i due MEMS funzionano e sono bilanciati entro 0,5 dB. Con `Capture 63` (predefinito) la
+  voce vicina satura (picco 0 dBFS); con `Capture 40` il picco è ≈ −14 dBFS (VAD 75% sul parlato). Il 14/10 il
+  microfono è stato portato **al massimo** su richiesta (`Capture 63`, boost 3), con la soglia della wake word a 0,5.
+- **Mixer:** ingresso (`Input Mixer Boost`, `LINPUT1/RINPUT1`) e uscita (`Output Mixer PCM`) sono spenti
+  all'avvio; `abilita-hat.sh` li imposta e li salva con `alsactl store`.
+- **Altoparlante:** udito (rumore rosa, tono, anello microfono → altoparlante) con `Speaker 100%`,
+  `Playback 255`, `Speaker AC/DC 5`; finale `Speaker 85%`. Le cuffie sul jack non sono state udite.
+- **Formato:** dmix deve essere `S32_LE`, come il microfono, altrimenti dopo la voce di BMO la cattura
+  viene rifiutata («Available formats: S16_LE») e i turni si perdono. Corretto in `asound.conf.modello`.
+- **Pulsante GPIO17:** attivo-basso con pull-up, nessun rimbalzo a 2 ms; `gpiozero` + `LGPIOFactory`.
+- **Servizi in produzione:** `bmo-face` (display SPI, faccia vera) e `bmo-core` abilitati. `bmo-core` PSS
+  146 MB a regime, picco 175-184 MB (`MemoryMax` 280 MiB); `bmo-face` 10 MB, picco 28 MB; 44 °C, nessun
+  throttling; `MemAvailable` 207-214 MB.
+- **Backlight:** il filo è sul pin fisico 12 (GPIO18, BCLK): da spostare sul pin 32 (GPIO12).
+- **Non verificato:** sensibilità della wake word a 1-2-3 m e falsi positivi (strumento
+  `pi/prova_sensibilita.py` pronto), latenza voce→risposta, colori e orientamento dello schermo,
+  camera col HAT, cuffie.
 
 #### Quando arriva il HAT audio: cosa ricontrollare
 
