@@ -33,10 +33,13 @@ def mixer(*args: str) -> None:
     subprocess.run(["amixer", "-c", SCHEDA, "-q", *args], check=False)
 
 
-def bip() -> None:
+def bip(n: int = 1) -> None:
+    """`n` bip brevi: 1 = prima parola, 2 = seconda, 3 = terza (la parola da dire cambia a ogni gruppo)."""
     t = np.arange(int(0.18 * 48000)) / 48000
     onda = (0.35 * np.sin(2 * np.pi * 1000 * t) * 32767).astype("<i2")
-    stereo = np.repeat(onda[:, None], 2, axis=1).tobytes()
+    pausa = np.zeros(int(0.12 * 48000), dtype="<i2")
+    sequenza = np.concatenate([np.concatenate([onda, pausa]) for _ in range(n)])
+    stereo = np.repeat(sequenza[:, None], 2, axis=1).tobytes()
     subprocess.run(["aplay", "-q", "-D", f"plughw:CARD={SCHEDA},DEV=0", "-t", "raw", "-f", "S16_LE",
                     "-r", "48000", "-c", "2"], input=stereo, check=False)
 
@@ -88,6 +91,7 @@ def main() -> int:
     p.add_argument("--capture", default=None, help="guadagno di cattura 0-63 (amixer sset Capture)")
     p.add_argument("--boost", default=None, help="boost LINPUT1/RINPUT1 0-3")
     p.add_argument("--ripetizioni", type=int, default=5)
+    p.add_argument("--numero-bip", type=int, default=1, help="bip per cue: 1, 2 o 3 secondo la parola da dire")
     p.add_argument("--base", type=float, default=6.0, help="secondi di ambiente prima del primo bip")
     p.add_argument("--finestra", type=float, default=3.0, help="secondi dopo ogni bip in cui dire «Hey BMO»")
     p.add_argument("--pausa", type=float, default=1.5, help="secondi di pausa fra una finestra e il bip dopo")
@@ -111,7 +115,8 @@ def main() -> int:
 
     registro: list[tuple[float, np.ndarray, dict[str, float]]] = []
     cue: list[float] = []
-    fine = a.base + a.ripetizioni * (0.18 + a.ritardo + a.finestra + a.pausa) + 0.5
+    durata_bip = a.numero_bip * 0.30
+    fine = a.base + a.ripetizioni * (durata_bip + a.ritardo + a.finestra + a.pausa) + 0.5
     t0 = time.time()
     prossimo = a.base
 
@@ -123,7 +128,7 @@ def main() -> int:
                 time.sleep(attesa)
             cue.append(time.time() - t0)
             print(f"  >>> {len(cue)}/{a.ripetizioni}: DI' «HEY BMO» ORA", flush=True)
-            bip()
+            bip(a.numero_bip)
             prossimo = (time.time() - t0) + a.ritardo + a.finestra + a.pausa
 
     threading.Thread(target=pianifica, daemon=True).start()
@@ -140,7 +145,7 @@ def main() -> int:
                 break
     finally:
         flusso.close()
-    stampa(analizza(registro, cue, a.base, a.finestra, a.ritardo), a.etichetta, str(a.capture), str(a.boost))
+    stampa(analizza(registro, cue, a.base, a.finestra, a.ritardo + durata_bip), a.etichetta, str(a.capture), str(a.boost))
     return 0
 
 
