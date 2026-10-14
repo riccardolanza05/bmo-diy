@@ -96,7 +96,7 @@ modelli in coda davano 503 a ondate.
 
 ## 9. Soglia della wake word (14/10: «sensibilità più bassa, così parole simili vengono prese più spesso»)
 
-**Opzioni:** (a) soglia **0,30** (più bassa = il modello accetta punteggi più bassi, quindi scatta più
+**Opzioni:** (a) soglia **0,10** (richiesta finale; 0,30 era il tentativo precedente) (più bassa = il modello accetta punteggi più bassi, quindi scatta più
 facilmente anche su parole simili); (b) 0,40; (c) lasciare 0,5.
 
 **Implementato: (a)**, `BMO_SOGLIA_WAKE_WORD` in `/etc/bmo/env` la cambia senza toccare il codice. (Un
@@ -106,3 +106,8 @@ primo tentativo, 0,70, leggeva la richiesta al contrario e non è mai arrivato s
 positivi** (TV, conversazioni) e col microfono al massimo ancora di più: ogni scatto a vuoto apre
 l'ascolto e manda una richiesta a Gemini. Non misurato (serve `pi/prova_sensibilita.py` col servizio
 fermo: conta i falsi positivi a 0,3 / 0,5 / 0,7). Se i falsi scatti sono troppi: 0,4.
+
+**Aggiornamento (stesso giorno):** microfono abbassato «un po'»: `Capture 55` (+24 dB, circa −6 dB da 63),
+boost `LINPUT1/RINPUT1` ancora a 3. Soglia a **0,10**: con 0,10 il modello accetta quasi qualunque punteggio, quindi
+i falsi scatti sono attesi molti (qualunque voce o rumore simile a «Hey BMO»); vale la stessa conseguenza di
+(a) in forma più forte. Da misurare con `pi/prova_sensibilita.py`; se troppi, 0,2-0,3.
