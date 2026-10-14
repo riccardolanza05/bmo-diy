@@ -12,17 +12,21 @@
 # lavora su una copia in ~/bmo-test/albero, con il venv di produzione solo come
 # interprete, e con dati e socket suoi.
 #
-# Uso (da `avvia_ibrida.sh`): pi_avvia.sh [--senza-wake-word] [--senza-misura] [--pulsante-tastiera] [--solo-audio] [--testo=frase]
+# Con `--hat` (da `avvia_hat.sh`) non c'è nessun tunnel: microfono e altoparlante sono quelli veri del HAT.
+#
+# Uso (da `avvia_ibrida.sh`): pi_avvia.sh [--hat] [--senza-wake-word] [--senza-misura] [--pulsante-tastiera] [--solo-audio] [--testo=frase]
 set -euo pipefail
 
 SENZA_WAKE_WORD=0
 MISURA=1
 PULSANTE_TASTIERA=0
 SOLO_AUDIO=0
+HAT=0
 TESTO=""
 for argomento in "$@"; do
   case "$argomento" in
     --solo-audio) SOLO_AUDIO=1 ;;
+    --hat) HAT=1 ;;   # microfono e altoparlante veri del HAT WM8960 (issue #79): niente tunnel col PC
     --testo=*) TESTO="${argomento#--testo=}" ;;
     --senza-wake-word) SENZA_WAKE_WORD=1 ;;
     --senza-misura) MISURA=0 ;;
@@ -64,7 +68,9 @@ for modulo in spidev.cpython-313-aarch64-linux-gnu.so RPi lgpio.py _lgpio.cpytho
   [ -e "$SISTEMA_PY/$modulo" ] && ln -sfn "$SISTEMA_PY/$modulo" "$BASE/extra/$modulo"
 done
 
-export PATH="$ALBERO/pi/ibrida/bin:$PATH"          # `arecord` e `mpv` finti: audio dal PC
+if [ "$HAT" = 0 ]; then
+  export PATH="$ALBERO/pi/ibrida/bin:$PATH"        # `arecord` e `mpv` finti: audio dal PC
+fi
 export PYTHONPATH="$ALBERO/bmo-core/src:$ALBERO/bmo-face/src:$BASE/extra"
 export BMO_ENV=pi
 export BMO_FACCIA=socket
@@ -72,11 +78,17 @@ export BMO_SOCKET="$SOCKET"
 export BMO_DATI="$BASE/dati"
 export BMO_CAMERA=grezza
 export BMO_CAMERA_RUOTA="${BMO_CAMERA_RUOTA:-180}"  # la camera è montata a testa in giù
-export PULSE_SERVER="tcp:127.0.0.1:${BMO_PORTA_PULSE:-4713}"
-export BMO_VIDEO_AUDIO=pulse                       # ffmpeg (video) suona sul PC, come mpv
+if [ "$HAT" = 0 ]; then
+  export PULSE_SERVER="tcp:127.0.0.1:${BMO_PORTA_PULSE:-4713}"
+  export BMO_VIDEO_AUDIO=pulse                     # ffmpeg (video) suona sul PC, come mpv
+else
+  export BMO_AUDIO_DISPOSITIVO="${BMO_AUDIO_DISPOSITIVO:-hw:CARD=wm8960soundcard,DEV=0}"
+  export BMO_PULSANTE_PIN="${BMO_PULSANTE_PIN:-17}"   # il pulsante del HAT (#70): attivo-basso, misurato il 14/10
+fi
 
 # Controllo che il tunnel con il PC sia su, prima di partire: meglio fermarsi qui che a metà.
 for porta in "${BMO_PORTA_MICROFONO:-5001}" "${BMO_PORTA_PULSE:-4713}"; do
+  [ "$HAT" = 1 ] && break
   if ! (exec 3<>"/dev/tcp/127.0.0.1/$porta") 2>/dev/null; then
     echo "[pi] la porta $porta del tunnel verso il PC non risponde (lo apre avvia_ibrida.sh)" >&2
     exit 1

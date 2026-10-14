@@ -28,6 +28,11 @@ pcm.mixato {
     ipc_perm 0666            # voce (bmo-core) e video (ffmpeg, figlio di bmo-core) sono lo stesso utente, ma costa nulla
     slave {
         pcm "hw:CARD=@SCHEDA@,DEV=0"
+        # S32_LE come il microfono (bmo-core cattura S32_LE stereo 48 kHz): il driver I2S del Pi
+        # condivide il formato fra riproduzione e cattura, e con dmix in S16_LE (il predefinito) un
+        # `arecord -f S32_LE` aperto mentre il mixer è ancora attivo riceve «Available formats: S16_LE»
+        # e il turno si perde (visto dal vivo il 14/10/2026, issue #79).
+        format S32_LE
         rate 48000
         channels 2
         period_size 1024

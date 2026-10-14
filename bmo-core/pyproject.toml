@@ -18,7 +18,8 @@ requires-python = ">=3.11"
 # in ~0,6 s contro i ~2,6 s di Gemini e non ha il limite di 3 richieste al
 # minuto. Se un giorno BMO ammutolisce, è il primo sospetto: il ripiego
 # previsto è Azure Speech, che serve **la stessa voce** `it-IT-DiegoNeural`
-# ufficialmente.
+# ufficialmente. Il 14/10/2026 la 7.2.8 prendeva 403 (stesso errore da PC e da Pi, orologio a posto):
+# la 7.3.1 funziona, da qui il minimo `>=7.3.1` (issue #79).
 # openwakeword + onnxruntime: la wake word «Hey Jarvis» provvisoria (#22, §2.6).
 # Gira interamente in locale via ONNX Runtime — nessun account, nessuna
 # chiave, nessuna rete — ed è l'unica scelta del piano che *deve* restare
@@ -33,10 +34,14 @@ requires-python = ">=3.11"
 # versioni vecchie smettono di funzionare: va aggiornato ogni tanto (`pip install -U yt-dlp`).
 # pillow: il JPEG della camera "grezza" (issue #77, adapter in `adapters/camera.py`);
 # sul Pi c'è già, il venv è condiviso con bmo-face.
-dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts", "openwakeword", "onnxruntime", "numpy", "yt-dlp", "pillow"]
+dependencies = ["google-genai", "ddgs", "webrtcvad-wheels", "edge-tts>=7.3.1", "openwakeword", "onnxruntime", "numpy", "yt-dlp", "pillow"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Solo sul Pi, per il pulsante GPIO17 del HAT (#70, `adapters/pulsante.py`): deploy.sh installa `[pi]`.
+# `lgpio` NON è qui: la ruota di PyPI (0.0.0.2) è inutilizzabile (gpiozero cade su NativeFactory e fallisce);
+# deploy.sh collega nel venv quella buona di sistema (python3-lgpio 0.2.2.0), issue #79.
+pi = ["gpiozero"]
 
 [build-system]
 requires = ["hatchling"]

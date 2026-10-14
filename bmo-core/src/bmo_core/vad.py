@@ -34,6 +34,7 @@ se in pratica risulta un problema.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Protocol
@@ -47,6 +48,11 @@ DURATA_FRAME_MS = 30
 BYTE_PER_CAMPIONE = 2  # webrtcvad vuole PCM a 16 bit (mono)
 
 SILENZIO_MS_PREDEFINITO = 800.0
+# Voce minima (somma dei frame di voce) perché il silenzio possa chiudere l'ascolto (#79): senza,
+# la coda di «Hey BMO» o il bip rilevati come voce per 0,1 s e poi 0,8 s di silenzio chiudevano
+# l'ascolto prima che si iniziasse a parlare («ascolto: 0.9 s», visto dal vivo sul Pi il 14/10/2026).
+# 0 = comportamento di prima; in produzione si imposta con `BMO_VOCE_MINIMA_MS`.
+VOCE_MINIMA_MS_PREDEFINITA = 0.0
 AGGRESSIVITA_PREDEFINITA = 2  # 0 = permissivo, 3 = aggressivo (vedi sopra)
 
 
@@ -103,6 +109,7 @@ def ascolta_fino_al_silenzio(
     cap_s: float,
     silenzio_ms: float = SILENZIO_MS_PREDEFINITO,
     durata_frame_ms: int = DURATA_FRAME_MS,
+    voce_minima_ms: float | None = None,
 ) -> tuple[bytes, Diagnostica]:
     """La logica pura di endpointing, senza I/O: prende frame, restituisce audio.
 
@@ -112,7 +119,10 @@ def ascolta_fino_al_silenzio(
     farebbe ascoltare BMO per sempre.
     """
     valida_frequenza(frequenza)
+    if voce_minima_ms is None:
+        voce_minima_ms = float(os.environ.get("BMO_VOCE_MINIMA_MS", VOCE_MINIMA_MS_PREDEFINITA))
     voce_iniziata = False
+    voce_ms = 0.0
     silenzio_di_fila_ms = 0.0
     scartati = 0
     audio: list[bytes] = []
@@ -131,9 +141,19 @@ def ascolta_fino_al_silenzio(
                 return b"", Diagnostica(accumulato_s, False, scartati, "mai_iniziato")
             continue
         audio.append(pezzo)
+        if e_voce:
+            voce_ms += durata_frame_ms
         silenzio_di_fila_ms = 0.0 if e_voce else silenzio_di_fila_ms + durata_frame_ms
         if silenzio_di_fila_ms >= silenzio_ms:
-            return b"".join(audio), Diagnostica(accumulato_s, True, scartati, "silenzio")
+            if voce_ms >= voce_minima_ms:
+                return b"".join(audio), Diagnostica(accumulato_s, True, scartati, "silenzio")
+            # Un blip troppo breve per essere una frase: lo si scarta e si aspetta la voce vera.
+            voce_iniziata = False
+            voce_ms = 0.0
+            silenzio_di_fila_ms = 0.0
+            audio = []
+            scartati += 1
+            continue
         if accumulato_s >= cap_s:
             return b"".join(audio), Diagnostica(accumulato_s, True, scartati, "tetto")
     # Il flusso è finito da sé: capita nei test con una lista finita di
