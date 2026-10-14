@@ -31,9 +31,11 @@ SOGLIE = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7)
 SCHEDA = "wm8960soundcard"
 SOGLIA_NULLA = 0.05  # sotto questo punteggio dice «non ho sentito niente» e chiede cosa fare
 
+# (modello atteso, parola da dire, numero di bip). Il 14/10 la mappa è stata invertita su indicazione di
+# Riccardo: bmo2 = «Hey BMO», bmo1 = «BMO». Il riepilogo finale mostra quale modello ha reagito davvero.
 PAROLE = [
-    ("bmo1", "«Hey BMO»", 1),
-    ("bmo2", "«BMO»", 2),
+    ("bmo2", "«Hey BMO»", 1),
+    ("bmo1", "«BMO»", 2),
     ("bmo3", None, 3),  # il testo si prende da --terza
 ]
 
@@ -219,6 +221,23 @@ def riepilogo(risultati: list[dict]) -> None:
                   f"{r['base']['rms_dbfs']:.1f} dBFS")
 
 
+def confusione(risultati: list[dict], parole: list[tuple[str, str, int]]) -> None:
+    """Per ogni parola detta, il punteggio medio di ciascun modello: dice quale modello è quale."""
+    modelli = sorted({m for r in risultati for ms in r.get("parole", {}).values() for x in ms for m in x["punteggi"]})
+    if not modelli:
+        return
+    print("\nCHI HA REAGITO A COSA (punteggio medio per modello, tutte le posizioni):")
+    print(f"{'parola detta':28s} " + "  ".join(f"{m:>6s}" for m in modelli) + "   modello più alto")
+    for modello_atteso, testo, _ in parole:
+        righe = [x for r in risultati for x in r.get("parole", {}).get(modello_atteso, [])]
+        if not righe:
+            continue
+        medie = {m: float(np.mean([x["punteggi"].get(m, 0.0) for x in righe])) for m in modelli}
+        migliore = max(medie, key=medie.get)
+        nota = "" if migliore == modello_atteso else f"   <-- atteso {modello_atteso}: la mappa è probabilmente invertita"
+        print(f"{testo:28s} " + "  ".join(f"{medie[m]:6.2f}" for m in modelli) + f"   {migliore}{nota}")
+
+
 def raccomanda(risultati: list[dict]) -> None:
     """La soglia più alta che riconosce almeno l'80% delle ripetizioni da lontano (3 m e oltre) restando sopra l'ambiente."""
     # In produzione scatta se UNO QUALUNQUE dei tre modelli supera la soglia: conta il massimo fra i modelli.
@@ -301,6 +320,7 @@ def main() -> int:
         acq.ferma()
         mixer("sset", "Speaker", "85%")  # il volume di tutti i giorni
     riepilogo(risultati)
+    confusione(risultati, parole)
     raccomanda(risultati)
     uscita = a.uscita or Path.home() / "bmo-test" / "misure" / time.strftime("calibrazione-%Y-%m-%d_%H%M%S.json")
     uscita.parent.mkdir(parents=True, exist_ok=True)
