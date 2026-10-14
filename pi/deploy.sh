@@ -34,7 +34,14 @@ git fetch origin
 git merge --ff-only "@{upstream}"
 
 echo "== dipendenze (pip)"
-"$VENV/bin/pip" install --upgrade --quiet -e ./bmo-core -e ./bmo-face
+"$VENV/bin/pip" install --upgrade --quiet -e "./bmo-core[pi]" -e ./bmo-face
+
+echo "== lgpio di sistema nel venv (per il pulsante del HAT, gpiozero)"
+# Non c'è una ruota utile su PyPI (vedi bmo-core/pyproject.toml, extra `pi`): si collega quella di apt.
+SP="$("$VENV/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+for f in lgpio.py _lgpio.cpython-313-aarch64-linux-gnu.so; do
+  if [ -e "/usr/lib/python3/dist-packages/$f" ]; then ln -sfn "/usr/lib/python3/dist-packages/$f" "$SP/$f"; fi
+done
 
 echo "== yt-dlp (aggiornato sempre)"
 # `pip install --upgrade -e ./bmo-core` NON aggiorna una dipendenza già soddisfatta e senza versione
