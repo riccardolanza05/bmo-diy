@@ -120,3 +120,21 @@ mandare richieste a Gemini (quota e latenza). Valore da considerare di prova: se
 e boost `LINPUT1/RINPUT1` a 2 (i valori con cui è stato misurato la prima volta: picco ≈ −14 dBFS, VAD 75% sul
 parlato). Ho interpretato «originale» così, perché il kernel parte con l'ingresso spento (e, acceso, con
 Capture 63 e boost 0). La soglia della wake word resta 0,05.
+
+**Aggiornamento 4 (calibrazione col microfono vero, 14/10 sera): soglia a 0,20.** Capture 40, boost 2, tono
+normale, 5 ripetizioni per parola e posizione (1 m, 3 m, punto più lontano), stanza silenziosa:
+
+| Soglia | Richiamo da 3 m e oltre (30 prove) |
+|---|---|
+| 0,05 – 0,25 | **90%** (27/30) |
+| 0,30 | 83% |
+| 0,40 | 77% |
+| 0,50 (il predefinito di prima) | **70%** |
+| 0,70 | 57% |
+
+Sotto lo 0,25 non si guadagna niente: le tre mancate hanno punteggio 0,01-0,04 (la parola non è stata
+riconosciuta dal modello). «Hey BMO» ha il minimo a 0,25, quindi **0,20** ha margine. Con 0,05 non si
+vede nessun vantaggio e si perde margine sui falsi scatti. La mappa è **bmo2 = «Hey BMO»**,
+**bmo1 = «BMO»**, bmo3 = la terza parola, senza incroci (la prima versione dello strumento l'aveva al
+contrario). Ambiente silenzioso: punteggio massimo 0,0016 (nessun falso scatto). **Non misurato:** i
+falsi scatti con TV, musica o conversazione (lo strumento ora ha la prova di rumore).
