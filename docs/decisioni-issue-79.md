@@ -59,14 +59,18 @@ schermo smettono di partire, con un `ModuleNotFoundError` chiaro).
 
 ## 5. Il guadagno di cattura e il volume dell'altoparlante
 
-**Opzioni:** (a) `Capture 40`, `Speaker 85%`, `Playback 255`, `Speaker AC/DC 5`, salvati con
-`alsactl store`; (b) lasciare `Capture 63` (predefinito del kernel) e dare più margine al VAD.
+**Opzioni:** (a) microfono al **massimo**: `Capture 63` (+30 dB) e `Input Boost Mixer LINPUT1/RINPUT1` a 3
+(il massimo), con la soglia della wake word invariata (0,5); (b) `Capture 40`/`48` con boost 2, come prima;
+(c) il massimo ma con l'ALC del WM8960 acceso per non saturare la voce vicina (non provato).
 
-**Implementato: (a)** (`abilita-hat.sh`).
+**Implementato: (a)** (`abilita-hat.sh`), come hai chiesto il 14/10. Altoparlante: `Speaker 85%`,
+`Playback 255`, `Speaker AC/DC 5`.
 
-**Conseguenza:** (a) parlato a 1 m con picchi attorno a −14 dBFS, senza saturare; a 3 m il segnale
-cala di ~10 dB e il VAD potrebbe essere meno sensibile (**non misurato**). (b) satura già a distanza
-ravvicinata (picco 0 dBFS) e distorce il parlato; più sensibile sulla stanza.
+**Conseguenza:** (a) è il più sensibile a distanza (la wake word a 2-3 m vede più segnale), ma con
+`Capture 63` e boost 2 il parlato vicino già saturava (picco 0 dBFS, rms −21 dBFS): col boost a 3 è
+atteso peggio, e la saturazione distorce il parlato e può far scattare il VAD sul rumore. Non l'ho
+misurato (il servizio tiene il microfono). Se la voce vicina distorce: (c), o tornare a (b). (b) satura
+meno ma «Hey BMO» a distanza non scatta.
 
 ## 6. Il ramo del clone di produzione
 

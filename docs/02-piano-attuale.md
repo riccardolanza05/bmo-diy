@@ -211,7 +211,8 @@ Misure e numeri in `docs/note-issue-79.md`, scelte aperte in `docs/decisioni-iss
 - **Scheda:** `card 1: wm8960soundcard` (il jack bcm2835 resta la card 0), si indirizza per nome:
   `BMO_AUDIO_DISPOSITIVO=hw:CARD=wm8960soundcard,DEV=0`. `VolumeAlsa` trova `Speaker`.
 - **Microfoni:** i due MEMS funzionano e sono bilanciati entro 0,5 dB. Con `Capture 63` (predefinito) la
-  voce vicina satura (picco 0 dBFS): fissato `Capture 40` (picco ≈ −14 dBFS, VAD 75% sul parlato).
+  voce vicina satura (picco 0 dBFS); con `Capture 40` il picco è ≈ −14 dBFS (VAD 75% sul parlato). Il 14/10 il
+  microfono è stato portato **al massimo** su richiesta (`Capture 63`, boost 3), con la soglia della wake word a 0,5.
 - **Mixer:** ingresso (`Input Mixer Boost`, `LINPUT1/RINPUT1`) e uscita (`Output Mixer PCM`) sono spenti
   all'avvio; `abilita-hat.sh` li imposta e li salva con `alsactl store`.
 - **Altoparlante:** udito (rumore rosa, tono, anello microfono → altoparlante) con `Speaker 100%`,

@@ -45,7 +45,10 @@ Il codice che gira sul Pi non cambia di struttura: solo aggiunte.
 - Entrambi i canali sono vivi e uguali entro 0,5 dB.
 - Il VAD di bmo-core (`webrtcvad`, aggressività 2) classifica il **75%** (299/400 blocchi da 20 ms) di
   8 s di parlato di due persone come voce, con pause visibili.
-- **Capture 63 satura** la voce vicina: il guadagno è stato fissato a **40** (picco ≈ −14 dBFS).
+- **Capture 63 con boost 2 satura** la voce vicina; con **40** il picco è ≈ −14 dBFS.
+- Sensibilità portata **al massimo** il 14/10 (Capture 63, boost LINPUT1/RINPUT1 = 3), soglia della wake
+  word invariata a 0,5, silenzio a 1500 ms e voce minima 400 ms. **Non misurato dopo** (il servizio tiene
+  il microfono): da misurare con `pi/misura_microfoni.py` dopo `sudo systemctl stop bmo-core`.
 - Dopo un riavvio il mixer torna ai valori di avvio (cattura 63, ingresso spento): `abilita-hat.sh`
   li imposta e li salva con `alsactl store`.
 
