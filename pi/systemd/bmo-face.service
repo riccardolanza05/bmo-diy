@@ -1,4 +1,4 @@
-# bmo-face — la faccia di BMO sul Pi, senza schermo (issue #63).
+# bmo-face — la faccia di BMO sul Pi (issue #63; dal #79 sul display SPI ILI9341, con il HAT audio montato).
 #
 # Installazione (da `deploy.sh`, issue #16):
 #   sudo cp bmo-face.service /etc/systemd/system/
@@ -11,7 +11,7 @@
 # `Before=bmo-core.service` fa sì che la faccia sia già in piedi (stato
 # "assonnato") quando bmo-core (issue #16) prova ad aprire il socket.
 [Unit]
-Description=bmo-face - faccia di BMO (pannello senza schermo)
+Description=bmo-face - faccia di BMO (pannello sul display SPI)
 Before=bmo-core.service
 
 [Service]
@@ -22,7 +22,7 @@ Environment=PYTHONPATH=/home/clanker_home/bmo-pi/bmo-diy/bmo-face/src
 Environment=BMO_SOCKET=/run/bmo/bmo.sock
 RuntimeDirectory=bmo
 RuntimeDirectoryMode=0770
-ExecStart=/home/clanker_home/bmo-pi/venv/bin/python -m bmo_face.pannello --assets /home/clanker_home/bmo-pi/bmo-diy/bmo-face/assets --uscita nulla
+ExecStart=/home/clanker_home/bmo-pi/venv/bin/python -m bmo_face.pannello --assets /home/clanker_home/bmo-pi/bmo-diy/bmo-face/assets --uscita spi
 Restart=always
 RestartSec=2
 MemoryMax=80M

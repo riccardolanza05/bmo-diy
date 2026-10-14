@@ -52,4 +52,15 @@ else
   echo "-- BMO_AUDIO_DISPOSITIVO aggiunto"
 fi
 
+# Il resto dell'hardware vero, perché BMO giri da solo come servizio (nessun PC in mezzo): il pulsante del
+# HAT su GPIO17 (#70) e la camera CSI grezza capovolta (#77). Sono valori misurati il 14/10/2026.
+for riga in BMO_PULSANTE_PIN=17 BMO_CAMERA=grezza BMO_CAMERA_RUOTA=180; do
+  chiave="${riga%%=*}"
+  if grep -q "^$chiave=" "$ENV_FILE"; then sed -i "s|^$chiave=.*|$riga|" "$ENV_FILE"; else printf '%s\n' "$riga" >> "$ENV_FILE"; fi
+done
+echo "-- BMO_PULSANTE_PIN, BMO_CAMERA, BMO_CAMERA_RUOTA impostati"
+
+echo "== volumi della scheda salvati (alsactl store): sopravvivono al riavvio"
+alsactl store
+
 echo "== fatto: ora 'sudo reboot'. Dopo il riavvio: cat /proc/asound/cards deve elencare wm8960soundcard."
