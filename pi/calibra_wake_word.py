@@ -56,10 +56,25 @@ def imposta_guadagno(capture: str | None, boost: str | None) -> None:
         mixer("cset", "name=Right Input Boost Mixer RINPUT1 Volume", str(boost))
 
 
+SILENZIOSO = False  # se il bip non si sente, il cue è solo la riga «ADESSO» a terminale
+
+
+def prepara_audio() -> None:
+    """Uscita al massimo e instradata: con Speaker 85% il bip a 0,35 era sotto la soglia di ascolto (14/10)."""
+    mixer("cset", "name=Left Output Mixer PCM Playback Switch", "on")
+    mixer("cset", "name=Right Output Mixer PCM Playback Switch", "on")
+    mixer("sset", "Playback", "255")
+    mixer("sset", "Speaker", "100%")
+    mixer("sset", "Speaker AC", "5")
+    mixer("sset", "Speaker DC", "5")
+
+
 def bip(n: int = 1) -> None:
     """`n` bip brevi dall'altoparlante: il numero dice quale parola dire."""
+    if SILENZIOSO:
+        return
     t = np.arange(int(0.18 * 48000)) / 48000
-    onda = (0.35 * np.sin(2 * np.pi * 1000 * t) * 32767).astype("<i2")
+    onda = (0.9 * np.sin(2 * np.pi * 1000 * t) * 32767).astype("<i2")
     pausa = np.zeros(int(0.12 * 48000), dtype="<i2")
     sequenza = np.concatenate([np.concatenate([onda, pausa]) for _ in range(n)])
     stereo = np.repeat(sequenza[:, None], 2, axis=1).tobytes()
@@ -155,8 +170,9 @@ def esegui_posizione(acq: Acquisizione, nome: str, descrizione: str, parole: lis
         i = 0
         while i < ripetizioni:
             i += 1
-            print(f"  [{i}/{ripetizioni}] dopo il bip dì {testo_parola} …", flush=True)
+            print(f"  [{i}/{ripetizioni}] preparati… poi dì {testo_parola}", flush=True)
             time.sleep(0.8)
+            print(f"      >>> ADESSO: {testo_parola} <<<", flush=True)
             bip(n_bip)
             t_in = acq.adesso()
             time.sleep(finestra_s)
@@ -252,6 +268,22 @@ def main() -> int:
               "`sudo systemctl stop bmo-core`", file=sys.stderr)
         return 1
 
+    global SILENZIOSO
+    prepara_audio()
+    for tentativo in range(2):
+        print("Prova del bip…", flush=True)
+        bip(1)
+        r = chiedi("Hai sentito il bip? INVIO = sì, n+INVIO = no: ")
+        if r != "n":
+            break
+        if tentativo == 0:
+            print("Riprovo con il volume dell'altoparlante al massimo e il bip più lungo…", flush=True)
+            mixer("sset", "Speaker", "100%")
+    else:
+        SILENZIOSO = True
+        print("Va bene: senza bip. Il segnale sarà la riga «>>> ADESSO: parola <<<» a terminale: "
+              "dì la parola appena la vedi. Il numero di bip non serve: la parola è scritta.")
+
     parole = [(m, t or a.terza, n) for m, t, n in PAROLE]
     posizioni = [x for x in POSIZIONI if not a.solo or x[0] in [s.strip() for s in a.solo.split(",")]]
     print(f"Microfono aperto. Guadagno: Capture {a.capture}, boost {a.boost}. Modelli: {', '.join(acq.nomi)}.")
@@ -267,6 +299,7 @@ def main() -> int:
         print("\nInterrotto.")
     finally:
         acq.ferma()
+        mixer("sset", "Speaker", "85%")  # il volume di tutti i giorni
     riepilogo(risultati)
     raccomanda(risultati)
     uscita = a.uscita or Path.home() / "bmo-test" / "misure" / time.strftime("calibrazione-%Y-%m-%d_%H%M%S.json")
