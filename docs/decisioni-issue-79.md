@@ -111,3 +111,7 @@ fermo: conta i falsi positivi a 0,3 / 0,5 / 0,7). Se i falsi scatti sono troppi:
 boost `LINPUT1/RINPUT1` ancora a 3. Soglia a **0,10**: con 0,10 il modello accetta quasi qualunque punteggio, quindi
 i falsi scatti sono attesi molti (qualunque voce o rumore simile a «Hey BMO»); vale la stessa conseguenza di
 (a) in forma più forte. Da misurare con `pi/prova_sensibilita.py`; se troppi, 0,2-0,3.
+
+**Aggiornamento 2 (stesso giorno):** soglia a **0,05** su richiesta. A questo valore è praticamente
+sempre sopra soglia su qualunque suono con un minimo di energia: BMO potrebbe aprire l'ascolto di continuo e
+mandare richieste a Gemini (quota e latenza). Valore da considerare di prova: se scatta da solo, 0,2-0,3.
