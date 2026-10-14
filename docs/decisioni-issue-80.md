@@ -35,3 +35,15 @@ Nel codice che gira sul Pi cambia solo l'elenco predefinito dei modelli.
 usa `BMO_TTS_MOTORE=gemini` dopo quella data avrà errori; non l'ho cambiato perché i modelli 3.8 non
 sono stati provati con la voce `it-IT-DiegoNeural` e il motore non è quello in produzione. Va fatto
 prima del 17/11 se si vuole tenere il ripiego a Gemini.
+
+## 3. Ordine dei due lite (nuova, dai test del 14/10)
+
+**Opzioni:** (a) `3.5-flash-lite` poi `3.1-flash-lite` (com'è); (b) `3.1-flash-lite` poi `3.5-flash-lite`.
+
+**Implementato: (a).** Non l'ho cambiato perché mi hai detto di lasciare la cascata com'è finché i
+primi modelli rispondono: rispondono (4,3-5,2 s in tre richieste di prova).
+
+**Conseguenza:** nelle 48 frasi il `3.1-flash-lite` ha il turno più lungo a 8,7 s e nessun riepilogo
+forzato, il `3.5-flash-lite` a 16,8 s con due (il tetto è 20 s). (b) accorcerebbe i turni lunghi, ma mette
+in testa il modello che chiude il 07/05/2027 e che Google ha già sostituito; quando sparirà, il
+primo modello della cascata diventerebbe una chiamata 404 (0,2 s, poi sospeso 1 h) a ogni riavvio.
