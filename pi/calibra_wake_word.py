@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""Calibrazione guidata della wake word col microfono VERO del HAT (issue #79).
+"""Calibrazione guidata e interattiva della wake word col microfono VERO del HAT (issue #79).
 
-Strumento di misura: il servizio NON lo importa. Sul Pi, con `bmo-core` fermo (il microfono è
-esclusivo: `sudo systemctl stop bmo-core`):
+Strumento di misura: il servizio NON lo importa. Va lanciato SUL PI da un terminale (`ssh -t`), con
+`bmo-core` fermo (il microfono è esclusivo). Comando completo, dal portatile:
 
-    PYTHONPATH=~/bmo-pi/bmo-diy/bmo-core/src ~/bmo-pi/venv/bin/python calibra_wake_word.py \\
-        --etichetta 3m --capture 40 --boost 2 --ripetizioni 5
+    ssh -t clanker_home@clanker.local \\
+      'sudo systemctl stop bmo-core; ~/bmo-pi/venv/bin/python ~/calibra_wake_word.py; sudo systemctl start bmo-core'
 
-Cosa fa: imposta (senza sudo) il guadagno di cattura e il boost del mixer; ascolta `--base` secondi di
-ambiente (i punteggi lì sono falsi positivi), poi per `--ripetizioni` volte suona un BIP dall'altoparlante
-e ascolta `--finestra` secondi: nel bip dici «Hey BMO». Per ogni bip stampa il livello della voce
-(rms/picco in dBFS) e il punteggio massimo di ciascun modello, e in fondo quante ripetizioni
-supererebbero ciascuna soglia e quanti falsi positivi ci sono nell'ambiente.
+Il programma scrive a terminale il PUNTO in cui metterti e la PAROLA da dire. Per ogni ripetizione fa un bip
+(1 bip = «Hey BMO»/bmo1, 2 bip = «BMO»/bmo2, 3 bip = la terza parola/bmo3), tu dici la parola subito dopo, e
+vedi subito il punteggio di ciascun modello e il livello della tua voce.
+
+Tasti: INVIO per andare avanti. Se un modello non ha sentito niente ma la parola l'hai detta, premi INVIO:
+conta come NON rilevata (è proprio il dato che cerchiamo). `r` + INVIO ripete la ripetizione (es. se non
+hai fatto in tempo). `q` + INVIO esce stampando quanto raccolto.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import threading
@@ -26,15 +29,35 @@ import numpy as np
 
 SOGLIE = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7)
 SCHEDA = "wm8960soundcard"
-PEZZO_S = 1280 / 16000
+SOGLIA_NULLA = 0.05  # sotto questo punteggio dice «non ho sentito niente» e chiede cosa fare
+
+PAROLE = [
+    ("bmo1", "«Hey BMO»", 1),
+    ("bmo2", "«BMO»", 2),
+    ("bmo3", None, 3),  # il testo si prende da --terza
+]
+
+POSIZIONI = [
+    ("1 m", "A 1 METRO dal HAT, di fronte, alla stessa altezza."),
+    ("3 m", "A 3 METRI dal HAT, in mezzo alla stanza, in linea col HAT."),
+    ("lontano", "Nel PUNTO PIÙ LONTANO della stanza dove vorrai usare BMO (anche di lato o di spalle al HAT)."),
+]
 
 
 def mixer(*args: str) -> None:
     subprocess.run(["amixer", "-c", SCHEDA, "-q", *args], check=False)
 
 
+def imposta_guadagno(capture: str | None, boost: str | None) -> None:
+    if capture is not None:
+        mixer("sset", "Capture", str(capture))
+    if boost is not None:
+        mixer("cset", "name=Left Input Boost Mixer LINPUT1 Volume", str(boost))
+        mixer("cset", "name=Right Input Boost Mixer RINPUT1 Volume", str(boost))
+
+
 def bip(n: int = 1) -> None:
-    """`n` bip brevi: 1 = prima parola, 2 = seconda, 3 = terza (la parola da dire cambia a ogni gruppo)."""
+    """`n` bip brevi dall'altoparlante: il numero dice quale parola dire."""
     t = np.arange(int(0.18 * 48000)) / 48000
     onda = (0.35 * np.sin(2 * np.pi * 1000 * t) * 32767).astype("<i2")
     pausa = np.zeros(int(0.12 * 48000), dtype="<i2")
@@ -45,107 +68,212 @@ def bip(n: int = 1) -> None:
 
 
 def dbfs(x: float) -> float:
-    return 20 * np.log10(max(x, 1.0) / 32768)
+    return float(20 * np.log10(max(x, 1.0) / 32768))
 
 
-def analizza(registro: list[tuple[float, np.ndarray, dict[str, float]]], cue: list[float], base_s: float,
-             finestra_s: float, ritardo_s: float) -> dict:
-    """`registro`: (istante, pezzo int16, punteggi per modello). Restituisce basi e ripetizioni."""
-    base = [r for r in registro if r[0] < base_s]
-    modelli = sorted({m for r in registro for m in r[2]})
-    out = {"modelli": modelli, "base": {}, "rip": []}
-    if base:
-        out["base"]["rms_dbfs"] = dbfs(float(np.sqrt(np.mean(np.concatenate([r[1] for r in base]).astype(np.float64) ** 2))))
-        out["base"]["max_punteggio"] = max((max(r[2].values(), default=0.0) for r in base), default=0.0)
-    for c in cue:
-        w = [r for r in registro if c + ritardo_s <= r[0] < c + ritardo_s + finestra_s]
+class Acquisizione(threading.Thread):
+    """Legge il microfono in continuo e tiene (istante, pezzo int16, punteggi per modello)."""
+
+    def __init__(self, dispositivo: str, cartella_modelli: str) -> None:
+        super().__init__(daemon=True)
+        from bmo_core.adapters.audio_input import ArecordConvertitoreAdapter
+        from bmo_core.wake_word import RilevatoreLeggero
+
+        modelli = [str(m) for m in sorted(Path(cartella_modelli).glob("bmo*.onnx"))]
+        self.nomi = [Path(m).stem for m in modelli]
+        self._rilevatore = RilevatoreLeggero(modelli)
+        self._microfono = ArecordConvertitoreAdapter(dispositivo=dispositivo)
+        self.registro: list[tuple[float, np.ndarray, dict[str, float]]] = []
+        self._ferma = threading.Event()
+        self.t0 = time.time()
+        self.errore: str | None = None
+
+    def run(self) -> None:
+        from bmo_core.wake_word import CAMPIONI_PER_PEZZO
+
+        resto = np.empty(0, dtype=np.int16)
+        flusso = self._microfono.flusso_pcm()
+        try:
+            for grezzo in flusso:
+                if self._ferma.is_set():
+                    break
+                resto = np.concatenate([resto, np.frombuffer(grezzo, dtype=np.int16)])
+                while len(resto) >= CAMPIONI_PER_PEZZO:
+                    pezzo, resto = resto[:CAMPIONI_PER_PEZZO], resto[CAMPIONI_PER_PEZZO:]
+                    p = {k: float(v) for k, v in self._rilevatore.predict(pezzo).items()}
+                    self.registro.append((time.time() - self.t0, pezzo, p))
+        except Exception as e:  # noqa: BLE001 - lo strumento deve dire cosa è andato storto
+            self.errore = f"{type(e).__name__}: {e}"
+        finally:
+            flusso.close()
+
+    def ferma(self) -> None:
+        self._ferma.set()
+
+    def adesso(self) -> float:
+        return time.time() - self.t0
+
+    def finestra(self, da: float, a: float) -> dict:
+        w = [r for r in list(self.registro) if da <= r[0] < a]
         if not w:
-            continue
+            return {"vuota": True, "punteggi": {}, "rms_dbfs": -99.0, "picco_dbfs": -99.0}
         audio = np.concatenate([r[1] for r in w]).astype(np.float64)
-        pun = {m: max((r[2].get(m, 0.0) for r in w), default=0.0) for m in modelli}
-        out["rip"].append({
-            "t": c, "rms_dbfs": dbfs(float(np.sqrt(np.mean(audio ** 2)))),
-            "picco_dbfs": dbfs(float(np.abs(audio).max())), "punteggi": pun, "max": max(pun.values()),
-        })
-    return out
+        punteggi = {m: max(r[2].get(m, 0.0) for r in w) for m in self.nomi}
+        return {
+            "vuota": False,
+            "punteggi": punteggi,
+            "rms_dbfs": dbfs(float(np.sqrt(np.mean(audio ** 2)))),
+            "picco_dbfs": dbfs(float(np.abs(audio).max())),
+        }
 
 
-def stampa(r: dict, etichetta: str, capture: str, boost: str) -> None:
-    print(f"# {etichetta}: Capture {capture}, boost {boost}")
-    print(f"  ambiente: rms {r['base'].get('rms_dbfs', float('nan')):.1f} dBFS, punteggio massimo {r['base'].get('max_punteggio', 0.0):.2f} (falsi positivi sopra la soglia)")
-    for i, x in enumerate(r["rip"], 1):
-        det = "  ".join(f"{m}={v:.2f}" for m, v in x["punteggi"].items())
-        sat = "  SATURA" if x["picco_dbfs"] > -1.0 else ""
-        print(f"  #{i}: voce rms {x['rms_dbfs']:6.1f} picco {x['picco_dbfs']:6.1f} dBFS | max {x['max']:.2f} | {det}{sat}")
-    n = len(r["rip"])
-    if n:
-        riga = "  ".join(f">={s}: {sum(1 for x in r['rip'] if x['max'] >= s)}/{n}" for s in SOGLIE)
-        print(f"  riconosciute per soglia: {riga}")
-        print(f"  punteggio medio {np.mean([x['max'] for x in r['rip']]):.2f}, minimo {min(x['max'] for x in r['rip']):.2f}; "
-              f"ambiente max {r['base'].get('max_punteggio', 0.0):.2f}")
+def chiedi(testo: str) -> str:
+    try:
+        return input(testo).strip().lower()
+    except EOFError:
+        return "q"
+
+
+def esegui_posizione(acq: Acquisizione, nome: str, descrizione: str, parole: list[tuple[str, str, int]],
+                     ripetizioni: int, finestra_s: float, soglia_vista: float) -> dict:
+    print("\n" + "=" * 72)
+    print(f"POSIZIONE «{nome}»: {descrizione}")
+    print("=" * 72)
+    r = chiedi("Quando sei al posto, premi INVIO (q+INVIO per finire): ")
+    if r == "q":
+        return {"nome": nome, "interrotta": True}
+    print("  … 5 secondi di silenzio (non parlare) per misurare l'ambiente …", flush=True)
+    t = acq.adesso()
+    time.sleep(5.2)
+    base = acq.finestra(t, acq.adesso())
+    print(f"  ambiente: {base['rms_dbfs']:.1f} dBFS, punteggio massimo {max(base['punteggi'].values(), default=0):.2f}"
+          " (sopra la soglia sarebbe un falso scatto)")
+    risultato = {"nome": nome, "base": base, "parole": {}}
+    for modello, testo_parola, n_bip in parole:
+        print(f"\n--- Parola: {testo_parola}  ({modello}, {n_bip} bip) — {ripetizioni} volte, tono normale ---")
+        misure = []
+        i = 0
+        while i < ripetizioni:
+            i += 1
+            print(f"  [{i}/{ripetizioni}] dopo il bip dì {testo_parola} …", flush=True)
+            time.sleep(0.8)
+            bip(n_bip)
+            t_in = acq.adesso()
+            time.sleep(finestra_s)
+            w = acq.finestra(t_in, acq.adesso())
+            atteso = w["punteggi"].get(modello, 0.0)
+            altri = "  ".join(f"{m}={v:.2f}" for m, v in w["punteggi"].items() if m != modello)
+            esito = "SENTITA" if atteso >= soglia_vista else "non sentita"
+            sat = "  (SATURA!)" if w["picco_dbfs"] > -1.0 else ""
+            print(f"      {modello}={atteso:.2f}  {esito}   | {altri} | voce {w['rms_dbfs']:.1f} dBFS, "
+                  f"picco {w['picco_dbfs']:.1f}{sat}")
+            if max(w["punteggi"].values(), default=0.0) < SOGLIA_NULLA:
+                r = chiedi("      Nessun modello ha reagito. INVIO = l'ho detta (la conto mancata), "
+                           "r+INVIO = ripeti, q+INVIO = esci: ")
+                if r == "r":
+                    i -= 1
+                    continue
+                if r == "q":
+                    risultato["parole"][modello] = misure
+                    risultato["interrotta"] = True
+                    return risultato
+            misure.append({"atteso": atteso, "punteggi": w["punteggi"], "rms_dbfs": w["rms_dbfs"],
+                           "picco_dbfs": w["picco_dbfs"]})
+            time.sleep(1.2)
+        risultato["parole"][modello] = misure
+    return risultato
+
+
+def riepilogo(risultati: list[dict]) -> None:
+    print("\n" + "#" * 72)
+    print("RIEPILOGO (punteggio del modello della parola detta; ✓ = sopra la soglia)")
+    print("#" * 72)
+    intest = "  ".join(f">={s:<4}" for s in SOGLIE)
+    print(f"{'posizione':10s} {'parola':8s} {'media':>6s} {'min':>5s} {'voce dBFS':>10s}   {intest}")
+    for r in risultati:
+        for modello, misure in r.get("parole", {}).items():
+            if not misure:
+                continue
+            v = [m["atteso"] for m in misure]
+            conteggi = "  ".join(f"{sum(1 for x in v if x >= s)}/{len(v):<3}" for s in SOGLIE)
+            voce = np.mean([m["rms_dbfs"] for m in misure])
+            print(f"{r['nome']:10s} {modello:8s} {np.mean(v):6.2f} {min(v):5.2f} {voce:10.1f}   {conteggi}")
+        if r.get("base"):
+            print(f"{'':10s} {'ambiente':8s} max punteggio {max(r['base']['punteggi'].values(), default=0):.2f}, "
+                  f"{r['base']['rms_dbfs']:.1f} dBFS")
+
+
+def raccomanda(risultati: list[dict]) -> None:
+    """La soglia più alta che riconosce almeno l'80% delle ripetizioni da lontano (3 m e oltre) restando sopra l'ambiente."""
+    # In produzione scatta se UNO QUALUNQUE dei tre modelli supera la soglia: conta il massimo fra i modelli.
+    lontane = [max(m["punteggi"].values(), default=0.0) for r in risultati if r.get("nome") in ("3 m", "lontano")
+               for ms in r.get("parole", {}).values() for m in ms]
+    ambiente = [max(r["base"]["punteggi"].values(), default=0.0) for r in risultati if r.get("base")]
+    if not lontane:
+        print("\nNiente da raccomandare: nessuna ripetizione da 3 m o più.")
+        return
+    amb = max(ambiente, default=0.0)
+    print(f"\nAmbiente: punteggio massimo visto {amb:.2f}.")
+    scelta = None
+    for s in np.arange(0.9, 0.04, -0.05):
+        richiamo = sum(1 for x in lontane if x >= s) / len(lontane)
+        if richiamo >= 0.8 and s > amb:
+            scelta = (round(float(s), 2), richiamo)
+            break
+    if scelta:
+        print(f"RACCOMANDATA: soglia {scelta[0]:.2f} → riconosce {scelta[1]:.0%} delle {len(lontane)} ripetizioni da 3 m e oltre, "
+              f"sopra il rumore dell'ambiente.")
+    else:
+        m = sum(1 for x in lontane if x >= 0.05) / len(lontane)
+        print(f"NESSUNA soglia riconosce l'80% da lontano sopra l'ambiente (a 0.05 si arriva al {m:.0%}). "
+              "Il problema non è la soglia: serve più guadagno o un modello addestrato meglio.")
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--etichetta", default="")
-    p.add_argument("--capture", default=None, help="guadagno di cattura 0-63 (amixer sset Capture)")
-    p.add_argument("--boost", default=None, help="boost LINPUT1/RINPUT1 0-3")
+    p.add_argument("--capture", default="40", help="guadagno di cattura 0-63 all'inizio (predefinito 40)")
+    p.add_argument("--boost", default="2", help="boost LINPUT1/RINPUT1 0-3 all'inizio (predefinito 2)")
     p.add_argument("--ripetizioni", type=int, default=5)
-    p.add_argument("--numero-bip", type=int, default=1, help="bip per cue: 1, 2 o 3 secondo la parola da dire")
-    p.add_argument("--base", type=float, default=6.0, help="secondi di ambiente prima del primo bip")
-    p.add_argument("--finestra", type=float, default=3.0, help="secondi dopo ogni bip in cui dire «Hey BMO»")
-    p.add_argument("--pausa", type=float, default=1.5, help="secondi di pausa fra una finestra e il bip dopo")
-    p.add_argument("--ritardo", type=float, default=0.35, help="secondi dopo il bip prima della finestra")
+    p.add_argument("--finestra", type=float, default=3.0, help="secondi di ascolto dopo ogni bip")
+    p.add_argument("--soglia-vista", type=float, default=0.3, help="soglia con cui si scrive «SENTITA» a terminale")
+    p.add_argument("--terza", default="la terza parola (bmo3)", help="il testo della terza parola da mostrare")
+    p.add_argument("--solo", default=None, help="solo queste posizioni, separate da virgola (1 m,3 m,lontano)")
     p.add_argument("--dispositivo", default=f"hw:CARD={SCHEDA},DEV=0")
     p.add_argument("--cartella-modelli", default=str(Path.home() / "bmo-pi/bmo-diy/bmo-core/modelli-wake-word"))
+    p.add_argument("--uscita", type=Path, default=None, help="JSON con tutte le misure grezze")
     a = p.parse_args()
 
-    from bmo_core.adapters.audio_input import ArecordConvertitoreAdapter
-    from bmo_core.wake_word import CAMPIONI_PER_PEZZO, RilevatoreLeggero
+    imposta_guadagno(a.capture, a.boost)
+    acq = Acquisizione(a.dispositivo, a.cartella_modelli)
+    acq.start()
+    time.sleep(3.0)  # il tempo di riempire lo stato del rilevatore
+    if acq.errore or not acq.registro:
+        print(f"Non riesco ad aprire il microfono ({acq.errore or 'nessun dato'}). Hai fermato bmo-core? "
+              "`sudo systemctl stop bmo-core`", file=sys.stderr)
+        return 1
 
-    if a.capture is not None:
-        mixer("sset", "Capture", str(a.capture))
-    if a.boost is not None:
-        mixer("cset", "name=Left Input Boost Mixer LINPUT1 Volume", str(a.boost))
-        mixer("cset", "name=Right Input Boost Mixer RINPUT1 Volume", str(a.boost))
-
-    modelli = [str(m) for m in sorted(Path(a.cartella_modelli).glob("bmo*.onnx"))]
-    rilevatore = RilevatoreLeggero(modelli)
-    microfono = ArecordConvertitoreAdapter(dispositivo=a.dispositivo)
-
-    registro: list[tuple[float, np.ndarray, dict[str, float]]] = []
-    cue: list[float] = []
-    durata_bip = a.numero_bip * 0.30
-    fine = a.base + a.ripetizioni * (durata_bip + a.ritardo + a.finestra + a.pausa) + 0.5
-    t0 = time.time()
-    prossimo = a.base
-
-    def pianifica() -> None:
-        nonlocal prossimo
-        for _ in range(a.ripetizioni):
-            attesa = prossimo - (time.time() - t0)
-            if attesa > 0:
-                time.sleep(attesa)
-            cue.append(time.time() - t0)
-            print(f"  >>> {len(cue)}/{a.ripetizioni}: DI' «HEY BMO» ORA", flush=True)
-            bip(a.numero_bip)
-            prossimo = (time.time() - t0) + a.ritardo + a.finestra + a.pausa
-
-    threading.Thread(target=pianifica, daemon=True).start()
-    resto = np.empty(0, dtype=np.int16)
-    flusso = microfono.flusso_pcm()
+    parole = [(m, t or a.terza, n) for m, t, n in PAROLE]
+    posizioni = [x for x in POSIZIONI if not a.solo or x[0] in [s.strip() for s in a.solo.split(",")]]
+    print(f"Microfono aperto. Guadagno: Capture {a.capture}, boost {a.boost}. Modelli: {', '.join(acq.nomi)}.")
+    print("Tono di voce NORMALE. 1 bip = «Hey BMO», 2 bip = «BMO», 3 bip = " + a.terza + ".")
+    risultati: list[dict] = []
     try:
-        for grezzo in flusso:
-            resto = np.concatenate([resto, np.frombuffer(grezzo, dtype=np.int16)])
-            while len(resto) >= CAMPIONI_PER_PEZZO:
-                pezzo, resto = resto[:CAMPIONI_PER_PEZZO], resto[CAMPIONI_PER_PEZZO:]
-                t = time.time() - t0
-                registro.append((t, pezzo, {k: float(v) for k, v in rilevatore.predict(pezzo).items()}))
-            if time.time() - t0 >= fine:
+        for nome, descrizione in posizioni:
+            r = esegui_posizione(acq, nome, descrizione, parole, a.ripetizioni, a.finestra, a.soglia_vista)
+            risultati.append(r)
+            if r.get("interrotta"):
                 break
+    except KeyboardInterrupt:
+        print("\nInterrotto.")
     finally:
-        flusso.close()
-    stampa(analizza(registro, cue, a.base, a.finestra, a.ritardo + durata_bip), a.etichetta, str(a.capture), str(a.boost))
+        acq.ferma()
+    riepilogo(risultati)
+    raccomanda(risultati)
+    uscita = a.uscita or Path.home() / "bmo-test" / "misure" / time.strftime("calibrazione-%Y-%m-%d_%H%M%S.json")
+    uscita.parent.mkdir(parents=True, exist_ok=True)
+    uscita.write_text(json.dumps({"capture": a.capture, "boost": a.boost, "risultati": risultati}, indent=1,
+                                 default=float), encoding="utf-8")
+    print(f"\nMisure grezze: {uscita}")
     return 0
 
 
