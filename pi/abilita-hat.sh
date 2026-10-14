@@ -61,7 +61,8 @@ done
 echo "-- BMO_PULSANTE_PIN, BMO_CAMERA, BMO_CAMERA_RUOTA impostati"
 
 echo "== mixer della scheda: valori misurati il 14/10/2026, poi salvati (alsactl store)"
-# All'avvio il kernel lascia ingresso e uscita spenti e la cattura a +30 dB (satura la voce): si
+# All'avvio il kernel lascia ingresso e uscita spenti e la cattura a +30 dB (satura la voce vicina; 40 non
+# bastava per «Hey BMO» a distanza, 48 è il compromesso del 14/10/2026): si
 # impostano qui, esplicitamente, e si salvano perché sopravvivano al riavvio.
 M="amixer -c wm8960soundcard -q"
 if $M scontrols >/dev/null 2>&1; then
@@ -71,7 +72,7 @@ if $M scontrols >/dev/null 2>&1; then
   $M cset name="Right Input Boost Mixer RINPUT1 Volume" 2
   $M cset name="Left Output Mixer PCM Playback Switch" on
   $M cset name="Right Output Mixer PCM Playback Switch" on
-  $M sset Capture 40
+  $M sset Capture 48
   $M sset Playback 255
   $M sset Speaker 85%
   $M sset "Speaker AC" 5

@@ -96,3 +96,30 @@ def test_durata_totale_e_coerente_col_numero_di_frame():
     rilevatore = RilevatoreFinto([True, False, False, False])
     _, diagnostica = ascolta_fino_al_silenzio(frame, 16000, rilevatore, cap_s=10.0, silenzio_ms=90, durata_frame_ms=30)
     assert diagnostica.durata_totale_s == pytest.approx(4 * DURATA_FRAME_MS / 1000)
+
+
+def test_un_blip_di_voce_troppo_breve_non_chiude_l_ascolto():
+    """#79: 0,1 s di voce (la coda di «Hey BMO», un bip) e poi silenzio non è una frase: si
+    continua ad aspettare, e la frase vera che arriva dopo viene registrata per intero."""
+    from bmo_core.vad import ascolta_fino_al_silenzio
+
+    class Programmato:
+        def __init__(self, voce):
+            self._voce = list(voce)
+
+        def is_speech(self, frame, frequenza):
+            return self._voce.pop(0)
+
+    # 3 frame di voce (90 ms), 40 di silenzio (1,2 s), poi 20 di voce (la frase) e 40 di silenzio.
+    schema = [True] * 3 + [False] * 40 + [True] * 20 + [False] * 40
+    frame = [b"\x00" * 960] * len(schema)
+    audio, diag = ascolta_fino_al_silenzio(
+        frame, 16000, Programmato(schema), cap_s=30.0, silenzio_ms=800.0, voce_minima_ms=300.0
+    )
+    assert diag.motivo_fine == "silenzio"
+    assert len(audio) // 960 >= 20 + 26  # la frase e il suo silenzio finale, non il blip
+    # senza la voce minima (comportamento di prima) il blip chiudeva l'ascolto
+    audio0, diag0 = ascolta_fino_al_silenzio(
+        frame, 16000, Programmato(schema), cap_s=30.0, silenzio_ms=800.0, voce_minima_ms=0.0
+    )
+    assert len(audio0) // 960 == 3 + 27  # 3 frame di voce e 27 (800 ms) di silenzio: finito lì
