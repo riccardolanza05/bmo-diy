@@ -115,3 +115,8 @@ i falsi scatti sono attesi molti (qualunque voce o rumore simile a «Hey BMO»);
 **Aggiornamento 2 (stesso giorno):** soglia a **0,05** su richiesta. A questo valore è praticamente
 sempre sopra soglia su qualunque suono con un minimo di energia: BMO potrebbe aprire l'ascolto di continuo e
 mandare richieste a Gemini (quota e latenza). Valore da considerare di prova: se scatta da solo, 0,2-0,3.
+
+**Aggiornamento 3 (stesso giorno):** microfono riportato alla sensibilità **originale** su richiesta: `Capture 40`
+e boost `LINPUT1/RINPUT1` a 2 (i valori con cui è stato misurato la prima volta: picco ≈ −14 dBFS, VAD 75% sul
+parlato). Ho interpretato «originale» così, perché il kernel parte con l'ingresso spento (e, acceso, con
+Capture 63 e boost 0). La soglia della wake word resta 0,05.
