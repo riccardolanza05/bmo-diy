@@ -31,6 +31,9 @@ Environment=BMO_SOCKET=/run/bmo/bmo.sock
 EnvironmentFile=/etc/bmo/env
 RuntimeDirectory=bmo
 RuntimeDirectoryMode=0770
+# Fermare bmo-core (per liberare il microfono, un riavvio) cancellerebbe /run/bmo e con lei il socket
+# creato da bmo-face, che resterebbe viva ma muta (la faccia non cambia più: visto il 14/10/2026, #79).
+RuntimeDirectoryPreserve=yes
 StateDirectory=bmo
 ExecStart=/home/clanker_home/bmo-pi/bmo-diy/pi/bmo-core-avvia.sh
 Restart=always
