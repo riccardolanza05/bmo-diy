@@ -32,7 +32,8 @@ SCHEDA = "wm8960soundcard"
 SOGLIA_NULLA = 0.05  # sotto questo punteggio dice «non ho sentito niente» e chiede cosa fare
 
 # (modello atteso, parola da dire, numero di bip). Il 14/10 la mappa è stata invertita su indicazione di
-# Riccardo: bmo2 = «Hey BMO», bmo1 = «BMO». Il riepilogo finale mostra quale modello ha reagito davvero.
+# Riccardo e CONFERMATA dalla calibrazione: bmo2 = «Hey BMO» (media 0,62), bmo1 = «BMO» (0,81), bmo3 = terza
+# parola (0,62), nessun incrocio. Il riepilogo finale mostra quale modello ha reagito davvero.
 PAROLE = [
     ("bmo2", "«Hey BMO»", 1),
     ("bmo1", "«BMO»", 2),
@@ -202,6 +203,27 @@ def esegui_posizione(acq: Acquisizione, nome: str, descrizione: str, parole: lis
     return risultato
 
 
+def esegui_rumore(acq: Acquisizione, secondi: float) -> dict:
+    """Falsi scatti: TV, musica o conversazione accese, e TU NON DICI LA PAROLA."""
+    print("\n" + "=" * 72)
+    print("PROVA DI RUMORE: accendi la TV o la musica (o parlate fra di voi) come in una serata normale.")
+    print("NON dire «Hey BMO», «BMO» né la terza parola.")
+    print("=" * 72)
+    r = chiedi(f"Quando è acceso, premi INVIO (ascolto {secondi:.0f} s; q+INVIO per saltare): ")
+    if r == "q":
+        return {"nome": "rumore", "interrotta": True}
+    print(f"  … ascolto {secondi:.0f} secondi …", flush=True)
+    t = acq.adesso()
+    time.sleep(secondi + 0.2)
+    base = acq.finestra(t, acq.adesso())
+    # i massimi per ogni 80 ms, per vedere quanti scatti ci sarebbero a ogni soglia
+    pezzi = [r_[2] for r_ in list(acq.registro) if t <= r_[0] < t + secondi]
+    scatti = {s: sum(1 for p in pezzi if max(p.values(), default=0.0) >= s) for s in SOGLIE}
+    print(f"  rumore: {base['rms_dbfs']:.1f} dBFS, punteggio massimo {max(base['punteggi'].values(), default=0):.2f}; "
+          "pezzi da 80 ms sopra la soglia: " + "  ".join(f">={s}: {n}" for s, n in scatti.items()))
+    return {"nome": "rumore", "base": base, "scatti": {str(k): v for k, v in scatti.items()}, "parole": {}}
+
+
 def riepilogo(risultati: list[dict]) -> None:
     print("\n" + "#" * 72)
     print("RIEPILOGO (punteggio del modello della parola detta; ✓ = sopra la soglia)")
@@ -273,6 +295,8 @@ def main() -> int:
     p.add_argument("--soglia-vista", type=float, default=0.3, help="soglia con cui si scrive «SENTITA» a terminale")
     p.add_argument("--terza", default="la terza parola (bmo3)", help="il testo della terza parola da mostrare")
     p.add_argument("--solo", default=None, help="solo queste posizioni, separate da virgola (1 m,3 m,lontano)")
+    p.add_argument("--senza-rumore", action="store_true", help="salta la prova dei falsi scatti con TV/musica")
+    p.add_argument("--rumore-secondi", type=float, default=30.0)
     p.add_argument("--dispositivo", default=f"hw:CARD={SCHEDA},DEV=0")
     p.add_argument("--cartella-modelli", default=str(Path.home() / "bmo-pi/bmo-diy/bmo-core/modelli-wake-word"))
     p.add_argument("--uscita", type=Path, default=None, help="JSON con tutte le misure grezze")
@@ -314,6 +338,8 @@ def main() -> int:
             risultati.append(r)
             if r.get("interrotta"):
                 break
+        if not a.senza_rumore and not (risultati and risultati[-1].get("interrotta")):
+            risultati.append(esegui_rumore(acq, a.rumore_secondi))
     except KeyboardInterrupt:
         print("\nInterrotto.")
     finally:

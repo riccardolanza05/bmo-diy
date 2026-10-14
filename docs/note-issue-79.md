@@ -140,3 +140,17 @@ sincronizzato). `7.3.1`: sintesi in 1,2-1,7 s. Sul Pi il venv di produzione è s
 - Test di stress di RAM con raffiche di turni, radio e video insieme: non fatto.
 - Colori e orientamento del display; camera con il HAT montato (la prova schermo l'ha scattata in
   1,6 s, non l'ho guardata); `gpu_mem`; cuffie.
+
+## Calibrazione della wake word (14/10/2026, ~23:33, `pi/calibra_wake_word.py`, Capture 40, boost 2)
+
+Voce rms nella finestra: −39…−43 dBFS a 1 m, −45…−48 a 3 m e oltre; ambiente −52…−55 dBFS (stanza silenziosa).
+Punteggio del modello che reagisce alla parola (5 ripetizioni per cella; i modelli non si incrociano):
+
+| Parola (modello) | 1 m | 3 m | più lontano |
+|---|---|---|---|
+| «Hey BMO» (**bmo2**) | 0,57 0,69 0,74 0,77 0,71 | 0,25 0,86 0,82 0,30 0,48 | 0,74 0,76 0,51 0,69 0,34 |
+| «BMO» (**bmo1**) | 0,64 0,99 0,93 0,99 0,39 | 0,98 0,98 0,73 0,94 0,94 | 0,91 0,92 0,99 **0,03** 0,83 |
+| terza (**bmo3**) | 0,74 0,88 0,56 0,99 0,91 | 0,71 0,80 0,88 0,62 **0,01** | 0,84 0,29 0,45 0,55 **0,04** |
+
+Richiamo da 3 m e oltre: 90% a soglia ≤0,25, 83% a 0,3, 70% a 0,5 (vedi `decisioni-issue-79.md` §9).
+Falsi scatti in stanza silenziosa: massimo 0,0016. Misure grezze: `~/bmo-test/misure/calibrazione-2026-10-14_233251.json`.
