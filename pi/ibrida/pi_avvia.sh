@@ -83,6 +83,7 @@ if [ "$HAT" = 0 ]; then
   export BMO_VIDEO_AUDIO=pulse                     # ffmpeg (video) suona sul PC, come mpv
 else
   export BMO_AUDIO_DISPOSITIVO="${BMO_AUDIO_DISPOSITIVO:-hw:CARD=wm8960soundcard,DEV=0}"
+  export BMO_PULSANTE_PIN="${BMO_PULSANTE_PIN:-17}"   # il pulsante del HAT (#70): attivo-basso, misurato il 14/10
 fi
 
 # Controllo che il tunnel con il PC sia su, prima di partire: meglio fermarsi qui che a metà.
