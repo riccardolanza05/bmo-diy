@@ -120,6 +120,11 @@ sincronizzato). `7.3.1`: sintesi in 1,2-1,7 s. Sul Pi il venv di produzione è s
 | Servizi, ~14 min dopo il primo turno (cgroup `memory.current`) | 146 MB | 10 MB | MemAvailable 207-214 MB, 43,5-45,1 °C |
 | Picco dall'avvio (cgroup `memory.peak`, dopo ~7 turni) | 175-184 MB | 28 MB | `MemoryMax` bmo-core = 280 MiB |
 
+- **Dopo i test dal vivo di Riccardo (campionatore `misura_sistema_24h.py`, 22:31, ogni 5 s):** `bmo-core`
+  213 MB in uso e **picco 252 MB** (cgroup, `MemoryMax` 280 MiB = 293,6 MB): il margine è ~40 MB. Il
+  picco precedente era 175-184 MB; non so quale attività l'ha spinto a 252 MB (radio, video, camera?).
+  **Lo stress test di RAM con carico voluto non è stato fatto**: il campionatore resta acceso sul Pi
+  in `~/bmo-test/misure/live-*-sistema.csv`.
 - Nessun throttling (`0x0`), swap in uso 29 MB.
 - **MemAvailable è scesa da 214 a 207 MB in 60 s con BMO a riposo** (cache di pagina o altro,
   non l'ho distinto). Da guardare in una prova lunga.
