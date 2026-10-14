@@ -56,7 +56,7 @@ fi
 
 echo "== unit di systemd (copiate solo se cambiate)"
 ricarica=0
-for unit in bmo-face.service bmo-core.service; do
+for unit in bmo-hat-audio.service bmo-face.service bmo-core.service; do
   if ! cmp -s "$RADICE/pi/systemd/$unit" "/etc/systemd/system/$unit"; then
     sudo cp "$RADICE/pi/systemd/$unit" "/etc/systemd/system/$unit"
     echo "-- $unit aggiornata"
@@ -64,6 +64,8 @@ for unit in bmo-face.service bmo-core.service; do
   fi
 done
 if [ "$ricarica" -eq 1 ]; then sudo systemctl daemon-reload; fi
+# All'accensione tutto riparte da solo (#83): le tre unit devono essere abilitate.
+sudo systemctl enable bmo-hat-audio.service bmo-face.service bmo-core.service
 
 echo "== audio (dmix + volume del video, solo con la WM8960)"
 "$RADICE/pi/installa-audio.sh"

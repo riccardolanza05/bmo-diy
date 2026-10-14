@@ -14,8 +14,12 @@
 # fra le due unit invece di crearne una a testa.
 [Unit]
 Description=bmo-core - il cervello di BMO
-After=network-online.target bmo-face.service
-Wants=network-online.target
+After=network-online.target bmo-face.service bmo-hat-audio.service
+Wants=network-online.target bmo-hat-audio.service
+# Mai «start request repeated too quickly»: se la scheda audio o la rete ci mettono più di 10 s
+# all'accensione, `Restart=always` con `RestartSec=2` finirebbe nel limite dei 5 avvii in 10 s e
+# systemd smetterebbe di riprovare per sempre (#83).
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
