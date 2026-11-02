@@ -92,7 +92,7 @@ microphones ─► bmo-core ─HTTPS─► Gemini, edge-tts, web search, radio, 
               bmo-face ─SPI─► 2.4" ILI9341 display
 ```
 
-Three systemd services start at boot and keep restarting until they succeed.
+Three systemd services start at boot: one sets up the audio mixer once, the other two keep retrying until they are up.
 
 ### Hardware
 

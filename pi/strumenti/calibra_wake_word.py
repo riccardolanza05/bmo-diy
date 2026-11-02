@@ -8,7 +8,7 @@ Strumento di misura: il servizio NON lo importa. Va lanciato SUL PI da un termin
       'sudo systemctl stop bmo-core; ~/bmo-pi/venv/bin/python ~/calibra_wake_word.py; sudo systemctl start bmo-core'
 
 Il programma scrive a terminale il PUNTO in cui metterti e la PAROLA da dire. Per ogni ripetizione fa un bip
-(1 bip = «Hey BMO»/bmo1, 2 bip = «BMO»/bmo2, 3 bip = la terza parola/bmo3), tu dici la parola subito dopo, e
+(1 bip = «Hey BMO»/bmo2, 2 bip = «BMO»/bmo1, 3 bip = la terza parola/bmo3), tu dici la parola subito dopo, e
 vedi subito il punteggio di ciascun modello e il livello della tua voce.
 
 Tasti: INVIO per andare avanti. Se un modello non ha sentito niente ma la parola l'hai detta, premi INVIO:
@@ -327,10 +327,10 @@ def main() -> int:
         print("Va bene: senza bip. Il segnale sarà la riga «>>> ADESSO: parola <<<» a terminale: "
               "dì la parola appena la vedi. Il numero di bip non serve: la parola è scritta.")
 
-    parole = [(m, t or a.terza, n) for m, t, n in PAROLE]
+    parole = [(m, t or a.terza, n) for m, t, n in PAROLE if m in acq.nomi]  # bmo3 è facoltativo
     posizioni = [x for x in POSIZIONI if not a.solo or x[0] in [s.strip() for s in a.solo.split(",")]]
     print(f"Microfono aperto. Guadagno: Capture {a.capture}, boost {a.boost}. Modelli: {', '.join(acq.nomi)}.")
-    print("Tono di voce NORMALE. 1 bip = «Hey BMO», 2 bip = «BMO», 3 bip = " + a.terza + ".")
+    print("Tono di voce NORMALE. " + ", ".join(f"{n} bip = {t}" for _, t, n in parole) + ".")
     risultati: list[dict] = []
     try:
         for nome, descrizione in posizioni:
