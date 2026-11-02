@@ -23,7 +23,7 @@
 #   - avahi-daemon: senza, `clanker.local` non si risolve più e SSH dal PC
 #     andrebbe fatto per IP (che cambia sulla rete Lambrate);
 #   - NetworkManager, ssh, timesyncd, lambrate-login.timer (captive portal);
-#   - cloud-init (vedi docs/decisioni-issue-25.md).
+#   - cloud-init (vedi docs/archivio/issue/decisioni-issue-25.md).
 set -euo pipefail
 
 BOOT=/boot/firmware
@@ -160,7 +160,7 @@ avvio() {
 
   echo "== config.txt"
   if ! grep -qF "$MARCATORE" "$config"; then
-    printf '\n[all]\n%s — vedi pi/irrobustisci.sh e docs/decisioni-issue-25.md\n' "$MARCATORE" >> "$config"
+    printf '\n[all]\n%s — vedi pi/irrobustisci.sh e docs/archivio/issue/decisioni-issue-25.md\n' "$MARCATORE" >> "$config"
     echo "  aggiunta la sezione [all] $MARCATORE in coda"
   fi
   # La sezione nostra è per costruzione l'ultima del file: le righe nuove

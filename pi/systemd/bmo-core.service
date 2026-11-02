@@ -31,7 +31,7 @@ Environment=BMO_FACCIA=socket
 Environment=BMO_SOCKET=/run/bmo/bmo.sock
 # GEMINI_API_KEY e le altre variabili opzionali di tuning (BMO_VOCE,
 # BMO_GEMINI_MODELLI, ...) stanno qui, mai in questo file versionato — vedi
-# pi/bmo-core-env.esempio e docs/decisioni-issue-16.md.
+# pi/bmo-core-env.esempio e docs/archivio/issue/decisioni-issue-16.md.
 EnvironmentFile=/etc/bmo/env
 RuntimeDirectory=bmo
 RuntimeDirectoryMode=0770

@@ -11,13 +11,13 @@
 #   ssh clanker_home@clanker.local
 #   ~/bmo-pi/bmo-diy/pi/deploy.sh
 #
-# Si aspetta il layout deciso in docs/decisioni-issue-16.md:
+# Si aspetta il layout descritto in docs/installazione-pi.md:
 #   ~/bmo-pi/bmo-diy/   clone git di questo repo, sul branch di produzione
 #   ~/bmo-pi/venv/      un solo venv condiviso da bmo-core e bmo-face
 #
 # In un colpo solo: git pull (fast-forward, mai un merge a sorpresa) ->
 # dipendenze aggiornate -> assets di bmo-face costruiti se mancano ->
-# avviso se manca bmo3.onnx (non versionato, §2.6/#58) -> restart dei due
+# restart dei due
 # servizi -> verifica che siano ripartiti puliti. Esce con codice diverso da
 # zero, e NON considera il deploy riuscito, se un passo fallisce.
 set -euo pipefail
@@ -25,7 +25,6 @@ set -euo pipefail
 RADICE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$HOME/bmo-pi/venv"
 ASSETS="$RADICE/bmo-face/assets"
-BMO3="$RADICE/bmo-core/modelli-wake-word/bmo3.onnx"
 
 cd "$RADICE"
 
@@ -38,7 +37,7 @@ echo "== dipendenze (pip)"
 
 echo "== moduli GPIO/SPI di sistema nel venv (pulsante del HAT e display SPI)"
 # Non c'è una ruota utile su PyPI per lgpio (vedi bmo-core/pyproject.toml, extra `pi`) e spidev si
-# compila: si collegano quelli di apt (python3-lgpio, python3-spidev, rpi-lgpio), come fa pi/ibrida/.
+# compila: si collegano quelli di apt (python3-lgpio, python3-spidev, rpi-lgpio), come fa pi/strumenti/prova-ibrida/.
 SP="$("$VENV/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
 for f in lgpio.py _lgpio.cpython-313-aarch64-linux-gnu.so spidev.cpython-313-aarch64-linux-gnu.so RPi; do
   if [ -e "/usr/lib/python3/dist-packages/$f" ]; then ln -sfn "/usr/lib/python3/dist-packages/$f" "$SP/$f"; fi
@@ -72,17 +71,9 @@ echo "== audio (dmix + volume del video, solo con la WM8960)"
 
 echo "== assets di bmo-face"
 if [ ! -f "$ASSETS/faces.bin" ]; then
-  echo "-- faces.bin mancante: lo costruisco (placeholder, a meno che non esista"
-  echo "   già un riferimento d'arte vero — vedi docs/note-issue-16.md)"
+  echo "-- faces.bin mancante: lo costruisco con la faccia geometrica del repo"
+  echo "   (per l'arte vera: docs/installazione-pi.md, passo della faccia)"
   "$VENV/bin/python" -m bmo_face.build_face --destinazione "$ASSETS"
-fi
-
-echo "== modello wake word bmo3 (non versionato)"
-if [ ! -f "$BMO3" ]; then
-  echo "ATTENZIONE: $BMO3 manca." >&2
-  echo "bmo-core non partirà (tre modelli in produzione è la decisione della" >&2
-  echo "#58, docs/decisioni-issue-58.md): copialo a mano prima di continuare," >&2
-  echo "o il restart qui sotto farà entrare bmo-core in un ciclo di crash." >&2
 fi
 
 echo "== restart servizi"

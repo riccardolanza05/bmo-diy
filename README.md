@@ -1,88 +1,137 @@
 # BMO DIY
 
-Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *Adventure Time*: scocca stampata in 3D, acceso 24/7 alla corrente. Conversazione vocale, foto analizzate da un modello vision, ricerca sul web, timer da cucina, riproduzione musicale. Cervello su Gemini in cloud, wake word locale, ~68 € di componenti oltre al Raspberry Pi.
+Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *Adventure Time*, costruito su un
+Raspberry Pi 3 A+. Gli parli, ti risponde a voce, ti mostra una faccia animata e sta acceso 24/7.
 
-> 🇮🇹 **Repository in italiano.** Il progetto è nato ed è documentato in italiano; una versione in inglese arriverà solo quando il progetto sarà considerato definitivo.
+*A home voice assistant shaped like BMO from Adventure Time, built on a Raspberry Pi 3 A+.
+[English overview below](#english).*
 
 ## Stato del progetto
 
 | | |
 |---|---|
-| **Piano in vigore** | rev. 5.1 "cloud-first, solo voce" — [`docs/02-piano-attuale.md`](docs/02-piano-attuale.md) |
-| **Hardware comprato** | Raspberry Pi 3 Model A+, alimentatore 5V 2.5A, microSD (bring-up fatto, raggiungibile via SSH). L'HAT audio WM8960 non era ancora arrivato al 29/9/2026 |
-| **Hardware da comprare** | display, camera, minuteria (tutto UE, zero dazi) — **ultima fase** della roadmap |
-| **Software** | Su PC funzionano: [`bmo-core`](bmo-core/) con conversazione su Gemini (cascata di quattro modelli, loop agentico), wake word «Hey BMO» locale, ascolto fino al silenzio, voce, timer persistenti, radio, ricerca sul web, video di YouTube, diario di preferenze, persone di casa, memoria di sessione e foto con la webcam; e [`bmo-face`](bmo-face/), la faccia, in una finestra sul PC o senza schermo sul Pi. Sul Pi: deploy a un comando, `bmo-face` come servizio, prova di carico di 24 h passata (picco di RAM 239 MB). `bmo-core` come servizio parte solo con l'HAT audio |
-| **Meccanica** | non iniziata (niente ancora stampato) |
-| **Fase corrente della roadmap** | Fase 2 — porting sul Pi: bring-up, deploy, misure di RAM e prova di 24 h fatti; in attesa dell'HAT audio per la Fase 4 (vedi [roadmap](docs/02-piano-attuale.md#3--roadmap), software-first dal 2026-09-19) |
+| **Elettronica** | ✅ Completa, montata e collaudata |
+| **Software** | ✅ Completo, in funzione sul Raspberry Pi |
+| **Scocca stampata in 3D** | 🚧 Da realizzare: è l'ultima parte che manca ([guida](docs/stampa-3d.md)) |
 
-Il progetto è arrivato a questo punto passando per cinque revisioni della distinta base e tre premesse di fondo che ne hanno riscritto l'architettura (niente modelli locali, solo interazione vocale, hardware già in parte comprato). La storia completa, comprese le decisioni scartate e perché, è in [`docs/01-storia-del-progetto.md`](docs/01-storia-del-progetto.md).
+## Cosa sa fare
 
-## Struttura del repository
+- **Conversazione a voce**, in italiano e in inglese, con la wake word «Hey BMO» riconosciuta in locale o con il
+  pulsante del HAT
+- **Faccia animata** su un display da 2,4", che cambia a ogni stato e muove la bocca seguendo la voce
+- **Foto**: BMO guarda con la sua fotocamera e descrive quello che vede
+- **Ricerca sul web**
+- **Timer** che sopravvivono ai riavvii
+- **Radio via internet** e **video di YouTube** sullo schermo, con volumi separati
+- **Memoria**: ricorda la conversazione in corso e tiene un diario delle tue preferenze
+- **Riparte da solo** dopo uno stacco della corrente
+
+## Come funziona
+
+Il Pi ha solo 512 MB di RAM, quindi a bordo restano wake word, audio e faccia. Trascrizione, ragionamento e visione
+stanno su **Gemini**, la voce su **edge-tts**. Con il piano gratuito di Gemini il costo di esercizio è zero, e
+l'elettronica costa circa 68 € oltre al Pi e al suo alimentatore. Il dettaglio è in [architettura](docs/architettura.md).
+
+## Costruirne uno
+
+1. **[Compra e collega l'hardware](docs/hardware.md)**: serve un Pi 3 A+, un HAT audio WM8960, un display 2.4"
+   ILI9341 e una fotocamera OV5647. Nessuna saldatura.
+2. **[Installa il software](docs/installazione-pi.md)**: dalla microSD vuota a BMO funzionante, con una chiave Gemini
+   gratuita.
+3. **[Stampa e monta la scocca](docs/stampa-3d.md)**.
+
+Per provarlo prima, senza hardware, basta un PC Linux: [sviluppo su PC](docs/sviluppo-pc.md).
+
+## Dove trovare le cose
+
+| | |
+|---|---|
+| [`docs/`](docs/README.md) | Guide, configurazione, risoluzione dei problemi, architettura, misure |
+| [`bmo-core/`](bmo-core/README.md) | Il cervello: dialogo, wake word, voce, strumenti |
+| [`bmo-face/`](bmo-face/README.md) | La faccia: animazione, display SPI, finestra per il PC |
+| [`pi/`](pi/README.md) | Installazione, servizi e strumenti di misura per il Raspberry Pi |
+
+## Sviluppi futuri
+
+Idee aperte, tracciate nelle [issue](https://github.com/riccardolanza05/bmo-diy/issues): interrompere BMO mentre parla,
+Spotify Connect, domotica con Home Assistant, modalità Live di Gemini, immagini generate da mostrare sullo schermo.
+
+---
+
+<a id="english"></a>
+
+## English
+
+**BMO DIY** is a home voice assistant shaped like BMO from *Adventure Time*, built on a Raspberry Pi 3 Model A+. You
+talk to it, it answers out loud, shows an animated face and stays on 24/7.
+
+### Status
+
+The electronics and the software are complete, assembled and tested, and BMO runs on the Pi. The only part left is the
+**3D-printed shell** ([guide, in Italian](docs/stampa-3d.md)).
+
+### What it does
+
+- **Voice conversation** in Italian and English, woken by a local "Hey BMO" wake word or by the HAT button
+- **Animated face** on a 2.4" display, with a mouth that follows the voice
+- **Photos**: BMO looks through its camera and describes what it sees
+- **Web search**, **persistent kitchen timers**, **internet radio** and **YouTube videos** on its screen
+- **Memory**: it remembers the current conversation and keeps a diary of your preferences
+- **Automatic restart** after a power cut
+
+### How it works
+
+The Pi has only 512 MB of RAM, so only the wake word, audio and face run on the device. Speech recognition, reasoning
+and vision run on **Google Gemini**, in a single call, and speech synthesis uses **edge-tts**.
 
 ```
-docs/
-├── 00-panoramica.md                  Scopo, premesse, stato, decisioni tecniche di fondo
-├── 01-storia-del-progetto.md         Come si è arrivati al piano attuale, revisione per revisione
-├── 02-piano-attuale.md               IL PIANO IN VIGORE: BOM, architettura software, roadmap, rischi
-├── 03-riferimenti-esterni.md         Link ai progetti di riferimento e alle fonti
-├── note-issue-NN.md                  Numeri grezzi e metodo di ogni issue (anche note-video-youtube.md)
-├── decisioni-issue-NN.md             Scelte che spettano a Riccardo: opzioni, default, conseguenze
-├── informazioni-issue-NN.md          Cose da sapere, non da decidere
-└── revisioni-precedenti/             Distinte base superate — non sono scartate: ognuna
-    ├── rev3-hardware-bom.md          resta l'UNICA fonte per una parte del progetto (vedi i
-    ├── rev3-piano-progetto.md        banner in cima a ciascun file)
-    ├── rev4-bom-senza-dazi.md
-    └── rev3-sintesi-bom.md
-
-bmo-core/                             Logica di dialogo, sviluppata sul PC (omarchy) e in uso
-└── src/bmo_core/                     sul Pi — vedi bmo-core/README.md
-    ├── brain.py                       il cervello: prompt, cascata di modelli, loop agentico
-    ├── macchina.py                    la macchina a stati (attesa/ascolto/pensiero/parlato)
-    ├── modelli.py                     cascata dei modelli Gemini con ripiego automatico
-    ├── strumenti.py                   le dichiarazioni degli strumenti per Gemini
-    ├── wake_word.py / vad.py          richiamo «Hey BMO» locale e ascolto fino al silenzio
-    ├── tts.py / suoni.py / volumi.py  voce, suoni senza parole e volumi
-    ├── timer.py / sveglia.py          timer persistenti su disco e il processo che li fa suonare
-    ├── radio.py / ricerca.py          radio via internet e ricerca sul web
-    ├── video.py / risolvi_youtube.py  video di YouTube
-    ├── memoria.py / sessione.py       diario di preferenze e memoria di conversazione
-    ├── prova_frasi.py                 il banco di prova a frasi del prompt di sistema
-    ├── misura_modelli.py              misure dei modelli Gemini (non importato dal servizio)
-    ├── simula_cascata.py              simulatore della cascata (non importato dal servizio)
-    ├── config.py                      rileva l'ambiente: PC di sviluppo o Raspberry Pi
-    └── adapters/                      confine hardware: stessa logica, implementazione diversa
-
-bmo-face/                             La faccia di BMO: finestra sul PC, pannello senza schermo sul Pi
-└── src/bmo_face/                     (uscita SPI col display vero da fare) — vedi bmo-face/README.md
-
-pi/                                   Tutto ciò che serve sul Raspberry Pi
-├── deploy.sh                         deploy a un comando (issue #16), da lanciare sul Pi via SSH
-├── irrobustisci.sh                   prepara il Raspberry Pi per il 24/7 (issue #25): idempotente
-├── systemd/                          unit di bmo-core e bmo-face
-├── bmo-core-env.esempio              variabili d'ambiente (chiave Gemini, cascata) per /etc/bmo/env
-└── *.py, *.sh                        misure di RAM, carico e video sul Pi
+microphones ─► bmo-core ─HTTPS─► Gemini, edge-tts, web search, radio, YouTube
+                  │
+             Unix socket
+                  ▼
+              bmo-face ─SPI─► 2.4" ILI9341 display
 ```
 
-## Per chi vuole ricostruire BMO da zero
+Three systemd services start at boot and keep restarting until they succeed.
 
-Il piano attuale ([`docs/02-piano-attuale.md`](docs/02-piano-attuale.md)) è il documento tecnico principale ed è pensato per essere seguito in ordine, ma **tre sezioni della rev. 2/3 restano l'unica fonte** e non sono ripetute nel piano attuale — leggerle quando la roadmap ci arriva:
+### Hardware
 
-1. **Fase 1 (software su PC)** → architettura software completa in [`02-piano-attuale.md` §2](docs/02-piano-attuale.md#2--architettura-software) e adapter hardware in [`bmo-core/`](bmo-core/).
-2. **Fase 3 (acquisto)** → BOM in [`02-piano-attuale.md` §1](docs/02-piano-attuale.md#1--hardware-da-comprare).
-3. **Fase 4 (audio, display, camera)** → [`02-piano-attuale.md` §1.4](docs/02-piano-attuale.md#14-mappa-dei-pin) per la mappa dei pin; driver `spidev` e blit su dirty rect spiegati in [`revisioni-precedenti/rev3-hardware-bom.md`](docs/revisioni-precedenti/rev3-hardware-bom.md) (sezione "Correzione della rev. 2").
-4. **Fase 5 (meccanica)** → **qui la fonte è [`revisioni-precedenti/rev3-piano-progetto.md`](docs/revisioni-precedenti/rev3-piano-progetto.md) §3**: la strategia "tre pezzi, zero CAD", i cinque criteri per validare un modello Printables, i parametri di stampa e l'ordine di montaggio non sono ripetuti altrove.
-5. **Fase 6 (integrazione, burn-in)** → criteri di accettazione in [`02-piano-attuale.md` §3, Fase 6](docs/02-piano-attuale.md#fase-6--integrazione-e-messa-in-esercizio).
+| Part | Model |
+|---|---|
+| Computer | Raspberry Pi 3 Model A+ with a 5 V 2.5 A power supply |
+| Storage | 32 GB A1 microSD |
+| Audio | Waveshare WM8960 Audio HAT, with two MEMS microphones, 8 Ω speaker and a button |
+| Display | Waveshare 2.4" LCD Module (ILI9341, 240×320, no touch) |
+| Camera | OV5647 5 MP with a 15-pin CSI ribbon |
+| Assembly | 2×20 extra-tall stacking header, F-F jumper wires, M2.5×6 self-tapping screws, 5×2 mm magnets, about 200 g of PETG |
 
-I riferimenti tecnici esterni usati come base per l'architettura sono elencati in [`docs/03-riferimenti-esterni.md`](docs/03-riferimenti-esterni.md).
+The parts cost about €68 on top of the Pi and its power supply, and no soldering is needed. Wiring, including the one
+pin that matters (the display backlight goes on **physical pin 32**, not 12), is in [`docs/hardware.md`](docs/hardware.md).
 
-## Decisioni ancora aperte
+### Build your own
 
-Le domande implementative ancora senza risposta (display 2.4" vs 3.5", secondo altoparlante, interruttore fisico per il microfono, funzioni V2 come barge-in o Spotify Connect...) sono tracciate come **Issue** di questo repository, non sepolte in un documento. Chi ha un'opinione o vuole proporre un'alternativa è benvenuto a commentare lì.
+The step-by-step guides are in Italian, and the commands in them are the same in any language:
 
-## Una nota sulla privacy
+1. [Hardware and wiring](docs/hardware.md)
+2. [Pi installation](docs/installazione-pi.md): Raspberry Pi OS 64-bit, then `pi/irrobustisci.sh`, `pi/abilita-hat.sh`
+   and `pi/deploy.sh`
+3. [3D printing and assembly](docs/stampa-3d.md)
 
-Il prompt di sistema, sia l'esempio in [`02-piano-attuale.md` §2.3](docs/02-piano-attuale.md#23-il-prompt-di-sistema-e-liniezione-di-contesto) sia quello vero in `bmo-core/src/bmo_core/brain.py`, include la città del proprietario del progetto: è il profilo per cui BMO viene configurato, non un dato di terzi, ed è lasciato intenzionalmente com'è.
+You need a free [Gemini API key](https://aistudio.google.com/apikey). The default system prompt and the voice are
+Italian: both can be changed, see [`docs/configurazione.md`](docs/configurazione.md).
 
-## Licenza
+You can try BMO on a Linux PC without any of this hardware: see [`docs/sviluppo-pc.md`](docs/sviluppo-pc.md).
 
-Nessuna licenza è stata ancora scelta per questo repository. I riferimenti a modelli e librerie di terze parti (openWakeWord, Piper, i modelli STL su Printables, ecc.) restano soggetti alle rispettive licenze originali, linkate nei documenti.
+---
+
+## Note legali
+
+BMO è un personaggio di *Adventure Time*, di Cartoon Network / Warner Bros. Discovery. Questo è un progetto amatoriale
+non ufficiale e non commerciale, senza alcun legame con loro. *BMO is a character owned by Cartoon Network / Warner
+Bros. Discovery; this is an unofficial, non-commercial fan project.*
+
+I disegni del personaggio non sono in questo repository. I suoni inclusi sono CC0
+([dettagli](bmo-core/src/bmo_core/audio/LICENZE.md)). Modelli, librerie e modelli 3D di terze parti restano soggetti
+alle proprie licenze, elencate nei [riferimenti](docs/riferimenti.md).
+
+Questo repository non ha ancora una licenza.

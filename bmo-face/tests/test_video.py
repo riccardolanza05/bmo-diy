@@ -23,6 +23,20 @@ def test_percorso_socket_video_sta_accanto_a_quello_dei_comandi(tmp_path, monkey
     assert str(percorso_socket_video(tmp_path / "bmo.sock")) == "/tmp/altro.sock"
 
 
+def test_immagine_su_schermo_centra_il_video_con_i_colori_giusti():
+    from bmo_face.video import Fotogramma, immagine_su_schermo
+
+    rosso = (0xF800).to_bytes(2, "little") * (4 * 2)  # rgb565 rosso puro, 4x2
+    schermo = immagine_su_schermo(Fotogramma(4, 2, rosso, 1, 0.0), (10, 6))
+    assert schermo.size == (10, 6)
+    assert schermo.getpixel((3, 2)) == (255, 0, 0)    # dentro il rettangolo centrato (x 3-6, y 2-3)
+    assert schermo.getpixel((0, 0)) == (0, 0, 0)      # le bande restano nere
+    assert schermo.getpixel((9, 5)) == (0, 0, 0)
+    for valore, atteso in ((0x07E0, (0, 255, 0)), (0x001F, (0, 0, 255))):
+        im = immagine_su_schermo(Fotogramma(1, 1, valore.to_bytes(2, "little"), 1, 0.0), (1, 1))
+        assert im.getpixel((0, 0)) == atteso
+
+
 def test_comando_video_start_pausa_riprendi_stop():
     c = ComandoFaccia()
     applica(c, {"cmd": "video", "action": "start", "title": "Bohemian Rhapsody"}, 0.0)

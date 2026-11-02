@@ -7,7 +7,7 @@ senza verificatori, senza speex, senza il VAD di Silero. I punteggi sono gli
 stessi di `openwakeword.Model` (i test lo controllano sugli stessi dati);
 cambia solo quanto costa ottenerli.
 
-Perché non `openwakeword.Model` (misurato sul Pi, `docs/note-issue-58.md`):
+Perché non `openwakeword.Model` (misurato sul Pi, `docs/archivio/issue/note-issue-58.md`):
 
 1. **`import openwakeword` costa +92 MB**: il suo `__init__` importa sempre
    `custom_verifier_model`, che si porta dietro scikit-learn e scipy, utili
