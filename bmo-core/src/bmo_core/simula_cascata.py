@@ -3,7 +3,7 @@
 Serve a scegliere con i numeri, prima di toccare la cascata vera: confronta
 l'ordine dei modelli e alcuni meccanismi (alcuni NON implementati, solo
 valutati) su tante conversazioni di molti turni, con fallimenti e latenze
-finti presi dalle misure reali (`docs/note-issue-73.md`).
+finti presi dalle misure reali (`docs/archivio/issue/note-issue-73.md`).
 
     python -m bmo_core.simula_cascata                # confronto fra le varianti
     python -m bmo_core.simula_cascata --turni 200 --prove 300 --seme 7
@@ -35,7 +35,7 @@ TENTATIVI_SDK = 2
 SOSPENSIONE_QUOTA_S = 60.0
 SOSPENSIONE_SOVRACCARICO_S = 30.0
 PAUSA_SDK_S = 1.0  # attesa fra i tentativi dell'SDK
-COSTO_RITENTO_429_S = 1.8  # secondi in più con 2 tentativi dell'SDK (misura, docs/note-issue-73.md)
+COSTO_RITENTO_429_S = 1.8  # secondi in più con 2 tentativi dell'SDK (misura, docs/archivio/issue/note-issue-73.md)
 
 
 @dataclass
@@ -301,7 +301,7 @@ def riassunto(esiti: list[Esito]) -> dict[str, float | dict[str, float]]:
     }
 
 
-# Profili presi dalle misure del 1/10/2026 (docs/note-issue-73.md). Le latenze
+# Profili presi dalle misure del 1/10/2026 (docs/archivio/issue/note-issue-73.md). Le latenze
 # sono per singola richiesta; un turno con strumento ne fa due o più.
 PROFILI: dict[str, ProfiloModello] = {
     # Affidabilità misurata il 1/10 (25 richieste, 1 al minuto): 24/25 e 23/25.
@@ -322,7 +322,7 @@ F37, F38 = "gemini-3.7-flash", "gemini-3.8-flash"
 
 # (nome, modelli, opzioni della cascata). Le prime quattro sono realizzabili
 # cambiando solo l'elenco dei modelli o le costanti; l'ultima è un meccanismo
-# nuovo, valutato qui e NON implementato (vedi docs/decisioni-issue-73.md).
+# nuovo, valutato qui e NON implementato (vedi docs/archivio/issue/decisioni-issue-73.md).
 VARIANTI: list[tuple[str, list[str], dict]] = [
     ("A attuale (2 lite)", [L35, L31], {}),
     ("B + flash in coda (3.5 poi 3.1 poi 3.5-f, 3.6)", [L35, L31, F35, F36], {}),

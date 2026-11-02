@@ -41,8 +41,10 @@ from .animazione import Renderer, carta_prova, quantizza_come_pannello
 from .dimensione_fisica import PRESET_PANNELLI, e_sottocampionato, pitch_schermo_mm, px_per_dimensione_fisica
 from .formato import NOME_BIN, NOME_JSON, carica_manifesto, mappa_bin
 from .servitore import ServitoreFaccia
+from .video import RiceviFotogrammi, immagine_su_schermo, percorso_socket_video
 
-FPS_FINESTRA = 25
+FPS_FINESTRA = 30  # i video arrivano fino a 30 fps: la finestra non deve scartarne
+VIDEO_VECCHIO_S = 1.5  # un fotogramma più vecchio di così (e non in pausa) non è più "il video che suona"
 
 
 def _host_px(argomenti: argparse.Namespace, pannello_px: tuple[int, int]) -> tuple[int, int]:
@@ -125,11 +127,27 @@ def main() -> None:
         servitore.avvia()
         print(f"[finestra: {host_larghezza}×{host_altezza} px, socket su {servitore.percorso}]", file=sys.stderr)
 
+        # I video di YouTube (bmo-core li decodifica e manda i fotogrammi su un socket datagram): mentre
+        # suona un video e BMO è a riposo la finestra mostra il video, alla stessa dimensione fisica del
+        # pannello, al posto della faccia. Appena BMO ascolta o parla torna la faccia.
+        ricevitore = RiceviFotogrammi(percorso_socket_video(servitore.percorso))
+        ricevitore.avvia()
+        schermo = (manifesto.larghezza, manifesto.altezza)
+
         def fotogramma_dal_renderer() -> Image.Image:
             comando = servitore.comando_snapshot()
+            if comando.video_attivo and comando.stato == "idle":
+                ultimo = ricevitore.ultimo()
+                if ultimo is not None and (
+                    comando.video_in_pausa or time.monotonic() - ultimo.arrivato < VIDEO_VECCHIO_S
+                ):
+                    return immagine_su_schermo(ultimo, schermo)
             return renderer.disegna(comando, time.monotonic())
 
-        _mostra_finestra(host_larghezza, host_altezza, fotogramma_dal_renderer, servitore=servitore)
+        try:
+            _mostra_finestra(host_larghezza, host_altezza, fotogramma_dal_renderer, servitore=servitore)
+        finally:
+            ricevitore.ferma()
 
 
 def _mostra_finestra(

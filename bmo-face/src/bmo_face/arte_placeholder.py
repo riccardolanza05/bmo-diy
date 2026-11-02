@@ -25,7 +25,7 @@ esterni"), quindi questa faccia non introduce un rischio nuovo — ma **non è
 qualunque scopo**: resta materiale di un progetto fan-made. La decisione se
 e come distribuire pubblicamente questo repository (licenza, eventuale
 disclaimer esplicito nel README principale — oggi assente, vedi
-`docs/note-issue-23.md`) resta di Riccardo, proprietario del progetto: qui
+`docs/archivio/issue/note-issue-23.md`) resta di Riccardo, proprietario del progetto: qui
 si segnala soltanto, non si decide.
 
 Tutto è parametrico su `larghezza`/`altezza`: nessuna forma assume 320×240,

@@ -13,7 +13,7 @@ e mostrati in una finestra di mpv ingrandita a pixel netti (`--scala`, 3 = 960×
 
 Cosa **non** simula: la dimensione fisica (un 2,4" è ~49×37 mm: la finestra ingrandita è più nitida di
 quanto sembrerà), la retroilluminazione e il tempo di trasferimento sul bus SPI (l'hardware non è
-arrivato: vedi `docs/decisioni-video-youtube.md`, decisione 4). L'audio esce dal PC, non dalla scheda.
+arrivato: vedi `docs/archivio/issue/decisioni-video-youtube.md`, decisione 4). L'audio esce dal PC, non dalla scheda.
 Serve `mpv` (per la finestra) e `ffmpeg`.
 """
 from __future__ import annotations

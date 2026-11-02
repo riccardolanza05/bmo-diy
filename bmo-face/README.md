@@ -1,163 +1,104 @@
 # bmo-face
 
-La faccia di BMO (issue #23, piano §2.11 e §2.2): pipeline asset, motore di
-animazione, server del socket Unix e finestra a schermo sul PC di sviluppo.
-Gira come processo a sé rispetto a `bmo-core` — stesso isolamento dei guasti
-del piano: se `bmo-core` va in eccezione, la faccia continua a sbattere le
+La faccia di BMO: pipeline degli asset, motore di animazione, server del socket e uscita sul display SPI o in una
+finestra sul PC. È un processo separato da `bmo-core`: se il cervello si ferma, la faccia continua a sbattere le
 palpebre.
 
-## Pacchetto
+## Installazione
 
 ```bash
-cd bmo-face
-python3 -m venv --system-site-packages .venv   # --system-site-packages: serve a GTK4 (vedi sotto)
+python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest
 ```
 
-`--system-site-packages` è necessario solo per la finestra a schermo: GTK4 e
-PyGObject sono pacchetti di sistema (Arch: `python-gobject`, `gtk4`; Debian/
-Raspberry Pi OS: `python3-gi`, `gir1.2-gtk-4.0`), non ruote pip affidabili.
-Pipeline, motore di animazione e socket non hanno bisogno di GTK e girano
-anche senza: il Pi non aprirà mai una finestra.
+`--system-site-packages` serve solo alla finestra: GTK4 e PyGObject sono pacchetti di sistema (Arch: `python-gobject
+gtk4`; Debian: `python3-gi gir1.2-gtk-4.0`). Sul Pi non servono.
 
-## 1. Generare gli asset
+## Generare gli asset
 
 ```bash
 python -m bmo_face.build_face --destinazione assets/
 ```
 
-Genera `assets/faces.bin` (fotogrammi RGB565 grezzi) e `assets/faces.json`
-(il manifesto) dall'arte placeholder di `arte_placeholder.py` — geometrica,
-disegnata a codice, **mai** un disegno vero di Adventure Time: quello resta
-fuori dal repository pubblico, come già per l'audio di terzi (`suoni.py` di
-bmo-core). `faces.bin` è un artefatto di build: non va committato, si
-rigenera da qui.
+Genera `assets/faces.bin`, fotogrammi RGB565 grezzi, e `assets/faces.json`, il manifesto. Con questo comando la faccia
+è quella geometrica disegnata da `arte_placeholder.py`. La risoluzione predefinita è 320×240, modificabile con
+`--larghezza` e `--altezza`, e il risultato pesa circa 2 MB. `assets/` è un artefatto di build e non si versiona.
 
-Parametrico su risoluzione (`--larghezza`/`--altezza`, predefinito 320×240):
-nessun pannello è ancora deciso (bmo-diy#1), e il formato deve reggere anche
-un pannello più piccolo di quanto pianificato oggi — la pipeline è stata
-provata fino a 16×16 senza rompersi. A 320×240 pesa circa 2 MB, in linea col
-budget del piano (§2.11); un pannello più piccolo pesa proporzionalmente meno.
-
-### Arte vera invece del placeholder (`--sorgente`)
+### Arte vera invece della faccia geometrica
 
 ```bash
 python -m bmo_face.build_face --sorgente /percorso/a/una/cartella --destinazione assets/
 ```
 
-`--sorgente` legge fotogrammi `.png` veri, nello stesso layout a cartelle del
-progetto di riferimento esterno **[brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent)**
-(video: [youtu.be/l5ggH-YhuAw](https://youtu.be/l5ggH-YhuAw)) — `idle/`,
-`listening/`, `thinking/`, `speaking/`, `error/`, `warmup/` — ridimensionati
-e ritagliati al centro sulla risoluzione del pannello (l'originale è 800×480,
-5:3; il pannello 4:3 taglia i bordi, non deforma). I fotogrammi `speaking`
-diventano l'overlay della bocca, ordinati automaticamente dal più chiuso al
-più aperto; con arte vera non ci sono overlay di pupille o espressioni (le
-regioni di `arte_placeholder.py` sono calcolate sulla geometria del
-placeholder, non su dove stanno davvero occhi e bocca in un'immagine
-importata) — solo il corpo e la bocca.
+`--sorgente` legge fotogrammi `.png` nel layout a cartelle di
+[brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent): `idle/`, `listening/`, `thinking/`, `speaking/`,
+`error/`, `warmup/`. Le immagini vengono ridimensionate e ritagliate al centro sul pannello. I fotogrammi `speaking`
+diventano la bocca, ordinati dal più chiuso al più aperto.
 
-**Le immagini non entrano mai nel repository**, né `faces.bin` che ne deriva
-(è comunque un artefatto di build, mai committato): sono di
-`brenpoly/be-more-agent`, codice MIT ma senza una licenza esplicita sulle
-immagini stesse, e raffigurano BMO — personaggio protetto da copyright e
-marchio (Cartoon Network / Warner Bros. Discovery). L'intero progetto bmo-diy
-è già, per sua natura, una ricostruzione fan-made non ufficiale e non
-commerciale del personaggio (il guscio stampato in 3D viene dagli stessi
-modelli "BMO" di Printables), quindi usare quest'arte non introduce un
-rischio nuovo — ma **questa parte non è "open source"** nel senso di essere
-liberamente riutilizzabile da chiunque: resta materiale di un progetto
-fan-made, con la stessa origine esterna. Tenere le immagini fuori dal
-repository (cartella a parte, mai `git add`) e citare la fonte, come qui,
-sono i due passi che il progetto già applica all'audio di terzi (`suoni.py`).
+**Le immagini e `faces.bin` non entrano mai nel repository:** il codice di be-more-agent è MIT, ma le immagini non hanno
+una licenza esplicita e raffigurano un personaggio protetto (Cartoon Network / Warner Bros. Discovery). Tienile in una
+cartella a parte.
 
-**Difetto noto**: lo stato `error` del riferimento è un'icona a piena
-larghezza (assenza di rete), non una faccia — il ritaglio centrato pensato
-per occhi/bocca la taglia male. Non risolto in questa sessione: un ritaglio
-diverso per-immagine, o un fotogramma `error` dedicato, restano da fare.
+Limite noto: lo stato `error` di quell'arte è un'icona a piena larghezza, e il ritaglio centrato la taglia male.
 
-## 2. La finestra
+## Sul Raspberry Pi
 
 ```bash
-python -m bmo_face.finestra --assets assets/                    # dimensione fisica, preset 2.4"
-python -m bmo_face.finestra --assets assets/ --carta-prova       # criterio (b): tre righe da 20 caratteri
-python -m bmo_face.finestra --assets assets/ --pixel             # 1 px pannello = 1 px schermo
-python -m bmo_face.finestra --assets assets/ --pannello 3.5      # l'altro preset del BOM
+python -m bmo_face.pannello --assets assets/ --uscita spi     # sul display
+python -m bmo_face.pannello --assets assets/ --uscita nulla   # senza schermo
 ```
 
-**`--carta-prova`** è il comando che risponde davvero al criterio (b): mostra
-tre righe da 20 caratteri (non la faccia) alla dimensione fisica del
-pannello, quantizzate come `faces.bin` (RGB565), e ne salva anche una copia
-in `assets/carta_prova.png` per un controllo rapido senza aprire la finestra.
-Il "caso peggiore" della #23 è **il 2.4" stesso** (non c'è ancora un
-pannello più piccolo nel BOM, §1.3): è quello il pannello da giudicare.
+`pannello` è il servizio di produzione. `spi.py` pilota l'ILI9341 da `spidev`, con tre GPIO per DC, RST e backlight, e
+scrive solo il rettangolo cambiato. Cablaggio in [hardware](../docs/hardware.md), variabili in
+[configurazione](../docs/configurazione.md#display).
 
-Apre un socket Unix (predefinito: `$XDG_RUNTIME_DIR/bmo.sock` sul PC,
-`/run/bmo.sock` sul Pi, `BMO_SOCKET` sempre prioritario — stesso schema di
-`percorso_dati()` in bmo-core) e ridisegna a 25 fps quel che riceve.
-
-**Dimensione fisica** (predefinita, criterio (b) dell'issue #23): la finestra
-occupa sullo schermo lo stesso ingombro in millimetri del pannello vero,
-calcolato da `hyprctl monitors -j` (il pitch reale dello schermo di sviluppo).
-Su un laptop con pitch più grosso di quello del pannello target (il caso di
-questo portatile: ~0,177 mm/px contro lo 0,153 mm/px del 2.4"), la finestra
-stampa un avviso e mostra l'immagine sottocampionata — **la prova risulta
-quindi più severa del display reale, mai più ottimista**: se è leggibile così,
-lo è a maggior ragione sul pannello vero. `--pitch-mm X Y` sostituisce
-`hyprctl` a mano su una macchina diversa da questo laptop, o senza Hyprland.
-
-**Modalità pixel** (`--pixel`): ignora le dimensioni fisiche, mostra ogni
-pixel del pannello come un pixel reale dello schermo. Utile per giudicare
-l'arte e le animazioni senza la densità dello schermo di sviluppo in mezzo.
-
-## 3. Collegare bmo-core
+## Sul PC
 
 ```bash
-BMO_FACCIA=socket python -m bmo_core.brain --testo "Metti un timer di dieci minuti"
+python -m bmo_face.finestra --assets assets/                 # dimensione fisica del pannello 2.4"
+python -m bmo_face.finestra --assets assets/ --pixel         # 1 px del pannello = 1 px dello schermo
+python -m bmo_face.finestra --assets assets/ --carta-prova   # tre righe da 20 caratteri, prova di leggibilità
 ```
 
-`BMO_FACCIA=socket` fa scegliere a `crea_faccia()` (bmo-core) `FacciaSocket`,
-il client vero del socket verso questa finestra, al posto delle
-implementazioni provvisorie mute/da terminale. È un opt-in esplicito, non il
-predefinito: senza una finestra già avviata ad ascoltare, `FacciaSocket`
-scriverebbe a vuoto in silenzio (fallisce sempre in silenzio di proposito,
-mai un turno di conversazione rotto perché la faccia non c'è).
+A dimensione fisica la finestra occupa gli stessi millimetri del pannello, calcolati con `hyprctl monitors -j`. Senza
+Hyprland usa `--pitch-mm X Y`. I video di YouTube compaiono nella finestra come sul pannello.
 
-Con `--voce-tts` (macchina.py, #42) la bocca durante `parlato` segue
-l'inviluppo RMS vero della voce sintetizzata (`bmo_core.inviluppo`), calcolato
-in un thread a parte per non aggiungere latenza percepita alla risposta.
+## Collegare bmo-core
 
-`scatta_foto` (#24) mostra anche la foto appena scattata al posto della
-faccia per qualche secondo (issue #51): `Cervello._scatta_foto` chiama
-`faccia.immagine(dati)` subito dopo lo scatto, indipendentemente da cosa
-risponde poi Gemini. La foto — 4:3 come la webcam, quasi mai come le
-proporzioni del pannello — viene ridimensionata per intero e centrata su
-uno sfondo pieno (mai deformata né ritagliata), poi torna da sola alla
-faccia normale una volta scaduto il tempo, esattamente come l'espressione.
+```bash
+BMO_FACCIA=socket python -m bmo_core.macchina --voce-tts
+```
+
+Il socket è `/run/bmo/bmo.sock` sul Pi; sul PC `$XDG_RUNTIME_DIR/bmo.sock`. `BMO_SOCKET` ha sempre la precedenza. Il
+protocollo ha un messaggio JSON per riga, per esempio:
+
+```json
+{"cmd": "state", "value": "ascolto"}
+{"cmd": "expression", "value": "felice", "ttl": 3.0}
+{"cmd": "timer", "remaining": 312, "label": "pasta"}
+```
+
+Gli stati sono `assonnato`, `idle`, `ascolto`, `pensiero`, `parlato`, `timer`, `errore-rete` e `conferma`, e li
+sceglie il codice. Le espressioni sono `felice`, `pensieroso`, `sorpreso`, `triste` e `assonnato`, e le sceglie il
+modello. Se la finestra manca, `FacciaSocket` fallisce in silenzio: un turno di conversazione non si rompe mai per la
+faccia.
+
+Foto e video arrivano sullo stesso schermo. La foto resta qualche secondo, intera e centrata, poi torna la faccia. I
+fotogrammi video viaggiano su un socket datagram a parte (`video.py`).
 
 ## Struttura del pacchetto
 
 | Modulo | Cosa fa |
 |---|---|
-| `formato.py` | Il formato di `faces.bin`/`faces.json`: RGB565, manifesto, `mmap` in lettura |
-| `arte_placeholder.py` | L'arte geometrica placeholder, parametrica su risoluzione |
-| `build_face.py` | La pipeline: arte → `faces.bin` + `faces.json` |
-| `animazione.py` | `Renderer`: funzione pura del tempo e dei comandi → fotogramma |
-| `protocollo.py` | I sei messaggi del socket (§2.2): analisi e applicazione |
-| `servitore.py` | Il server del socket Unix, un thread per connessione |
-| `dimensione_fisica.py` | Il calcolo mm↔px per la finestra a dimensione fisica |
-| `finestra.py` | La finestra GTK4 che lega tutto insieme |
-
-## Cosa manca ancora
-
-- **Arte vera**: al posto del placeholder geometrico, quando qualcuno la
-  disegnerà. `build_face.py` è già pensato per un `--sorgente cartella/` che
-  prenda il posto di `genera_placeholder()` senza toccare il resto.
-- **Il criterio di leggibilità (b)**: tre righe da 20 caratteri leggibili a
-  mezzo metro è un giudizio di chi guarda lo schermo, non del codice — vedi
-  `docs/decisioni-issue-23.md` nel repository principale.
-- **Il porting sul Pi**: oggi il renderer disegna in una finestra GTK4; sul
-  Pi (§2.11) lo stesso `Renderer`/`ComandoFaccia` dovrà scrivere su SPI con
-  `luma.lcd` invece che su una `Gtk.Picture`, e usare `regione` per il blit a
-  dirty-rect invece di ridisegnare sempre il fotogramma intero.
+| `formato.py` | Formato di `faces.bin` e `faces.json`, lettura con `mmap` |
+| `arte_placeholder.py` | Faccia geometrica disegnata a codice |
+| `build_face.py` | Pipeline: arte → `faces.bin` + `faces.json` |
+| `animazione.py` | `Renderer`: dal tempo e dai comandi al fotogramma |
+| `protocollo.py` | Messaggi del socket |
+| `servitore.py` | Server del socket Unix |
+| `pannello.py` | Servizio per il Pi, senza dipendenze grafiche |
+| `spi.py` | Pilota dell'ILI9341 |
+| `video.py` | Ricezione dei fotogrammi video |
+| `finestra.py` | Finestra GTK4 per il PC |
+| `dimensione_fisica.py` | Calcolo mm↔px per la finestra |

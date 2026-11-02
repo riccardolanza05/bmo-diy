@@ -92,6 +92,10 @@ class RiceviFotogrammi:
                 return self._ultimo
             return None
 
+    def ultimo(self) -> Fotogramma | None:
+        with self._condizione:
+            return self._ultimo
+
     def numero_attuale(self) -> int:
         with self._condizione:
             return self._contatore
@@ -108,3 +112,17 @@ class RiceviFotogrammi:
             self._thread.join(timeout=2)
         if self.percorso.exists():
             self.percorso.unlink()
+
+
+def immagine_su_schermo(fotogramma: Fotogramma, dimensione: tuple[int, int]):
+    """Il fotogramma rgb565 centrato su uno schermo nero `dimensione` (come lo disegnerebbe il pannello).
+
+    Serve alla finestra di sviluppo (`finestra.py`); sul Pi lo stesso rettangolo va all'uscita SPI.
+    """
+    from PIL import Image
+
+    # "BGR;16" è il nome che PIL dà all'rgb565 little endian (rosso nei 5 bit alti): verificato con rosso/verde/blu puri.
+    video = Image.frombytes("RGB", (fotogramma.larghezza, fotogramma.altezza), fotogramma.dati, "raw", "BGR;16")
+    schermo = Image.new("RGB", dimensione)
+    schermo.paste(video, ((dimensione[0] - fotogramma.larghezza) // 2, (dimensione[1] - fotogramma.altezza) // 2))
+    return schermo

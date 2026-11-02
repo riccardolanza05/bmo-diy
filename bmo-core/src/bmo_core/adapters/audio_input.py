@@ -51,7 +51,7 @@ def _registra_fino_al_silenzio_da_flusso(
 class ArecordAdapter:
     """Cattura microfono via `arecord`.
 
-    Parametri di riferimento per il Pi: docs/02-piano-attuale.md §2.3
+    Parametri di riferimento per il Pi: docs/archivio/piano-rev5.md §2.3
     (S32_LE, 48kHz, stereo, device hw:0,0).
     """
 
@@ -180,7 +180,7 @@ class ArecordConvertitoreAdapter:
     `registra()` e `registra_fino_al_silenzio()` consegnano sempre S16_LE
     mono alla `frequenza` di uscita, lo stesso formato che il PC di sviluppo
     produce già nativamente (`factory.crea_audio_input`). Misurato dal vivo
-    sul Pi 3 A+ reale il 28/9/2026 (dati sintetici, `docs/decisioni-issue-64.md`):
+    sul Pi 3 A+ reale il 28/9/2026 (dati sintetici, `docs/archivio/issue/decisioni-issue-64.md`):
     la conversione costa il 2-3% di un core, trascurabile rispetto al resto
     di bmo-core (ONNX della wake word compreso).
     """

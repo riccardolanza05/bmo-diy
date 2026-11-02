@@ -7,7 +7,7 @@
 # Fa due cose, entrambe idempotenti (rilanciarlo non cambia niente):
 #   1. aggiunge `dtoverlay=wm8960-soundcard` in fondo a /boot/firmware/config.txt, nella sezione [all]
 #      (lascia stare gpu_mem, dtparam=audio e tutto il resto: sono decisioni a parte, vedi
-#      docs/decisioni-issue-79.md);
+#      docs/archivio/issue/decisioni-issue-79.md);
 #   2. fissa in /etc/bmo/env il microfono PER NOME, `BMO_AUDIO_DISPOSITIVO=hw:CARD=wm8960soundcard,DEV=0`:
 #      con `dtparam=audio=on` il jack bcm2835 è la scheda 0 e il HAT diventa la 1, quindi il predefinito
 #      `hw:0,0` di factory.py punterebbe al jack (che non ha cattura). Il nome non cambia con l'ordine.

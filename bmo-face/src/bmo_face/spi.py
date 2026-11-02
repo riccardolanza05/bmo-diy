@@ -1,7 +1,7 @@
 """Il display vero: un ILI9341 su SPI0 più tre GPIO (issue #77).
 
 Il modulo è il Waveshare 2.4" LCD (ILI9341, 240×320, senza touch) del piano
-(`docs/02-piano-attuale.md` §1.3). Qui sta solo il pilota del controller; chi
+(`docs/archivio/piano-rev5.md` §1.3). Qui sta solo il pilota del controller; chi
 decide *cosa* disegnare è `pannello.UscitaSpi`.
 
 Pin e parametri si leggono dall'ambiente, così cambiare cablaggio non vuol dire

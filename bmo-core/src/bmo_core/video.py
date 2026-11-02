@@ -1,7 +1,7 @@
 """I video di YouTube su BMO: cercarli, risolverli, decodificarli per lo schermo.
 
 Tutto gira sul Pi, senza computer accesi, senza chiavi e senza JavaScript
-(misure sul Pi 3 A+, docs/note-video-youtube.md):
+(misure sul Pi 3 A+, docs/archivio/issue/note-video-youtube.md):
 
 - **Ricerca**: una richiesta diretta all'endpoint di ricerca di YouTube,
   solo stdlib, ~0,7 s; se cambia, si ripiega su `yt-dlp` (~3,6 s).
@@ -45,7 +45,7 @@ SCHERMO_L, SCHERMO_A = 320, 240
 # 72 MB): un fotogramma pieno 320×240 costa ~28 ms di bus (docs/02-piano, ~5,5 MB/s). Si tiene
 # il 73% di quel bus (4 MB/s): un 16:9 a 320×180 regge 30 fps, un 4:3 a 320×240 ne regge 26.
 # La cifra del bus viene dalle note dell'hardware, non da una misura sul display: l'hardware
-# non è ancora arrivato — è una costante da ritarare (docs/decisioni-video-youtube.md).
+# non è ancora arrivato — è una costante da ritarare (docs/archivio/issue/decisioni-video-youtube.md).
 BUS_SPI_BYTE_AL_SECONDO = 4_000_000
 FPS_MAX = 30
 FPS_MINIMO_DIMEZZATO = 20  # si dimezza (60 -> 30, 50 -> 25) solo se il risultato resta fluido

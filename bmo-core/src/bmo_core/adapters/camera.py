@@ -8,7 +8,7 @@ from pathlib import Path
 class LibcameraAdapter:
     """Raspberry Pi + modulo camera CSI (OV5647), via libcamera-still.
 
-    Comando di riferimento: docs/02-piano-attuale.md, Fase 5.
+    Comando di riferimento: docs/archivio/piano-rev5.md, Fase 5.
     """
 
     def __init__(

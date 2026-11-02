@@ -68,10 +68,8 @@ BYTE_PER_FRAME = CAMPIONI_PER_FRAME * 2  # PCM a 16 bit
 # non costa nulla in più: basta che uno solo superi la soglia. Sostituiscono
 # `hey_jarvis` come predefinito: deciso il 26/9, Riccardo non lo usa.
 #
-# Un terzo modello (bmo3) esiste ma resta deliberatamente **fuori dal
-# repo**: Riccardo lo tiene solo in locale, sul suo BMO personale — mai
-# committato, per nessun motivo (deciso il 26/9). Chi vuole caricarlo lo fa
-# con `--modello-wake-word <percorso locale>`, in aggiunta a questi due.
+# Un modello personale in più resta fuori dal repo: si carica con
+# `--modello-wake-word <percorso locale>`, in aggiunta a questi due.
 _CARTELLA_MODELLI_BMO = Path(__file__).resolve().parents[2] / "modelli-wake-word"
 MODELLI_PREDEFINITI = [str(_CARTELLA_MODELLI_BMO / f"bmo{i}.onnx") for i in (1, 2)]
 SOGLIA_PREDEFINITA = 0.5  # punto di partenza (§2.6), non una misura

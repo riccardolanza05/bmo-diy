@@ -1,4 +1,4 @@
-# Audio di BMO: più flussi insieme sulla stessa scheda, senza demoni (docs/02-piano-attuale.md §2.10).
+# Audio di BMO: più flussi insieme sulla stessa scheda, senza demoni (docs/archivio/piano-rev5.md §2.10).
 #
 # `@SCHEDA@` è l'id ALSA della scheda (`aplay -l`: «card 0: Headphones» -> Headphones; la WM8960 di
 # Waveshare è wm8960soundcard). `pi/installa-audio.sh` lo sostituisce e installa il file come
