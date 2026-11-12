@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from bmo_core.vad import (
@@ -123,3 +124,36 @@ def test_un_blip_di_voce_troppo_breve_non_chiude_l_ascolto():
         frame, 16000, Programmato(schema), cap_s=30.0, silenzio_ms=800.0, voce_minima_ms=0.0
     )
     assert len(audio0) // 960 == 3 + 27  # 3 frame di voce e 27 (800 ms) di silenzio: finito lì
+
+
+def _sinusoide(frequenza_hz, durata_s, ampiezza=8000):
+    t = np.arange(int(16000 * durata_s)) / 16000
+    return (ampiezza * np.sin(2 * np.pi * frequenza_hz * t)).astype("<i2").tobytes()
+
+
+class RilevatoreAEnergia:
+    """Chiama voce un frame sopra -40 dBFS, e ricorda i frame che ha giudicato."""
+
+    def __init__(self):
+        self.giudicati = []
+
+    def is_speech(self, frame, frequenza):
+        self.giudicati.append(frame)
+        campioni = np.frombuffer(frame, dtype="<i2").astype(np.float64)
+        return 20 * np.log10(max(np.sqrt(np.mean(campioni**2)), 1) / 32768) > -40
+
+
+def test_il_passa_alto_toglie_il_ronzio_al_vad_ma_non_alla_clip():
+    """Sul Pi un ronzio a 79 Hz veniva preso per voce e l'ascolto finiva sempre per tetto."""
+    voce, ronzio = _sinusoide(1000, 0.6), _sinusoide(79, 2.0, ampiezza=1000)
+    frame = list(ritaglia_in_frame([voce + ronzio], dimensione_frame(16000)))
+
+    senza = RilevatoreAEnergia()
+    _, diag = ascolta_fino_al_silenzio(frame, 16000, senza, cap_s=2.4, silenzio_ms=900, passa_alto_hz=0)
+    assert diag.motivo_fine == "tetto"
+
+    con = RilevatoreAEnergia()
+    audio, diag = ascolta_fino_al_silenzio(frame, 16000, con, cap_s=2.4, silenzio_ms=900, passa_alto_hz=150)
+    assert diag.motivo_fine == "silenzio"
+    assert audio == b"".join(frame[: len(audio) // 960])  # a Gemini va l'audio originale, non filtrato
+    assert con.giudicati[5] != frame[5]  # il VAD invece giudica la versione filtrata
