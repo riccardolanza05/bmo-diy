@@ -25,6 +25,7 @@ python -c "from google import genai; c = genai.Client(); [print(m.name) for m in
 | `BMO_SOGLIA_WAKE_WORD` | Soglia del richiamo: più bassa è, più BMO scatta | `0.20` |
 | `BMO_SILENZIO_MS` | Silenzio che chiude l'ascolto, in ms | `1500` |
 | `BMO_VOCE_MINIMA_MS` | Voce minima prima che il silenzio possa chiudere, in ms | `400` |
+| `BMO_VAD_PASSA_ALTO_HZ` | Passa-alto sui frame giudicati dal VAD (non sull'audio mandato a Gemini): toglie il ronzio del HAT che teneva l'ascolto aperto fino al tetto; `0` lo spegne | `150` |
 | `BMO_PULSANTE_PIN` | GPIO del pulsante del HAT | `17` |
 
 Il modello `bmo2.onnx` risponde a «Hey BMO» e `bmo1.onnx` a «BMO». Per aggiungere un modello tuo, addestrato con

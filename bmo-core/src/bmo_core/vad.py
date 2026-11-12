@@ -39,6 +39,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Protocol
 
+import numpy as np
+
 # Le uniche frequenze che webrtcvad accetta.
 FREQUENZE_VALIDE = (8000, 16000, 32000, 48000)
 # webrtcvad accetta solo frame da 10, 20 o 30 ms: 30 è il più permissivo
@@ -54,12 +56,34 @@ SILENZIO_MS_PREDEFINITO = 800.0
 # 0 = comportamento di prima; in produzione si imposta con `BMO_VOCE_MINIMA_MS`.
 VOCE_MINIMA_MS_PREDEFINITA = 0.0
 AGGRESSIVITA_PREDEFINITA = 2  # 0 = permissivo, 3 = aggressivo (vedi sopra)
+# Passa-alto applicato solo ai frame che il VAD giudica, non all'audio mandato a Gemini. Sul Pi il
+# HAT capta un ronzio sotto i 300 Hz (79 Hz e armoniche, 97% dell'energia del fondo) che webrtcvad
+# chiamava voce nel 93% dei frame: l'ascolto finiva sempre per tetto (15 s). Con 150 Hz: 1-2% in
+# modalità 3 (misura del 12/11/2026). 0 = spento; in produzione `BMO_VAD_PASSA_ALTO_HZ`.
+PASSA_ALTO_HZ_PREDEFINITO = 0.0
 
 
 class RilevatoreVoce(Protocol):
     """Quello che serve di `webrtcvad.Vad`: isolato per poterlo sostituire nei test."""
 
     def is_speech(self, frame: bytes, frequenza: int) -> bool: ...
+
+
+class PassaAlto:
+    """Butterworth del 4° ordine, con lo stato che passa da un frame al successivo."""
+
+    def __init__(self, taglio_hz: float, frequenza: int) -> None:
+        from scipy.signal import butter
+
+        self._sos = butter(4, taglio_hz, "highpass", fs=frequenza, output="sos")
+        self._stato = np.zeros((self._sos.shape[0], 2))
+
+    def filtra(self, frame: bytes) -> bytes:
+        from scipy.signal import sosfilt
+
+        campioni = np.frombuffer(frame, dtype="<i2").astype(np.float64)
+        filtrati, self._stato = sosfilt(self._sos, campioni, zi=self._stato)
+        return np.clip(np.rint(filtrati), -32768, 32767).astype("<i2").tobytes()
 
 
 def valida_frequenza(frequenza: int) -> None:
@@ -110,6 +134,7 @@ def ascolta_fino_al_silenzio(
     silenzio_ms: float = SILENZIO_MS_PREDEFINITO,
     durata_frame_ms: int = DURATA_FRAME_MS,
     voce_minima_ms: float | None = None,
+    passa_alto_hz: float | None = None,
 ) -> tuple[bytes, Diagnostica]:
     """La logica pura di endpointing, senza I/O: prende frame, restituisce audio.
 
@@ -121,6 +146,9 @@ def ascolta_fino_al_silenzio(
     valida_frequenza(frequenza)
     if voce_minima_ms is None:
         voce_minima_ms = float(os.environ.get("BMO_VOCE_MINIMA_MS", VOCE_MINIMA_MS_PREDEFINITA))
+    if passa_alto_hz is None:
+        passa_alto_hz = float(os.environ.get("BMO_VAD_PASSA_ALTO_HZ", PASSA_ALTO_HZ_PREDEFINITO))
+    filtro = PassaAlto(passa_alto_hz, frequenza) if passa_alto_hz > 0 else None
     voce_iniziata = False
     voce_ms = 0.0
     silenzio_di_fila_ms = 0.0
@@ -129,7 +157,7 @@ def ascolta_fino_al_silenzio(
     accumulato_s = 0.0
     passo_s = durata_frame_ms / 1000
     for pezzo in frame:
-        e_voce = rilevatore.is_speech(pezzo, frequenza)
+        e_voce = rilevatore.is_speech(filtro.filtra(pezzo) if filtro else pezzo, frequenza)
         accumulato_s += passo_s
         if not voce_iniziata:
             if e_voce:
