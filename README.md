@@ -26,6 +26,18 @@ Raspberry Pi 3 A+. Gli parli, ti risponde a voce, ti mostra una faccia animata e
 - **Memoria**: ricorda la conversazione in corso e tiene un diario delle tue preferenze
 - **Riparte da solo** dopo uno stacco della corrente
 
+## Demo
+
+Video registrati con BMO sul Pi, ritagliati attorno a BMO. L'attesa tra la domanda e la risposta è accelerata (in
+sovrimpressione il fattore, per esempio `>> x5`); domanda e risposta sono a velocità normale. Clicca un'anteprima per
+aprire il video.
+
+| Ora e meteo in italiano | Ora e meteo in inglese |
+|:---:|:---:|
+| [![Ora e meteo in italiano](docs/demo/bmo-time-weather-italian.jpg)](docs/demo/bmo-time-weather-italian.mp4) | [![Ora e meteo in inglese](docs/demo/bmo-time-weather-english.jpg)](docs/demo/bmo-time-weather-english.mp4) |
+| **Ricerca sul web: «cos'è il Politecnico di Milano?»** | **Musica da YouTube sullo schermo** |
+| [![Ricerca sul web](docs/demo/bmo-web-search-politecnico.jpg)](docs/demo/bmo-web-search-politecnico.mp4) | [![Musica da YouTube](docs/demo/bmo-youtube-music.jpg)](docs/demo/bmo-youtube-music.mp4) |
+
 ## Come funziona
 
 Il Pi ha solo 512 MB di RAM, quindi a bordo restano wake word, audio e faccia. Trascrizione, ragionamento e visione
@@ -78,6 +90,16 @@ The electronics and the software are complete, assembled and tested, and BMO run
 - **Web search**, **persistent kitchen timers**, **internet radio** and **YouTube videos** on its screen
 - **Memory**: it remembers the current conversation and keeps a diary of your preferences
 - **Automatic restart** after a power cut
+
+### Demo
+
+Clips recorded with BMO running on the Pi, cropped around BMO. The wait between the question and the answer is sped up
+(the factor is shown on screen, e.g. `>> x5`); the question and the answer play at normal speed.
+
+- [Time and weather, in Italian](docs/demo/bmo-time-weather-italian.mp4)
+- [Time and weather, in English](docs/demo/bmo-time-weather-english.mp4)
+- [Web search: "what is the Politecnico di Milano?"](docs/demo/bmo-web-search-politecnico.mp4)
+- [Music from YouTube on its screen](docs/demo/bmo-youtube-music.mp4)
 
 ### How it works
 
