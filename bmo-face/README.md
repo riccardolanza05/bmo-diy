@@ -38,7 +38,8 @@ diventano la bocca, ordinati dal più chiuso al più aperto.
 
 **Le immagini e `faces.bin` non entrano mai nel repository:** il codice di be-more-agent è MIT, ma le immagini non hanno
 una licenza esplicita e raffigurano un personaggio protetto (Cartoon Network / Warner Bros. Discovery). Tienile in una
-cartella a parte.
+cartella a parte. Unica eccezione, per scelta del proprietario del progetto: le quattro anteprime in
+[`docs/states/`](../docs/states/), mostrate nel README principale.
 
 Limite noto: lo stato `error` di quell'arte è un'icona a piena larghezza, e il ritaglio centrato la taglia male.
 
