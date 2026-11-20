@@ -102,15 +102,26 @@ You can try BMO on a Linux PC without any of this hardware: see [`docs/sviluppo-
 Open ideas, tracked in the [issues](https://github.com/riccardolanza05/bmo-diy/issues): interrupting BMO while it
 speaks, Spotify Connect, home automation with Home Assistant, Gemini Live mode, generated images shown on the screen.
 
-## Legal
+## License
 
-BMO is a character owned by Cartoon Network / Warner Bros. Discovery. This is an unofficial, non-commercial fan
-project with no connection to them.
+The original code, scripts and documentation of this project are released under the [MIT License](LICENSE).
 
-The four face images in [`docs/states/`](docs/states/) come from
-[brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent) and are shown here only as a preview; the full
-face art used by BMO is not in this repository. The bundled sounds are CC0
-([details](bmo-core/src/bmo_core/audio/LICENZE.md)). Third-party models, libraries and 3D models keep their own
-licences, listed in the [references](docs/riferimenti.md).
+These parts are **not** covered by the MIT License:
 
-This repository does not have a licence yet.
+- **The BMO character.** BMO, its name, its look and *Adventure Time* belong to Cartoon Network / Warner Bros.
+  Discovery. This is an unofficial, non-commercial fan project with no connection to them, and the MIT License gives
+  no rights over the character. This also applies to the BMO-like face drawn by
+  [`bmo-face/src/bmo_face/arte_placeholder.py`](bmo-face/src/bmo_face/arte_placeholder.py): the code is MIT, the
+  character it depicts is not.
+- **The face images in [`docs/states/`](docs/states/).** They come from
+  [brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent), whose images have no explicit licence, and they
+  depict the character above. They are shown here only as a preview; the full face art is not in this repository.
+- **The demo videos in [`docs/demo/`](docs/demo/).** They show the character and the face art above.
+- **The wake-word models** [`bmo-core/modelli-wake-word/`](bmo-core/modelli-wake-word/) (`bmo1.onnx`, `bmo2.onnx`).
+  They were trained with the [openWakeWord](https://github.com/dscripka/openWakeWord) pipeline, whose background and
+  negative datasets include non-commercial ones: use them for personal, non-commercial purposes only.
+- **The bundled sounds** in [`bmo-core/src/bmo_core/audio/`](bmo-core/src/bmo_core/audio/) are third-party and
+  released under CC0 1.0 ([details](bmo-core/src/bmo_core/audio/LICENZE.md)).
+- **Third-party software, AI models, services and 3D models** that the project uses or points to (Gemini, edge-tts,
+  openWakeWord, yt-dlp, the Printables shells, …) are not part of this repository and keep their own licences and
+  terms, listed in the [references](docs/riferimenti.md).

@@ -100,15 +100,27 @@ Per provarlo prima, senza hardware, basta un PC Linux: [sviluppo su PC](docs/svi
 Idee aperte, tracciate nelle [issue](https://github.com/riccardolanza05/bmo-diy/issues): interrompere BMO mentre parla,
 Spotify Connect, domotica con Home Assistant, modalità Live di Gemini, immagini generate da mostrare sullo schermo.
 
-## Note legali
+## Licenza
 
-BMO è un personaggio di *Adventure Time*, di Cartoon Network / Warner Bros. Discovery. Questo è un progetto amatoriale
-non ufficiale e non commerciale, senza alcun legame con loro.
+Il codice, gli script e la documentazione originali del progetto sono rilasciati con [licenza MIT](LICENSE).
 
-Le quattro immagini della faccia in [`docs/states/`](docs/states/) vengono da
-[brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent) e sono qui solo come anteprima; l'arte completa
-della faccia usata da BMO non è in questo repository. I suoni inclusi sono CC0
-([dettagli](bmo-core/src/bmo_core/audio/LICENZE.md)). Modelli, librerie e modelli 3D di terze parti restano soggetti
-alle proprie licenze, elencate nei [riferimenti](docs/riferimenti.md).
+Queste parti **non** sono coperte dalla licenza MIT:
 
-Questo repository non ha ancora una licenza.
+- **Il personaggio di BMO.** BMO, il suo nome, il suo aspetto e *Adventure Time* appartengono a Cartoon Network /
+  Warner Bros. Discovery. Questo è un progetto amatoriale non ufficiale e non commerciale, senza alcun legame con
+  loro, e la licenza MIT non dà alcun diritto sul personaggio. Vale anche per la faccia in stile BMO disegnata da
+  [`bmo-face/src/bmo_face/arte_placeholder.py`](bmo-face/src/bmo_face/arte_placeholder.py): il codice è MIT, il
+  personaggio che raffigura no.
+- **Le immagini della faccia in [`docs/states/`](docs/states/).** Vengono da
+  [brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent), le cui immagini non hanno una licenza
+  esplicita, e raffigurano il personaggio. Sono qui solo come anteprima; l'arte completa della faccia non è in questo
+  repository.
+- **I video dimostrativi in [`docs/demo/`](docs/demo/).** Mostrano il personaggio e l'arte della faccia.
+- **I modelli della wake word** in [`bmo-core/modelli-wake-word/`](bmo-core/modelli-wake-word/) (`bmo1.onnx`,
+  `bmo2.onnx`). Sono addestrati con la pipeline di [openWakeWord](https://github.com/dscripka/openWakeWord), i cui
+  dataset di sfondo e negativi comprendono dataset non commerciali: usali solo per scopi personali e non commerciali.
+- **I suoni inclusi** in [`bmo-core/src/bmo_core/audio/`](bmo-core/src/bmo_core/audio/) sono di terzi, con licenza
+  CC0 1.0 ([dettagli](bmo-core/src/bmo_core/audio/LICENZE.md)).
+- **Software, modelli di IA, servizi e modelli 3D di terze parti** usati o citati dal progetto (Gemini, edge-tts,
+  openWakeWord, yt-dlp, le scocche di Printables, …) non fanno parte di questo repository e restano soggetti alle
+  proprie licenze e condizioni, elencate nei [riferimenti](docs/riferimenti.md).
