@@ -1,110 +1,54 @@
 # BMO DIY
 
-Un assistente vocale domestico con le sembianze di **BMO**, il personaggio di *Adventure Time*, costruito su un
-Raspberry Pi 3 A+. Gli parli, ti risponde a voce, ti mostra una faccia animata e sta acceso 24/7.
+**🇬🇧 English** · [🇮🇹 Italiano](README.it.md)
 
-*A home voice assistant shaped like BMO from Adventure Time, built on a Raspberry Pi 3 A+.
-[English overview below](#english).*
+A home voice assistant shaped like **BMO**, the character from *Adventure Time*, built on a Raspberry Pi 3 Model A+.
+You talk to it, it answers out loud, shows an animated face and stays on 24/7.
 
-## Stato del progetto
-
-| | |
-|---|---|
-| **Elettronica** | ✅ Completa, montata e collaudata |
-| **Software** | ✅ Completo, in funzione sul Raspberry Pi |
-| **Scocca stampata in 3D** | 🚧 Da realizzare: è l'ultima parte che manca ([guida](docs/stampa-3d.md)) |
-
-## Cosa sa fare
-
-- **Conversazione a voce**, in italiano e in inglese, con la wake word «Hey BMO» riconosciuta in locale o con il
-  pulsante del HAT
-- **Faccia animata** su un display da 2,4", che cambia a ogni stato e muove la bocca seguendo la voce
-- **Foto**: BMO guarda con la sua fotocamera e descrive quello che vede
-- **Ricerca sul web**
-- **Timer** che sopravvivono ai riavvii
-- **Radio via internet** e **video di YouTube** sullo schermo, con volumi separati
-- **Memoria**: ricorda la conversazione in corso e tiene un diario delle tue preferenze
-- **Riparte da solo** dopo uno stacco della corrente
-
-## Demo
-
-Video registrati con BMO sul Pi, ritagliati attorno a BMO. L'attesa tra la domanda e la risposta è accelerata (in
-sovrimpressione il fattore, per esempio `>> x5`); domanda e risposta sono a velocità normale. Clicca un'anteprima per
-aprire il video.
-
-| Ora e meteo in italiano | Ora e meteo in inglese |
-|:---:|:---:|
-| [![Ora e meteo in italiano](docs/demo/bmo-time-weather-italian.jpg)](docs/demo/bmo-time-weather-italian.mp4) | [![Ora e meteo in inglese](docs/demo/bmo-time-weather-english.jpg)](docs/demo/bmo-time-weather-english.mp4) |
-| **Ricerca sul web: «cos'è il Politecnico di Milano?»** | **Musica da YouTube sullo schermo** |
-| [![Ricerca sul web](docs/demo/bmo-web-search-politecnico.jpg)](docs/demo/bmo-web-search-politecnico.mp4) | [![Musica da YouTube](docs/demo/bmo-youtube-music.jpg)](docs/demo/bmo-youtube-music.mp4) |
-
-## Come funziona
-
-Il Pi ha solo 512 MB di RAM, quindi a bordo restano wake word, audio e faccia. Trascrizione, ragionamento e visione
-stanno su **Gemini**, la voce su **edge-tts**. Con il piano gratuito di Gemini il costo di esercizio è zero, e
-l'elettronica costa circa 68 € oltre al Pi e al suo alimentatore. Il dettaglio è in [architettura](docs/architettura.md).
-
-## Costruirne uno
-
-1. **[Compra e collega l'hardware](docs/hardware.md)**: serve un Pi 3 A+, un HAT audio WM8960, un display 2.4"
-   ILI9341 e una fotocamera OV5647. Nessuna saldatura.
-2. **[Installa il software](docs/installazione-pi.md)**: dalla microSD vuota a BMO funzionante, con una chiave Gemini
-   gratuita.
-3. **[Stampa e monta la scocca](docs/stampa-3d.md)**.
-
-Per provarlo prima, senza hardware, basta un PC Linux: [sviluppo su PC](docs/sviluppo-pc.md).
-
-## Dove trovare le cose
+## Project status
 
 | | |
 |---|---|
-| [`docs/`](docs/README.md) | Guide, configurazione, risoluzione dei problemi, architettura, misure |
-| [`bmo-core/`](bmo-core/README.md) | Il cervello: dialogo, wake word, voce, strumenti |
-| [`bmo-face/`](bmo-face/README.md) | La faccia: animazione, display SPI, finestra per il PC |
-| [`pi/`](pi/README.md) | Installazione, servizi e strumenti di misura per il Raspberry Pi |
+| **Electronics** | ✅ Complete, assembled and tested |
+| **Software** | ✅ Complete, running on the Raspberry Pi |
+| **3D-printed shell** | 🚧 To do: the last missing part ([guide, in Italian](docs/stampa-3d.md)) |
 
-## Sviluppi futuri
-
-Idee aperte, tracciate nelle [issue](https://github.com/riccardolanza05/bmo-diy/issues): interrompere BMO mentre parla,
-Spotify Connect, domotica con Home Assistant, modalità Live di Gemini, immagini generate da mostrare sullo schermo.
-
----
-
-<a id="english"></a>
-
-## English
-
-**BMO DIY** is a home voice assistant shaped like BMO from *Adventure Time*, built on a Raspberry Pi 3 Model A+. You
-talk to it, it answers out loud, shows an animated face and stays on 24/7.
-
-### Status
-
-The electronics and the software are complete, assembled and tested, and BMO runs on the Pi. The only part left is the
-**3D-printed shell** ([guide, in Italian](docs/stampa-3d.md)).
-
-### What it does
+## What it does
 
 - **Voice conversation** in Italian and English, woken by a local "Hey BMO" wake word or by the HAT button
-- **Animated face** on a 2.4" display, with a mouth that follows the voice
+- **Animated face** on a 2.4" display, which changes with every state and moves its mouth with the voice
 - **Photos**: BMO looks through its camera and describes what it sees
-- **Web search**, **persistent kitchen timers**, **internet radio** and **YouTube videos** on its screen
+- **Web search**
+- **Timers** that survive reboots
+- **Internet radio** and **YouTube videos** on its screen, with separate volumes
 - **Memory**: it remembers the current conversation and keeps a diary of your preferences
 - **Automatic restart** after a power cut
 
-### Demo
+## BMO's faces
+
+| Asleep | Awake | Speaking | Something went wrong |
+|:---:|:---:|:---:|:---:|
+| ![BMO asleep](docs/states/sleeping.png) | ![BMO awake and listening](docs/states/awake.png) | ![BMO speaking](docs/states/speaking.png) | ![BMO error](docs/states/error.png) |
+
+Face art from [brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent).
+
+## Demo
 
 Clips recorded with BMO running on the Pi, cropped around BMO. The wait between the question and the answer is sped up
-(the factor is shown on screen, e.g. `>> x5`); the question and the answer play at normal speed.
+(the factor is shown on screen, e.g. `>> x5`); the question and the answer play at normal speed. Click a preview to
+open the video.
 
-- [Time and weather, in Italian](docs/demo/bmo-time-weather-italian.mp4)
-- [Time and weather, in English](docs/demo/bmo-time-weather-english.mp4)
-- [Web search: "what is the Politecnico di Milano?"](docs/demo/bmo-web-search-politecnico.mp4)
-- [Music from YouTube on its screen](docs/demo/bmo-youtube-music.mp4)
+| Time and weather, in Italian | Time and weather, in English |
+|:---:|:---:|
+| [![Time and weather, in Italian](docs/demo/bmo-time-weather-italian.jpg)](docs/demo/bmo-time-weather-italian.mp4) | [![Time and weather, in English](docs/demo/bmo-time-weather-english.jpg)](docs/demo/bmo-time-weather-english.mp4) |
+| **Web search: "what is the Politecnico di Milano?"** | **Music from YouTube on its screen** |
+| [![Web search](docs/demo/bmo-web-search-politecnico.jpg)](docs/demo/bmo-web-search-politecnico.mp4) | [![Music from YouTube](docs/demo/bmo-youtube-music.jpg)](docs/demo/bmo-youtube-music.mp4) |
 
-### How it works
+## How it works
 
 The Pi has only 512 MB of RAM, so only the wake word, audio and face run on the device. Speech recognition, reasoning
-and vision run on **Google Gemini**, in a single call, and speech synthesis uses **edge-tts**.
+and vision run on **Google Gemini**, in a single call, and speech synthesis uses **edge-tts**. With Gemini's free tier
+the running cost is zero. Details in [architecture (in Italian)](docs/architettura.md).
 
 ```
 microphones ─► bmo-core ─HTTPS─► Gemini, edge-tts, web search, radio, YouTube
@@ -116,7 +60,7 @@ microphones ─► bmo-core ─HTTPS─► Gemini, edge-tts, web search, radio, 
 
 Three systemd services start at boot: one sets up the audio mixer once, the other two keep retrying until they are up.
 
-### Hardware
+## Hardware
 
 | Part | Model |
 |---|---|
@@ -130,7 +74,7 @@ Three systemd services start at boot: one sets up the audio mixer once, the othe
 The parts cost about €68 on top of the Pi and its power supply, and no soldering is needed. Wiring, including the one
 pin that matters (the display backlight goes on **physical pin 32**, not 12), is in [`docs/hardware.md`](docs/hardware.md).
 
-### Build your own
+## Build your own
 
 The step-by-step guides are in Italian, and the commands in them are the same in any language:
 
@@ -144,16 +88,29 @@ Italian: both can be changed, see [`docs/configurazione.md`](docs/configurazione
 
 You can try BMO on a Linux PC without any of this hardware: see [`docs/sviluppo-pc.md`](docs/sviluppo-pc.md).
 
----
+## Where to find things
 
-## Note legali
+| | |
+|---|---|
+| [`docs/`](docs/README.md) | Guides, configuration, troubleshooting, architecture, measurements |
+| [`bmo-core/`](bmo-core/README.md) | The brain: dialogue, wake word, voice, tools |
+| [`bmo-face/`](bmo-face/README.md) | The face: animation, SPI display, PC window |
+| [`pi/`](pi/README.md) | Installation, services and measurement tools for the Raspberry Pi |
 
-BMO è un personaggio di *Adventure Time*, di Cartoon Network / Warner Bros. Discovery. Questo è un progetto amatoriale
-non ufficiale e non commerciale, senza alcun legame con loro. *BMO is a character owned by Cartoon Network / Warner
-Bros. Discovery; this is an unofficial, non-commercial fan project.*
+## Future work
 
-I disegni del personaggio non sono in questo repository. I suoni inclusi sono CC0
-([dettagli](bmo-core/src/bmo_core/audio/LICENZE.md)). Modelli, librerie e modelli 3D di terze parti restano soggetti
-alle proprie licenze, elencate nei [riferimenti](docs/riferimenti.md).
+Open ideas, tracked in the [issues](https://github.com/riccardolanza05/bmo-diy/issues): interrupting BMO while it
+speaks, Spotify Connect, home automation with Home Assistant, Gemini Live mode, generated images shown on the screen.
 
-Questo repository non ha ancora una licenza.
+## Legal
+
+BMO is a character owned by Cartoon Network / Warner Bros. Discovery. This is an unofficial, non-commercial fan
+project with no connection to them.
+
+The four face images in [`docs/states/`](docs/states/) come from
+[brenpoly/be-more-agent](https://github.com/brenpoly/be-more-agent) and are shown here only as a preview; the full
+face art used by BMO is not in this repository. The bundled sounds are CC0
+([details](bmo-core/src/bmo_core/audio/LICENZE.md)). Third-party models, libraries and 3D models keep their own
+licences, listed in the [references](docs/riferimenti.md).
+
+This repository does not have a licence yet.
